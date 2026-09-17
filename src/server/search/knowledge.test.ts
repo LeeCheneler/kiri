@@ -210,9 +210,15 @@ describe("knowledge retrieval", () => {
           role: "assistant",
           parts: [
             { type: "text", text: body },
-            { type: "tool-run_command", output: "TOOL_PAYLOAD" },
+            {
+              type: "tool-run_command",
+              toolCallId: "call-1",
+              state: "output-available",
+              input: {},
+              output: "TOOL_PAYLOAD",
+            },
             { type: "reasoning", text: "PRIVATE_REASONING" },
-            { type: "file", data: "IMAGE_PAYLOAD" },
+            { type: "file", mediaType: "image/png", url: "IMAGE_PAYLOAD" },
           ],
           createdAt: date,
         },
@@ -322,7 +328,7 @@ describe("knowledge retrieval", () => {
   it("opens a session without a match as a bounded, pageable beginning", () => {
     db.insert(messages)
       .values(
-        Array.from({ length: 8 }, (_, index) => ({
+        Array.from({ length: 8 }, (_, index): typeof messages.$inferInsert => ({
           id: `m${index}`,
           sessionId: "s1",
           index,
@@ -414,7 +420,7 @@ describe("knowledge retrieval", () => {
         status: "ok",
         summary: "Pelican report completed.",
         startedAt: date,
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(articles)
@@ -613,7 +619,13 @@ describe("knowledge retrieval", () => {
           role: "assistant",
           parts: [
             { type: "reasoning", text: "pelican" },
-            { type: "tool-run_command", output: "pelican" },
+            {
+              type: "tool-run_command",
+              toolCallId: "call-1",
+              state: "output-available",
+              input: {},
+              output: "pelican",
+            },
           ],
           createdAt: date,
         },

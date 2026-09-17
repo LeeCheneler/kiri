@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import type { ApiErrorBody } from "../shared/api/errors.ts";
 import { API_BODY_LIMIT_BYTES } from "../shared/message-limits.ts";
 import { loadKiriConfig } from "./config/loader.ts";
 import type { ModelsConfig } from "./config/schema.ts";
@@ -197,7 +198,7 @@ export function createApp(deps: AppDeps): Hono {
   // session message uploads carry their own larger, route-specific limits.
   const apiBodyLimit = bodyLimit({
     maxSize: API_BODY_LIMIT_BYTES,
-    onError: (c) => c.json({ error: "request body too large" }, 413),
+    onError: (c) => c.json({ error: "request body too large" } satisfies ApiErrorBody, 413),
   });
   app.use("/api/*", (c, next) => {
     const messageUpload =
@@ -218,7 +219,10 @@ export function createApp(deps: AppDeps): Hono {
   app.use("*", async (c, next) => {
     if (SAFE_METHODS.has(c.req.method)) return next();
     if (!c.req.header(REQUIRED_CLIENT_HEADER)) {
-      return c.json({ error: `${REQUIRED_CLIENT_HEADER} header required` }, 403);
+      return c.json(
+        { error: `${REQUIRED_CLIENT_HEADER} header required` } satisfies ApiErrorBody,
+        403,
+      );
     }
     return next();
   });
@@ -230,13 +234,13 @@ export function createApp(deps: AppDeps): Hono {
   // (SQL fragments, stack frames) doesn't leak to the client.
   app.onError((err, c) => {
     if (err instanceof HTTPException) {
-      return c.json({ error: err.message }, err.status);
+      return c.json({ error: err.message } satisfies ApiErrorBody, err.status);
     }
     log.error("unhandled request error", err);
-    return c.json({ error: "internal server error" }, 500);
+    return c.json({ error: "internal server error" } satisfies ApiErrorBody, 500);
   });
 
-  app.notFound((c) => c.json({ error: "not found" }, 404));
+  app.notFound((c) => c.json({ error: "not found" } satisfies ApiErrorBody, 404));
 
   app.route("/api", systemRoutes({ version }));
   // Mounted unconditionally — it reports *why* the workspace may have no

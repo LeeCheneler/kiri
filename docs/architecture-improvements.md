@@ -32,7 +32,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** The picker refreshes its listing while execution can retain old context and reasoning metadata for five minutes. Both must describe the same configured endpoint.
 
-- [ ] **06 — Share public API and event contracts**
+- [x] **06 — Share public API and event contracts**
 
   **What:** Move browser-safe request/response types, statuses, errors, event payloads, and event names into feature-specific shared modules. Make server serializers satisfy those contracts. Keep dates explicitly serialized and private model facts separate from public descriptions. Split client API functions by feature as the contracts move.
 

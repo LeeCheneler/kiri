@@ -517,6 +517,28 @@ EOF
   });
 
   describe("GET /api/runs/:id", () => {
+    it("preserves historical snapshots without current prompt fields", async () => {
+      const snapshot = { name: "legacy", steps: [{ llm: { model: "old:model" } }] };
+      const startedAt = new Date("2024-01-01T00:00:00.000Z");
+      env.db
+        .insert(runs)
+        .values({
+          id: "legacy-run",
+          workflowName: "legacy",
+          status: "ok",
+          startedAt,
+          definitionSnapshot: snapshot,
+        })
+        .run();
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
+      const response = await app.request("/api/runs/legacy-run");
+      expect(response.status).toBe(200);
+      const { run } = await response.json();
+      expect(run.definitionSnapshot).toEqual(snapshot);
+      expect(run.startedAt).toBe(startedAt.toISOString());
+      expect(run.finishedAt).toBeNull();
+    });
+
     it("returns 404 for an unknown run id", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/missing");

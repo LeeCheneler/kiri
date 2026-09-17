@@ -1,24 +1,12 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolSet } from "ai";
+import type { McpServerStatus } from "../../shared/api/mcp.ts";
 import { boundMcpTool } from "./bound-tool.ts";
 import type { McpClient } from "./connect.ts";
 import type { McpServer, McpServerType } from "./schema.ts";
 
-/** Runtime status of a configured MCP server. */
-export interface McpServerStatus {
-  name: string;
-  type: McpServerType;
-  /**
-   * `needs-sign-in` is an OAuth server with no valid tokens — an expected state
-   * surfaced as a Connect prompt, distinct from a `failed` connection.
-   */
-  state: "connected" | "failed" | "needs-sign-in";
-  /** Tools discovered, when connected. */
-  toolCount?: number;
-  /** Failure reason, when the connection or tool discovery failed. */
-  error?: string;
-}
+export type { McpServerStatus } from "../../shared/api/mcp.ts";
 
 /** One tool a connected MCP server exposes. */
 export interface McpToolInfo {

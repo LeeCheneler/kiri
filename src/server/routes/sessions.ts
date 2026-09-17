@@ -13,6 +13,11 @@ import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import type * as articlesApi from "../../shared/api/articles.ts";
+import type * as errorsApi from "../../shared/api/errors.ts";
+import type * as modelsApi from "../../shared/api/models.ts";
+import type { PageQuery } from "../../shared/api/pagination.ts";
+import type * as sessionsApi from "../../shared/api/sessions.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import {
   MESSAGE_BODY_LIMIT_BYTES,
@@ -23,7 +28,7 @@ import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts"
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
-import type { EventBus, SessionStatus } from "../events/index.ts";
+import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients } from "../llm/index.ts";
 import { c, createLogger } from "../log.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
@@ -87,6 +92,12 @@ import {
   workflowTools,
 } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
+import {
+  serializeInboxItem,
+  serializeMessage,
+  serializeSession,
+  serializeSessionListEntry,
+} from "./serializers/sessions.ts";
 import { articleParamSchema, onZodFail } from "./shared.ts";
 
 const log = createLogger("shell");
@@ -175,7 +186,7 @@ const createSessionBodySchema = z
     imageModel: z.string().min(1).optional(),
     projectId: z.string().min(1).optional(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<sessionsApi.CreateSessionRequest>;
 
 // A push-to-talk recording needs a larger request limit, so the
 // app-wide body limit exempts this path and the route carries its own cap:
@@ -185,7 +196,9 @@ const TRANSCRIBE_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 
 // A message queued for a running turn. Text only: images can't ride the inbox,
 // and the client blocks queueing them rather than dropping parts.
-const inboxBodySchema = z.object({ text: z.string().trim().min(1) }).strict();
+const inboxBodySchema = z
+  .object({ text: z.string().trim().min(1) })
+  .strict() satisfies z.ZodType<sessionsApi.QueueSessionMessageRequest>;
 
 const inboxItemParamSchema = z.object({ id: z.string().min(1), itemId: z.string().min(1) });
 
@@ -203,12 +216,12 @@ const patchSessionBodySchema = z
     effort: z.enum(EFFORT_LEVELS).optional(),
     title: z.string().trim().min(1).max(SESSION_TITLE_MAX_LENGTH).nullable().optional(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<sessionsApi.PatchSessionRequest>;
 
 const sessionListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SESSION_LIMIT).default(DEFAULT_SESSION_LIMIT),
-});
+}) satisfies z.ZodType<PageQuery>;
 
 // Only the trailing message rides the request; the server loads the prior turns
 // from the DB. Usually a new `user` message; on an approval resume the client
@@ -222,7 +235,7 @@ const turnBodySchema = z.object({
     role: z.enum(["user", "assistant"]).optional(),
     parts: z.array(z.unknown()).min(1),
   }),
-});
+}) satisfies z.ZodType<sessionsApi.SessionTurnRequest>;
 
 // Whether a message awaits the user's verdict — its last assistant turn called a
 // tool that hasn't been allowed or denied yet.
@@ -452,7 +465,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       bus?.publish({
         type: "session.updated",
         id: sessionId,
-        status: session.status as SessionStatus,
+        status: session.status,
       });
     },
   });
@@ -671,18 +684,21 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const { models, failures } = await llmClients.listModels();
     return c.json({
       models: models.map(
-        ({
-          reasoning: _reasoning,
-          reasoningLevels: _reasoningLevels,
-          nativeDocuments: _nativeDocuments,
-          ...model
-        }) => model,
+        ({ id, provider, contextWindow, outputLimit, output, imageInput, documentInput }) => ({
+          id,
+          provider,
+          contextWindow,
+          outputLimit,
+          output,
+          imageInput,
+          documentInput,
+        }),
       ),
       failures,
       shortcuts: deps.getModelsConfig?.().shortcuts ?? {},
       utility: deps.getModelsConfig?.().utility,
       transcription: deps.getModelsConfig?.().transcription,
-    });
+    } satisfies modelsApi.ModelsResult);
   });
 
   // Turn a push-to-talk recording into trimmed draft text. Nothing is
@@ -692,16 +708,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/transcribe",
     bodyLimit({
       maxSize: TRANSCRIBE_BODY_LIMIT_BYTES,
-      onError: (c) => c.json({ error: "request body too large" }, 413),
+      onError: (c) =>
+        c.json({ error: "request body too large" } satisfies errorsApi.ApiErrorBody, 413),
     }),
     async (c) => {
       const transcriptionModel = deps.getModelsConfig?.().transcription;
       if (transcriptionModel === undefined) {
-        return c.json({ error: "no transcription model configured" }, 400);
+        return c.json(
+          { error: "no transcription model configured" } satisfies errorsApi.ApiErrorBody,
+          400,
+        );
       }
       const { audio } = await c.req.parseBody();
       if (!(audio instanceof File) || audio.size === 0) {
-        return c.json({ error: "invalid audio" }, 400);
+        return c.json({ error: "invalid audio" } satisfies errorsApi.ApiErrorBody, 400);
       }
       const text = await transcribeDraft({
         llmClients,
@@ -713,7 +733,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       sessionsLog.info(
         `transcribed ${audio.size} bytes of ${audio.type || "audio"} with ${transcriptionModel}: ${text.length} chars`,
       );
-      return c.json({ text });
+      return c.json({ text } satisfies sessionsApi.TranscriptionResult);
     },
   );
 
@@ -728,12 +748,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         llmClients.resolveModel(model);
         if (imageModel !== undefined) llmClients.resolveModel(imageModel);
       } catch (cause) {
-        return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
+        return c.json(
+          {
+            error: cause instanceof Error ? cause.message : "invalid model",
+          } satisfies errorsApi.ApiErrorBody,
+          400,
+        );
       }
       // The project must exist at create — membership is set once here, so a
       // stale id fails the create rather than minting an orphaned session.
       if (projectId !== undefined && !getProject(db, projectId)) {
-        return c.json({ error: `project "${projectId}" not found` }, 400);
+        return c.json(
+          { error: `project "${projectId}" not found` } satisfies errorsApi.ApiErrorBody,
+          400,
+        );
       }
       const cwd = defaultWorkingDirectory();
       const session = createSession(db, model, {
@@ -742,7 +770,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ...(projectId !== undefined ? { projectId } : {}),
       });
       bus?.publish({ type: "session.started", id: session.id });
-      return c.json({ session }, 201);
+      return c.json(
+        { session: serializeSession(session) } satisfies sessionsApi.SessionResult,
+        201,
+      );
     },
   );
 
@@ -763,7 +794,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           .from(sessionsTable)
           .where(eq(sessionsTable.id, cursor))
           .get();
-        if (!found) return c.json({ error: `cursor "${cursor}" not found` }, 400);
+        if (!found)
+          return c.json(
+            { error: `cursor "${cursor}" not found` } satisfies errorsApi.ApiErrorBody,
+            400,
+          );
         anchor = found;
       }
 
@@ -791,7 +826,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .all();
 
       const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
-      return c.json({ sessions: buildSessionListEntries(db, rows), nextCursor });
+      return c.json({
+        sessions: buildSessionListEntries(db, rows).map(serializeSessionListEntry),
+        nextCursor,
+      } satisfies sessionsApi.SessionsPage);
     },
   );
 
@@ -800,7 +838,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
     (c) => {
       const { id } = c.req.valid("param");
-      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!getSession(db, id))
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // The same projection as a run's article list: the body is fetched only
       // to derive the heading, never echoed — the detail route serves it.
       const rows = db
@@ -814,9 +853,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           slug: article.slug,
           name: article.name,
           heading: extractFirstHeading(article.contentMd),
-          createdAt: article.createdAt,
+          createdAt: article.createdAt.toISOString(),
         })),
-      });
+      } satisfies articlesApi.ArticlesResult);
     },
   );
 
@@ -825,14 +864,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
     (c) => {
       const { id, slug } = c.req.valid("param");
-      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!getSession(db, id))
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const article = db
         .select()
         .from(articles)
         .where(and(eq(articles.sessionId, id), eq(articles.slug, slug)))
         .get();
       if (!article) {
-        return c.json({ error: `article "${slug}" not found on session "${id}"` }, 404);
+        return c.json(
+          {
+            error: `article "${slug}" not found on session "${id}"`,
+          } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       db.delete(articles).where(eq(articles.id, article.id)).run();
       bus?.publish({ type: "article.deleted", sessionId: id, slug });
@@ -846,7 +891,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     (c) => {
       const { id, slug } = c.req.valid("param");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const article = db
         .select()
         .from(articles)
@@ -860,7 +906,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         )
         .get();
       if (!article) {
-        return c.json({ error: `article "${slug}" not found on session "${id}"` }, 404);
+        return c.json(
+          {
+            error: `article "${slug}" not found on session "${id}"`,
+          } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       return c.json({
         id: article.id,
@@ -873,9 +924,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         slug: article.slug,
         name: article.name,
         contentMd: article.contentMd,
-        createdAt: article.createdAt,
+        createdAt: article.createdAt.toISOString(),
         heading: extractFirstHeading(article.contentMd),
-      });
+      } satisfies articlesApi.SessionArticleDetail);
     },
   );
 
@@ -885,27 +936,30 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     (c) => {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const parentId = session.parentSessionId;
       return c.json({
-        session: withHealedCwd(session),
+        session: serializeSession(withHealedCwd(session)),
         // Replaying a live stream starts from its original transcript. Durable
         // checkpoints already contain some of those frames and would duplicate
         // text/steps if used as the client's starting point.
         messages: withoutContextCalibration(
-          (streamRegistry.messagesBeforeTurn(id) ?? getSessionMessages(db, id)) as UIMessage[],
+          (streamRegistry.messagesBeforeTurn(id) ?? getSessionMessages(db, id)).map(
+            serializeMessage,
+          ),
         ),
         // The undelivered backlog rides the detail so queued messages stay
         // visible across reloads and other views — the inbox table, not any
         // client's local state, is the queue's source of truth.
-        inbox: pendingInboxItems(db, id),
+        inbox: pendingInboxItems(db, id).map(serializeInboxItem),
         // A delegated child names the session that spawned it so its page can
         // link back up; a top-level session carries null.
         parent:
           parentId !== null
             ? { id: parentId, label: getSessionLabels(db, [parentId]).get(parentId) ?? parentId }
             : null,
-      });
+      } satisfies sessionsApi.SessionDetail);
     },
   );
 
@@ -920,7 +974,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
     (c) => {
       const { id } = c.req.valid("param");
-      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!getSession(db, id))
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const children = getSessionChildren(db, id);
       const lastActivity = getSessionLastActivity(
         db,
@@ -928,10 +983,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       );
       return c.json({
         children: children.map((child) => ({
-          ...child,
-          lastActivityAt: lastActivity.get(child.id) ?? child.startedAt,
+          ...serializeSession(child),
+          lastActivityAt: (lastActivity.get(child.id) ?? child.startedAt).toISOString(),
         })),
-      });
+      } satisfies sessionsApi.SessionChildrenResult);
     },
   );
 
@@ -962,22 +1017,26 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     async (c) => {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const none = { replies: [] as string[] };
       const model = deps.getModelsConfig?.().utility;
-      if (model === undefined) return c.json(none);
-      if (session.parentSessionId !== null || session.status !== "idle") return c.json(none);
+      if (model === undefined) return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
+      if (session.parentSessionId !== null || session.status !== "idle")
+        return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       const last = getSessionMessages(db, id).at(-1);
-      if (!last || last.role !== "assistant") return c.json(none);
+      if (!last || last.role !== "assistant")
+        return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       const parts = last.parts as UIMessage["parts"];
-      if (hasPendingApproval(parts)) return c.json(none);
+      if (hasPendingApproval(parts))
+        return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       const assistantText = parts
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n")
         .trim();
-      if (assistantText === "") return c.json(none);
+      if (assistantText === "") return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       const replies = await generateSuggestedReplies({ llmClients, model, assistantText });
-      return c.json({ replies });
+      return c.json({ replies } satisfies sessionsApi.SuggestedRepliesResult);
     },
   );
 
@@ -990,21 +1049,27 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const settings = c.req.valid("json");
       const { model, imageModel } = settings;
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Resolve both models before writing any setting. The schema has already
       // validated effort and title; null disables image generation.
       try {
         if (model !== undefined) llmClients.resolveModel(model);
         if (imageModel !== undefined && imageModel !== null) llmClients.resolveModel(imageModel);
       } catch (cause) {
-        return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
+        return c.json(
+          {
+            error: cause instanceof Error ? cause.message : "invalid model",
+          } satisfies errorsApi.ApiErrorBody,
+          400,
+        );
       }
       const updated = updateSessionSettings(db, id, settings);
       // The turn endpoint resolves the model per turn, so a change applies
       // from the next turn. Announce it like any other session change so the
       // feed and the open chat refresh; status is unchanged.
-      bus?.publish({ type: "session.updated", id, status: updated.status as SessionStatus });
-      return c.json({ session: updated });
+      bus?.publish({ type: "session.updated", id, status: updated.status });
+      return c.json({ session: serializeSession(updated) } satisfies sessionsApi.SessionResult);
     },
   );
 
@@ -1013,27 +1078,43 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
     zValidator(
       "json",
-      z.object({ projectId: z.string().min(1) }).strict(),
+      z
+        .object({ projectId: z.string().min(1) })
+        .strict() satisfies z.ZodType<sessionsApi.MoveSessionRequest>,
       onZodFail("invalid project"),
     ),
     (c) => {
       const { id } = c.req.valid("param");
       const { projectId } = c.req.valid("json");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       if (!getProject(db, projectId)) {
-        return c.json({ error: `project "${projectId}" not found` }, 404);
+        return c.json(
+          { error: `project "${projectId}" not found` } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       if (session.parentSessionId !== null) {
-        return c.json({ error: "Move the parent session to move its delegated sessions." }, 409);
+        return c.json(
+          {
+            error: "Move the parent session to move its delegated sessions.",
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       if (session.projectId !== null) {
-        return c.json({ error: "This session already belongs to a project." }, 409);
+        return c.json(
+          { error: "This session already belongs to a project." } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       const family = [session, ...getSessionChildren(db, id)];
       if (family.some((row) => row.status === "running" || row.status === "waiting")) {
         return c.json(
-          { error: "Finish or cancel all turns and resolve pending approvals before moving." },
+          {
+            error: "Finish or cancel all turns and resolve pending approvals before moving.",
+          } satisfies errorsApi.ApiErrorBody,
           409,
         );
       }
@@ -1049,7 +1130,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           return c.json(
             {
               error: `Article slug "${article.slug}" conflicts. Choose another project or resolve the duplicate before moving.`,
-            },
+            } satisfies errorsApi.ApiErrorBody,
             409,
           );
         }
@@ -1065,7 +1146,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         tx.update(sessionsTable).set({ projectId }).where(inArray(sessionsTable.id, ids)).run();
       });
       for (const row of family) {
-        bus?.publish({ type: "session.updated", id: row.id, status: row.status as SessionStatus });
+        bus?.publish({ type: "session.updated", id: row.id, status: row.status });
       }
       for (const article of movingArticles) {
         bus?.publish({
@@ -1075,7 +1156,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           slug: article.slug,
         });
       }
-      return c.json({ session: getSession(db, id) });
+      return c.json({
+        session: serializeSession({ ...session, projectId }),
+      } satisfies sessionsApi.SessionResult);
     },
   );
 
@@ -1083,7 +1166,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/sessions/:id/messages",
     bodyLimit({
       maxSize: MESSAGE_BODY_LIMIT_BYTES,
-      onError: (c) => c.json({ error: MESSAGE_SIZE_ERROR }, 413),
+      onError: (c) => c.json({ error: MESSAGE_SIZE_ERROR } satisfies errorsApi.ApiErrorBody, 413),
     }),
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
     zValidator("json", turnBodySchema, onZodFail("invalid message")),
@@ -1092,15 +1175,21 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { message } = c.req.valid("json");
       if (message.role !== "assistant") {
         const error = messagePartsError(message.parts);
-        if (error) return c.json({ error }, 400);
+        if (error) return c.json({ error } satisfies errorsApi.ApiErrorBody, 400);
       }
       let session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Reject only a concurrent turn (one already in flight). A session is
       // long-lived and resumable: after an idle, failed, or cancelled turn it
       // accepts the next message, picking the conversation back up.
       if (session.status === "running") {
-        return c.json({ error: `session "${id}" already has a turn in flight` }, 409);
+        return c.json(
+          {
+            error: `session "${id}" already has a turn in flight`,
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       // A stale working directory — gone from disk (a deleted worktree), or
       // moved outside the sandbox by a kiri.yaml edit — heals before the turn
@@ -1116,7 +1205,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
       session = withHealedCwd(session);
       if (staleCwd !== null) {
-        bus?.publish({ type: "session.updated", id, status: session.status as SessionStatus });
+        bus?.publish({ type: "session.updated", id, status: session.status });
       }
       const cwdNotice = staleCwd === null ? undefined : cwdMoveNotice(staleCwd, session.cwd);
 
@@ -1151,7 +1240,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // calls: resume it rather than starting a new turn.
       if (message.role === "assistant") {
         if (!pending) {
-          return c.json({ error: `session "${id}" has no pending tool approval to resolve` }, 409);
+          return c.json(
+            {
+              error: `session "${id}" has no pending tool approval to resolve`,
+            } satisfies errorsApi.ApiErrorBody,
+            409,
+          );
         }
         // Every answered run_command feeds the learning loop — under "ask" as
         // much as "auto", since an approval is precedent either way.
@@ -1179,7 +1273,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // the model can't continue past an unanswered tool call.
       if (pending) {
         return c.json(
-          { error: `session "${id}" has a pending tool approval; respond to it first` },
+          {
+            error: `session "${id}" has a pending tool approval; respond to it first`,
+          } satisfies errorsApi.ApiErrorBody,
           409,
         );
       }
@@ -1217,17 +1313,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     (c) => {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // A running session has a turn streaming and persisting server-side;
       // deleting mid-turn would orphan that write, so require a cancel first.
       // A delegated worker runs detached from its parent's turns, so its
       // in-flight turn blocks the parent's delete the same way.
       if (session.status === "running") {
-        return c.json({ error: `session "${id}" has a turn in flight; cancel it first` }, 409);
+        return c.json(
+          {
+            error: `session "${id}" has a turn in flight; cancel it first`,
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       if (getSessionChildren(db, id).some((child) => child.status === "running")) {
         return c.json(
-          { error: `session "${id}" has a delegated worker running; cancel it first` },
+          {
+            error: `session "${id}" has a delegated worker running; cancel it first`,
+          } satisfies errorsApi.ApiErrorBody,
           409,
         );
       }
@@ -1243,20 +1347,31 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     (c) => {
       const { id, messageId } = c.req.valid("param");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // A running session has a turn streaming and persisting server-side;
       // truncating mid-turn would race that write, so require a cancel first —
       // matching the delete/cancel guards.
       if (session.status === "running") {
-        return c.json({ error: `session "${id}" has a turn in flight; cancel it first` }, 409);
+        return c.json(
+          {
+            error: `session "${id}" has a turn in flight; cancel it first`,
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       if (!deleteMessagesFrom(db, id, messageId)) {
-        return c.json({ error: `message "${messageId}" not found in session "${id}"` }, 404);
+        return c.json(
+          {
+            error: `message "${messageId}" not found in session "${id}"`,
+          } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       // Other views only learn of transcript changes from the bus, and a plain
       // delete — unlike an edit-and-resend — has no follow-up turn to announce
       // one, so publish the change here.
-      bus?.publish({ type: "session.updated", id, status: session.status as SessionStatus });
+      bus?.publish({ type: "session.updated", id, status: session.status });
       return c.body(null, 204);
     },
   );
@@ -1269,17 +1384,26 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id } = c.req.valid("param");
       const { text } = c.req.valid("json");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Queueing only makes sense against a turn that can still deliver it:
       // one running now, or paused awaiting a tool approval (delivered on
       // resume). Anything else takes a normal message — the 409 tells the
       // client it lost that race and should send instead of queue.
       if (session.status !== "running" && session.status !== "waiting") {
-        return c.json({ error: `session "${id}" has no turn in flight to queue for` }, 409);
+        return c.json(
+          {
+            error: `session "${id}" has no turn in flight to queue for`,
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       const item = enqueueInboxItem(db, id, { source: "user", text });
       bus?.publish({ type: "session.inbox.queued", sessionId: id });
-      return c.json({ item }, 201);
+      return c.json(
+        { item: serializeInboxItem(item) } satisfies sessionsApi.SessionInboxResult,
+        201,
+      );
     },
   );
 
@@ -1289,12 +1413,18 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     (c) => {
       const { id, itemId } = c.req.valid("param");
       const session = getSession(db, id);
-      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Withdrawing races delivery, and delivery wins: once the turn has
       // consumed the item its row is gone, so the 404 doubles as the "already
       // delivered" signal the client's auto-promotion keys off.
       if (!pendingInboxItems(db, id).some((item) => item.id === itemId)) {
-        return c.json({ error: `message "${itemId}" is not queued for session "${id}"` }, 404);
+        return c.json(
+          {
+            error: `message "${itemId}" is not queued for session "${id}"`,
+          } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       deleteInboxItems(db, [itemId]);
       return c.body(null, 204);
@@ -1308,16 +1438,26 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       (c) => {
         const { id } = c.req.valid("param");
         const session = getSession(db, id);
-        if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+        if (!session)
+          return c.json(
+            { error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody,
+            404,
+          );
         if (session.status !== "running") {
-          return c.json({ error: `session "${id}" is not in flight` }, 409);
+          return c.json(
+            { error: `session "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
+            409,
+          );
         }
         // False only if the registry has no entry — the turn released it in the
         // window between our read and this call. Treat as already-terminal.
         if (!cancelRegistry.requestCancel(id)) {
-          return c.json({ error: `session "${id}" is not in flight` }, 409);
+          return c.json(
+            { error: `session "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
+            409,
+          );
         }
-        return c.json({ sessionId: id }, 202);
+        return c.json({ sessionId: id } satisfies sessionsApi.SessionCancelResult, 202);
       },
     );
   }

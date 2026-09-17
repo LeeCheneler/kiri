@@ -48,7 +48,7 @@ describe("search", () => {
         workflowName,
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
         summary,
       })
       .run();
@@ -68,7 +68,7 @@ describe("search", () => {
     id: string,
     sessionId: string,
     index: number,
-    role: string,
+    role: typeof messages.$inferInsert.role,
     text: string,
   ) => {
     db.insert(messages)

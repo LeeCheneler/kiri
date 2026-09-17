@@ -46,7 +46,7 @@ describe("db", () => {
         workflowName: "self-review",
         status: "ok",
         startedAt,
-        definitionSnapshot: { name: "self-review", nodes: [] },
+        definitionSnapshot: { name: "self-review", steps: [] },
       })
       .run();
 
@@ -66,7 +66,7 @@ describe("db", () => {
     expect(run).toBeDefined();
     expect(run?.workflowName).toBe("self-review");
     expect(run?.startedAt).toEqual(startedAt);
-    expect(run?.definitionSnapshot).toEqual({ name: "self-review", nodes: [] });
+    expect(run?.definitionSnapshot).toEqual({ name: "self-review", steps: [] });
 
     const node = db.select().from(runSteps).where(eq(runSteps.id, "node-1")).get();
     expect(node).toBeDefined();
@@ -121,7 +121,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -172,7 +172,7 @@ describe("db", () => {
         workflowName: "plain",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -290,7 +290,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -330,7 +330,7 @@ describe("db", () => {
           workflowName: "x",
           status: "ok",
           startedAt: new Date(),
-          definitionSnapshot: {},
+          definitionSnapshot: { name: "fixture", steps: [] },
         })
         .run();
       db.insert(articles)
@@ -426,7 +426,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(sessions)
@@ -476,7 +476,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -658,7 +658,7 @@ describe("db", () => {
         workflowName: "aggregator",
         status: "ok",
         startedAt: new Date(1_700_000_000_000),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(runs)
@@ -667,7 +667,7 @@ describe("db", () => {
         workflowName: "pr-review",
         status: "ok",
         startedAt: new Date(1_700_000_005_000),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -709,7 +709,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -1339,7 +1339,7 @@ describe("db", () => {
         workflowName: "digester",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(articles)
@@ -1389,7 +1389,7 @@ describe("db", () => {
         role: "user",
         parts: [
           { type: "text", text: "Find the pelican report" },
-          { type: "file", url: "blob:x" },
+          { type: "file", mediaType: "image/png", url: "blob:x" },
         ],
         createdAt: new Date(),
       })
@@ -1425,7 +1425,15 @@ describe("db", () => {
         sessionId: "sess-fts",
         index: 3,
         role: "assistant",
-        parts: [{ type: "tool-run_command", state: "output-available" }],
+        parts: [
+          {
+            type: "tool-run_command",
+            toolCallId: "call-1",
+            state: "output-available",
+            input: {},
+            output: "",
+          },
+        ],
         createdAt: new Date(),
       })
       .run();
@@ -1621,7 +1629,7 @@ describe("db", () => {
         workflowName: "aggregator",
         status: "running",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     expect(searchRows(db, "run")).toHaveLength(0);

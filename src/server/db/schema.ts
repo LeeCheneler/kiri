@@ -8,6 +8,8 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { RunListEntry, RunStatus, RunStepRow, StepStatus } from "../../shared/api/runs.ts";
+import type { SessionMessage, SessionStatus } from "../../shared/api/sessions.ts";
 
 /**
  * One row per workflow invocation. `definition_snapshot` captures the
@@ -23,11 +25,13 @@ export const runs = sqliteTable("runs", {
    * `"cancelled"` when the runner finalizes. Feed-view consumers must
    * handle all four states — in-flight rows render as live runs.
    */
-  status: text("status").notNull(),
+  status: text("status").$type<RunStatus>().notNull(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
-  error: text("error", { mode: "json" }),
-  definitionSnapshot: text("definition_snapshot", { mode: "json" }).notNull(),
+  error: text("error", { mode: "json" }).$type<RunListEntry["error"]>(),
+  definitionSnapshot: text("definition_snapshot", { mode: "json" })
+    .$type<RunListEntry["definitionSnapshot"]>()
+    .notNull(),
   /**
    * Trimmed stdout of the workflow's `summarize:` step, when one is
    * configured and exits successfully. Null on workflows without a
@@ -54,7 +58,7 @@ export const runs = sqliteTable("runs", {
    * invoke, or via the input's `default`). Step `env:` references of the
    * form `{ input: <name> }` resolve against this snapshot at spawn.
    */
-  inputs: text("inputs", { mode: "json" }),
+  inputs: text("inputs", { mode: "json" }).$type<Record<string, string>>(),
 });
 
 /**
@@ -72,7 +76,7 @@ export const runSteps = sqliteTable(
       .references(() => runs.id),
     index: integer("index").notNull(),
     kind: text("kind").notNull(),
-    status: text("status").notNull(),
+    status: text("status").$type<StepStatus>().notNull(),
     /**
      * Wall-clock span of the step's execution: `startedAt` is stamped at
      * insert (when the row is first written as `running`); `finishedAt` is
@@ -95,9 +99,9 @@ export const runSteps = sqliteTable(
      * `Record<string, string>` keyed by declared output name. Null for
      * steps that declare no `outputs:` (and rows predating the column).
      */
-    outputs: text("outputs", { mode: "json" }),
-    error: text("error", { mode: "json" }),
-    traces: text("traces", { mode: "json" }),
+    outputs: text("outputs", { mode: "json" }).$type<Record<string, string>>(),
+    error: text("error", { mode: "json" }).$type<RunListEntry["error"]>(),
+    traces: text("traces", { mode: "json" }).$type<RunStepRow["traces"]>(),
     /**
      * Marks the row as the workflow's `summarize:` execution rather than
      * a member of the `steps:` pipeline. Set on the single summariser row
@@ -198,7 +202,7 @@ export const recommendations = sqliteTable(
     /** Name of the workflow to invoke when the recommendation is actioned. */
     workflow: text("workflow").notNull(),
     /** Pre-fills for the invoke modal. `Record<string, string>` keyed by input name. */
-    inputs: text("inputs", { mode: "json" }),
+    inputs: text("inputs", { mode: "json" }).$type<Record<string, string>>(),
     actionedRunId: text("actioned_run_id").references(() => runs.id),
     actionedAt: integer("actioned_at", { mode: "timestamp_ms" }),
   },
@@ -224,7 +228,7 @@ export const sessions = sqliteTable(
      * it returns to `"idle"` after each successful turn rather than reaching
      * a single terminal state.
      */
-    status: text("status").notNull(),
+    status: text("status").$type<SessionStatus>().notNull(),
     /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
     model: text("model").notNull(),
     /**
@@ -306,8 +310,8 @@ export const messages = sqliteTable(
     /** Order within the session, assistant and user messages alike. */
     index: integer("index").notNull(),
     /** `"user"` | `"assistant"` | `"system"`, matching the `UIMessage` role. */
-    role: text("role").notNull(),
-    parts: text("parts", { mode: "json" }).notNull(),
+    role: text("role").$type<SessionMessage["role"]>().notNull(),
+    parts: text("parts", { mode: "json" }).$type<SessionMessage["parts"]>().notNull(),
     /**
      * The context footprint once the turn that produced this message settled —
      * its last model call's total tokens. Null for user messages and for

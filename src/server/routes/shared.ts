@@ -1,6 +1,8 @@
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
+import type { ApiErrorBody } from "../../shared/api/errors.ts";
+import type * as runsApi from "../../shared/api/runs.ts";
 import { articleSlugSchema } from "../workflows/schema.ts";
 
 // Shape of the invoke endpoint's optional JSON body. Values must be strings —
@@ -10,7 +12,7 @@ import { articleSlugSchema } from "../workflows/schema.ts";
 // need the workflow definition.
 export const invokeBodySchema = z
   .object({ inputs: z.record(z.string(), z.string()).optional() })
-  .strict();
+  .strict() satisfies z.ZodType<runsApi.InvokeRunRequest>;
 
 // Path-param schemas, shared across routes so the accepted shape for a
 // run id or workflow name is declared once. `z.string().min(1)` matches
@@ -37,7 +39,7 @@ export type ZodErrorLike = { issues: readonly ZodIssueLike[] };
  * non-modal callers (CLI, debug tooling, future API clients) read
  * `issues` for the full diagnostic.
  */
-export const zodErrorBody = (err: ZodErrorLike, fallback: string) => ({
+export const zodErrorBody = (err: ZodErrorLike, fallback: string): ApiErrorBody => ({
   error: err.issues[0]?.message ?? fallback,
   issues: err.issues.map((issue) => ({
     // Zod's TS type allows symbol path segments; none of our schemas
@@ -80,7 +82,7 @@ export const optionalInvokeBody = createMiddleware(async (c, next) => {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
+      return c.json({ error: "invalid JSON body" } satisfies ApiErrorBody, 400);
     }
   }
   const result = invokeBodySchema.safeParse(parsed);

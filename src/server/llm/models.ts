@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ModelsFailure as LlmModelsFailure, ModelInfo } from "../../shared/api/models.ts";
 import { ALL_DOCUMENT_MEDIA_TYPES, PDF_MEDIA_TYPE } from "../../shared/document-types.ts";
 import { CODEX_BASE_URL, createCodexFetch } from "./codex-fetch.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
@@ -13,29 +14,8 @@ const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
   openai: "https://api.openai.com/v1",
 };
 
-/** What a model produces: a chat model's text, or generated images. */
-export type LlmModelOutput = "text" | "image";
-
-/** A model offered by a configured provider, namespaced as a `provider:model` id. */
-export interface LlmModelInfo {
-  /** `provider:model` id — ready to hand straight to `resolveModel`. */
-  id: string;
-  /** The provider the model came from (the `providers:` map key). */
-  provider: string;
-  /** Maximum context (input) tokens, when the provider's listing reports it. */
-  contextWindow?: number;
-  /** Maximum output tokens, when the provider's listing reports it. */
-  outputLimit?: number;
-  /** What the model produces. Models producing neither text nor images are never listed. */
-  output: LlmModelOutput;
-  /** Whether the model accepts image input, when the provider's listing reports it. */
-  imageInput?: boolean;
-  /**
-   * The document media types the model accepts as binary file parts, when
-   * its provider transport carries any (see `documentInputFor`). Absent when
-   * none do — text files are inlined as text and never counted here.
-   */
-  documentInput?: string[];
+/** Model facts needed by execution, extending the browser's public description. */
+export interface LlmModelInfo extends ModelInfo {
   /**
    * Whether the model reads documents natively, when its listing reports
    * input modalities (OpenRouter's does). Server-side only: it picks the
@@ -56,13 +36,9 @@ export interface LlmModelInfo {
   reasoningLevels?: string[];
 }
 
-/** A provider whose model listing failed. Never fatal — collected, not thrown. */
-export interface LlmModelsFailure {
-  /** The provider that failed (the `providers:` map key). */
-  provider: string;
-  /** Human-readable reason. Never echoes a resolved API key value. */
-  reason: string;
-}
+/** What a listed model produces. */
+export type LlmModelOutput = ModelInfo["output"];
+export type { ModelsFailure as LlmModelsFailure } from "../../shared/api/models.ts";
 
 /** The aggregate of model listings across every configured provider. */
 export interface LlmModelsResult {

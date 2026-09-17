@@ -7,6 +7,7 @@ import {
   cancelRun,
   deleteRun,
   deleteSession,
+  fetchLatestRelease,
   fetchRun,
   fetchRunsPage,
   fetchWorkflows,
@@ -19,6 +20,19 @@ import {
 } from "./api.ts";
 
 describe("api client", () => {
+  it("rejects malformed release metadata with an API error", async () => {
+    server.use(
+      http.get("https://api.github.com/repos/LeeCheneler/kiri/releases/latest", () =>
+        HttpResponse.json({ tag_name: "v1.0.0" }),
+      ),
+    );
+    await expect(fetchLatestRelease()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 502,
+      message: "malformed latest-release payload",
+    });
+  });
+
   it("returns the workflow registry from the default handler", async () => {
     expect(await fetchWorkflows()).toEqual([]);
   });

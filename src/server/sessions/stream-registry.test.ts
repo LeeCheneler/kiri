@@ -43,7 +43,13 @@ describe("createStreamRegistry", () => {
     expect(reg.messagesBeforeTurn("s1")).toBeNull();
     const sink = reg.open("s1", baseline);
     baseline[0].parts = [
-      { type: "tool-echo", toolCallId: "c1", state: "output-available", output: "hi" },
+      {
+        type: "tool-echo",
+        toolCallId: "c1",
+        state: "output-available",
+        input: { value: "hi" },
+        output: "hi",
+      },
     ];
     expect(reg.messagesBeforeTurn("s1")?.[0]?.parts).toContainEqual(
       expect.objectContaining({

@@ -7,9 +7,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      // Trailing slash matters: "/api" prefix-matches "/api.ts" too and
-      // would intercept client modules served by Vite.
-      "/api/": "http://localhost:4242",
+      // Client modules in /api/*.ts belong to Vite. Proxy only HTTP API
+      // requests, leaving both those modules and the /api.ts barrel local.
+      "^/api/(?![^/?]+\\.ts(?:\\?|$))": "http://localhost:4242",
     },
     watch: {
       // Test files belong to bun:test, not the SPA. Without this, Vite

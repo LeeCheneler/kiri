@@ -1,28 +1,15 @@
+import type { ConfigCheck, ConfigHealth } from "../../shared/api/config.ts";
 import { readCodexAuth } from "../llm/codex-auth.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { KiriConfigLoadResult } from "./loader.ts";
 import type { ModelsConfig } from "./schema.ts";
 
-/** Severity of a config check: wired correctly, working-but-reduced, or broken. */
-export type ConfigCheckLevel = "ok" | "degraded" | "error";
-
-/** The configuration concern a check reports on. */
-export type ConfigArea = "config" | "providers" | "mcp" | "models";
-
-/** A single configuration-health finding. */
-export interface ConfigCheck {
-  area: ConfigArea;
-  level: ConfigCheckLevel;
-  /** Short headline for the finding. */
-  title: string;
-  /** One-line explanation, including the next step when something's off. */
-  detail: string;
-}
-
-/** The aggregate configuration-health report. */
-export interface ConfigHealth {
-  checks: ConfigCheck[];
-}
+export type {
+  ConfigCheck,
+  ConfigHealth,
+  ConfigCheckLevel,
+  ConfigArea,
+} from "../../shared/api/config.ts";
 
 // A configured model reference and where it's declared, labelled by its
 // kiri.yaml path (`shortcuts.text.sonnet`, `delegates.daily`) so a finding

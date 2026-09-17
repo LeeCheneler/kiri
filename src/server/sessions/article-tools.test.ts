@@ -400,7 +400,7 @@ describe("articleTools", () => {
           workflowName: "wf",
           status: "ok",
           startedAt: new Date(),
-          definitionSnapshot: {},
+          definitionSnapshot: { name: "fixture", steps: [] },
         })
         .run();
       db.insert(articles)

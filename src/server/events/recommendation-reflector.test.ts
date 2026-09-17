@@ -27,7 +27,7 @@ describe("mountRecommendationReflector", () => {
         workflowName: "wf",
         status: "running",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 

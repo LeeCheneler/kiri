@@ -1,93 +1,7 @@
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useRef } from "react";
+import { KIRI_EVENT_TYPES, type KiriEvent, type KiriEventType } from "../../shared/api/events.ts";
 
-/** All event types pushed by the server's in-process bus over `/api/events`. */
-export type KiriEventType =
-  | "run.started"
-  | "run.updated"
-  | "run.step.updated"
-  | "run.finished"
-  | "run.deleted"
-  | "recommendation.actioned"
-  | "recommendation.updated"
-  | "session.started"
-  | "session.message.added"
-  | "session.inbox.queued"
-  | "session.inbox.delivered"
-  | "session.updated"
-  | "session.finished"
-  | "session.turn.settled"
-  | "session.deleted"
-  | "article.written"
-  | "article.deleted"
-  | "project.created"
-  | "project.updated"
-  | "project.deleted"
-  | "memory.saved"
-  | "memory.deleted"
-  | "task.changed"
-  | "workflow.added"
-  | "workflow.updated"
-  | "workflow.removed"
-  | "tool.permission.updated"
-  | "config.changed";
-
-/**
- * Session lifecycle states; `idle` is the between-turns resting state,
- * replacing a run's terminal `ok`; `waiting` is a turn paused on tool approval.
- */
-type SessionStatus = "running" | "waiting" | "idle" | "failed" | "cancelled";
-
-/** Mirrors the server's discriminated union; payloads are thin invalidation signals. */
-export type KiriEvent =
-  | { type: "run.started"; id: string }
-  | { type: "run.updated"; id: string; status: "running" | "ok" | "failed" | "cancelled" }
-  | {
-      type: "run.step.updated";
-      runId: string;
-      step: number;
-      status: "running" | "ok" | "failed" | "cancelled";
-    }
-  | { type: "run.finished"; id: string; status: "running" | "ok" | "failed" | "cancelled" }
-  | { type: "run.deleted"; id: string }
-  | {
-      type: "recommendation.actioned";
-      runId: string;
-      recommendationId: string;
-      actionedRunId: string;
-    }
-  | {
-      type: "recommendation.updated";
-      runId: string;
-      recommendationId: string;
-      actionedRunId: string;
-      status: "running" | "ok" | "failed" | "cancelled";
-    }
-  | { type: "session.started"; id: string }
-  | { type: "session.message.added"; sessionId: string }
-  | { type: "session.inbox.queued"; sessionId: string }
-  | { type: "session.inbox.delivered"; sessionId: string }
-  | { type: "session.updated"; id: string; status: SessionStatus }
-  | { type: "session.finished"; id: string; status: SessionStatus }
-  | {
-      type: "session.turn.settled";
-      id: string;
-      messageId: string | null;
-      outcome: "ended" | "incomplete" | "failed" | "cancelled";
-    }
-  | { type: "session.deleted"; id: string }
-  | { type: "article.written"; sessionId: string; slug: string; projectId?: string }
-  | { type: "article.deleted"; slug: string; sessionId?: string; projectId?: string }
-  | { type: "project.created"; id: string }
-  | { type: "project.updated"; id: string }
-  | { type: "project.deleted"; id: string }
-  | { type: "memory.saved"; name: string; projectId?: string }
-  | { type: "memory.deleted"; name: string; projectId?: string }
-  | { type: "task.changed"; projectId: string }
-  | { type: "workflow.added"; name: string }
-  | { type: "workflow.updated"; name: string }
-  | { type: "workflow.removed"; name: string }
-  | { type: "tool.permission.updated"; tool: string }
-  | { type: "config.changed" };
+export type { KiriEvent, KiriEventType } from "../../shared/api/events.ts";
 
 /** Minimal `EventSource` surface so tests can swap in a controllable fake. */
 export interface EventSourceLike {
@@ -101,37 +15,6 @@ export interface EventSourceLike {
 
 /** Constructor seam: production wraps `new EventSource(url)`; tests inject a fake. */
 export type EventSourceFactory = (url: string) => EventSourceLike;
-
-const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
-  "run.started",
-  "run.updated",
-  "run.step.updated",
-  "run.finished",
-  "run.deleted",
-  "recommendation.actioned",
-  "recommendation.updated",
-  "session.started",
-  "session.message.added",
-  "session.inbox.queued",
-  "session.inbox.delivered",
-  "session.updated",
-  "session.finished",
-  "session.turn.settled",
-  "session.deleted",
-  "article.written",
-  "article.deleted",
-  "project.created",
-  "project.updated",
-  "project.deleted",
-  "memory.saved",
-  "memory.deleted",
-  "task.changed",
-  "workflow.added",
-  "workflow.updated",
-  "workflow.removed",
-  "tool.permission.updated",
-  "config.changed",
-];
 
 const KIRI_ORIGIN = "http://127.0.0.1:4242";
 

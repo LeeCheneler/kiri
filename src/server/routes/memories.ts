@@ -2,6 +2,8 @@ import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import type * as errorsApi from "../../shared/api/errors.ts";
+import type * as memoriesApi from "../../shared/api/memories.ts";
 import type { KiriDb } from "../db/index.ts";
 import { memories } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -15,7 +17,7 @@ const patchMemoryBodySchema = z
     description: z.string().min(1).optional(),
     contentMd: z.string().min(1).optional(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<memoriesApi.PatchMemoryRequest>;
 
 export interface MemoriesRoutesDeps {
   db: KiriDb;
@@ -36,7 +38,11 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
   // project's own surface, and a name can exist in both scopes.
   const byName = (name: string) => getScopedMemory(db, null, name);
 
-  app.get("/", (c) => c.json({ memories: listMemories(db) }));
+  app.get("/", (c) =>
+    c.json({
+      memories: listMemories(db).map((row) => ({ ...row, updatedAt: row.updatedAt.toISOString() })),
+    } satisfies memoriesApi.MemoriesResult),
+  );
 
   app.get(
     "/:name",
@@ -44,16 +50,20 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
     (c) => {
       const { name } = c.req.valid("param");
       const memory = byName(name);
-      if (!memory) return c.json({ error: `memory "${name}" not found` }, 404);
+      if (!memory)
+        return c.json(
+          { error: `memory "${name}" not found` } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       return c.json({
         memory: {
           name: memory.name,
           description: memory.description,
           contentMd: memory.contentMd,
-          createdAt: memory.createdAt,
-          updatedAt: memory.updatedAt,
+          createdAt: memory.createdAt.toISOString(),
+          updatedAt: memory.updatedAt.toISOString(),
         },
-      });
+      } satisfies memoriesApi.MemoryResult);
     },
   );
 
@@ -65,7 +75,11 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
       const { name } = c.req.valid("param");
       const { description, contentMd } = c.req.valid("json");
       const memory = byName(name);
-      if (!memory) return c.json({ error: `memory "${name}" not found` }, 404);
+      if (!memory)
+        return c.json(
+          { error: `memory "${name}" not found` } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       if (description !== undefined || contentMd !== undefined) {
         db.update(memories)
           .set({
@@ -83,10 +97,10 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
           name: updated.name,
           description: updated.description,
           contentMd: updated.contentMd,
-          createdAt: updated.createdAt,
-          updatedAt: updated.updatedAt,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
         },
-      });
+      } satisfies memoriesApi.MemoryResult);
     },
   );
 
@@ -96,7 +110,11 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
     (c) => {
       const { name } = c.req.valid("param");
       const memory = byName(name);
-      if (!memory) return c.json({ error: `memory "${name}" not found` }, 404);
+      if (!memory)
+        return c.json(
+          { error: `memory "${name}" not found` } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       db.delete(memories).where(eq(memories.id, memory.id)).run();
       bus?.publish({ type: "memory.deleted", name });
       return c.body(null, 204);

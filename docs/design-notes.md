@@ -44,6 +44,20 @@ Constraints, not work items — they hold across the whole system:
 
 ## Architecture
 
+### Public API contracts
+
+Browser-safe request and response types, lifecycle statuses, errors, and SSE
+payloads live in feature modules under `src/shared/api/`. The event-name list is
+exhaustively checked against the shared event union. Server route schemas and
+response builders satisfy these contracts; serializers turn persisted dates
+into ISO strings at the HTTP boundary. Model listings select public fields
+explicitly, keeping reasoning and provider transport facts on the server.
+
+Client requests live in `src/client/api/`, with shared HTTP handling in
+`http.ts` and compatibility exports from `src/client/api.ts`. Stored workflow
+snapshots and SDK message parts retain their historical formats; the serialization
+boundary passes them through without applying the current authoring schema.
+
 ### Workflow definition
 
 YAML files validated against a Zod schema. No custom DSL.

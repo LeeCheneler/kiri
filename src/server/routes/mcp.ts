@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Hono } from "hono";
 import { z } from "zod";
+import type * as mcpApi from "../../shared/api/mcp.ts";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
@@ -43,7 +44,7 @@ export interface McpRoutesDeps {
 // and the verdict to record. `"ask"` clears any recorded decision.
 const toolPermissionBodySchema = z
   .object({ tool: z.string().min(1), permission: z.enum(["allow", "ask", "off", "auto"]) })
-  .strict();
+  .strict() satisfies z.ZodType<mcpApi.SetToolPermissionRequest>;
 
 const escapeHtml = (value: string): string =>
   value
@@ -93,7 +94,9 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
     bus?.publish({ type: "config.changed" });
   };
 
-  app.get("/servers", (c) => c.json({ servers: registry.status() }));
+  app.get("/servers", (c) =>
+    c.json({ servers: registry.status() } satisfies mcpApi.McpServersResult),
+  );
 
   // The per-server tool listing for the MCP management surface: every configured
   // server with its connection state, and (when connected) its tools, each
@@ -123,7 +126,7 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
       description: tool.description,
       permission: permissions.get(tool.name, tool.defaultPermission),
     }));
-    return c.json({ servers, builtin });
+    return c.json({ servers, builtin } satisfies mcpApi.McpToolsResult);
   });
 
   // Set a tool's standing permission (allow/ask/off), keyed by its namespaced

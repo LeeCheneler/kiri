@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
-import { type Tool, type ToolSet, tool } from "ai";
+import { type Tool, type ToolSet, type UIMessage, tool } from "ai";
 import {
   MockLanguageModelV3,
   MockTranscriptionModelV3,
@@ -128,6 +128,9 @@ const fakeClients = (
       output: "text" | "image";
       reasoning?: boolean;
       nativeDocuments?: boolean;
+      providerInternalMetadata?: string;
+      contextWindow?: number;
+      documentInput?: string[];
     }[];
     generateText?: LlmClients["generateText"];
     transcription?: LlmTranscriptionModel;
@@ -422,6 +425,9 @@ describe("sessions routes", () => {
               output: "text",
               reasoning: true,
               nativeDocuments: true,
+              providerInternalMetadata: "server-only",
+              contextWindow: 200000,
+              documentInput: ["application/pdf"],
             },
           ],
         }),
@@ -433,7 +439,15 @@ describe("sessions routes", () => {
       // The reasoning and native-document flags are server-side send-or-omit
       // state, stripped from the response — the client surface doesn't carry them.
       expect(await res.json()).toEqual({
-        models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+        models: [
+          {
+            id: "anthropic:claude",
+            provider: "anthropic",
+            output: "text",
+            contextWindow: 200000,
+            documentInput: ["application/pdf"],
+          },
+        ],
         failures: [],
         shortcuts: {},
       });
@@ -1790,7 +1804,7 @@ describe("sessions routes", () => {
       { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 1) },
     ];
 
-    const binaryPart = (mediaType: string, bytes: number) => ({
+    const binaryPart = (mediaType: string, bytes: number): UIMessage["parts"][number] => ({
       type: "file",
       mediaType,
       filename: mediaType === "image/png" ? "shot.png" : "brief.pdf",
@@ -1805,7 +1819,7 @@ describe("sessions routes", () => {
       "mixed",
     ] as const) {
       it(`accepts and persists ${fixture} through the complete app middleware`, async () => {
-        const parts =
+        const parts: UIMessage["parts"] =
           fixture === "200 KiB image"
             ? [binaryPart("image/png", 200 * 1024)]
             : fixture === "maximum image"

@@ -2,11 +2,18 @@ import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import type * as activityApi from "../../shared/api/activity.ts";
+import type { ArticleProducer } from "../../shared/api/activity.ts";
+import type * as errorsApi from "../../shared/api/errors.ts";
+import type { PageQuery } from "../../shared/api/pagination.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
 import { buildSessionListEntries, getSessionLabels } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
+import { serializeArticleSummary } from "./serializers/articles.ts";
+import { serializeRun } from "./serializers/runs.ts";
+import { serializeSessionListEntry } from "./serializers/sessions.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface ActivityRoutesDeps {
@@ -20,7 +27,7 @@ const MAX_ACTIVITY_LIMIT = 100;
 const activityListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_ACTIVITY_LIMIT).default(DEFAULT_ACTIVITY_LIMIT),
-});
+}) satisfies z.ZodType<PageQuery>;
 
 // The activity cursor carries the whole sort key — (started_at epoch ms, id) —
 // base64url-encoded into one opaque token. The per-table feeds cursor on a bare
@@ -90,9 +97,9 @@ function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs
   }
 
   const entries = rows.map((row) => ({
-    ...row,
+    ...serializeRun(row),
     isInterrupted: !registry.getWorkflow(row.workflowName),
-    articles: articlesByRunId.get(row.id) ?? [],
+    articles: (articlesByRunId.get(row.id) ?? []).map(serializeArticleSummary),
     recommendationsCount: recommendationCountByRunId.get(row.id) ?? 0,
   }));
   return new Map(entries.map((e) => [e.id, e] as const));
@@ -102,11 +109,6 @@ function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs
 // run article is labelled by the workflow that produced it, a session article
 // by how that session is listed elsewhere, a project article by its project. Ids travel rather than paths —
 // the client owns routing.
-type ArticleProducer =
-  | { kind: "run"; id: string; label: string }
-  | { kind: "session"; id: string; label: string }
-  | { kind: "project"; id: string; label: string };
-
 // Resolve every producer referenced by a page of articles, one query per kind.
 // Rows whose producer has vanished are dropped by the caller rather than
 // rendered ownerless.
@@ -183,7 +185,11 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
     let anchor: { startedAt: Date; id: string } | undefined;
     if (cursor !== undefined) {
       anchor = decodeCursor(cursor);
-      if (!anchor) return c.json({ error: `invalid cursor "${cursor}"` }, 400);
+      if (!anchor)
+        return c.json(
+          { error: `invalid cursor "${cursor}"` } satisfies errorsApi.ApiErrorBody,
+          400,
+        );
     }
 
     // Each arm returns its own newest `limit` rows after the cursor, in
@@ -271,10 +277,10 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       }
       const session = sessionEntryById.get(e.row.id);
       if (!session) throw new Error(`session "${e.row.id}" vanished during activity assembly`);
-      return { kind: "session" as const, session };
+      return { kind: "session" as const, session: serializeSessionListEntry(session) };
     });
 
-    return c.json({ entries, nextCursor });
+    return c.json({ entries, nextCursor } satisfies activityApi.ActivityPage);
   });
 
   // The same timeline as `/`, filtered to what the system wrote rather than
@@ -293,7 +299,11 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       let anchor: { startedAt: Date; id: string } | undefined;
       if (cursor !== undefined) {
         anchor = decodeCursor(cursor);
-        if (!anchor) return c.json({ error: `invalid cursor "${cursor}"` }, 400);
+        if (!anchor)
+          return c.json(
+            { error: `invalid cursor "${cursor}"` } satisfies errorsApi.ApiErrorBody,
+            400,
+          );
       }
 
       const rows = db
@@ -320,7 +330,7 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
             slug: row.slug,
             name: row.name,
             heading: extractFirstHeading(row.contentMd),
-            createdAt: row.createdAt,
+            createdAt: row.createdAt.toISOString(),
             producer,
           },
         ];
@@ -333,7 +343,7 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       const nextCursor =
         rows.length === limit && last ? encodeCursor(last.createdAt, last.id) : null;
 
-      return c.json({ entries, nextCursor });
+      return c.json({ entries, nextCursor } satisfies activityApi.ArticleFeedPage);
     },
   );
 

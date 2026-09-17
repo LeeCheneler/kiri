@@ -31,7 +31,7 @@ describe("reconcileInterruptedRuns", () => {
         status,
         startedAt: new Date(0),
         finishedAt: status === "running" ? null : new Date(0),
-        definitionSnapshot: { name: "wf", nodes: [] },
+        definitionSnapshot: { name: "wf", steps: [] },
       })
       .run();
   };

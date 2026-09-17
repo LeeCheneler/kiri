@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
+import type { McpToolPermission } from "../../shared/api/mcp.ts";
 
 /**
  * A tool's standing permission in agentic sessions. `"allow"` runs it without
@@ -11,7 +12,7 @@ import { z } from "zod";
  * no recorded entry falls back to a caller-supplied default — `"ask"` for MCP
  * tools, each built-in tool's own declared default.
  */
-export type ToolPermission = "allow" | "ask" | "off" | "auto";
+export type ToolPermission = McpToolPermission;
 
 // Recorded decisions, keyed by the namespaced `<server>__<tool>` name — the
 // same name the model is offered. An explicit "ask" is persistable so a

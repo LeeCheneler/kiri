@@ -1,11 +1,9 @@
 import type { JSONValue } from "ai";
+import type { SessionEffort as Effort } from "../../shared/api/sessions.ts";
 import type { LlmProvider } from "./schema.ts";
 
-/** The effort levels a session (or delegated worker) can run at, lowest first. */
-export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
-
-/** How hard a model reasons: one of {@link EFFORT_LEVELS}. */
-export type Effort = (typeof EFFORT_LEVELS)[number];
+export { EFFORT_LEVELS } from "../../shared/api/sessions.ts";
+export type { SessionEffort as Effort } from "../../shared/api/sessions.ts";
 
 /** Provider options for one model call, keyed by the provider-options name the AI SDK reads. */
 export type EffortProviderOptions = Record<string, Record<string, JSONValue>>;

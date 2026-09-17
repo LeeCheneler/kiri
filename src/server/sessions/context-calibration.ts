@@ -125,7 +125,7 @@ export function savedContextCalibration(history: UIMessage[]): ContextCalibratio
 }
 
 /** Remove bookkeeping before SDK conversion, including otherwise empty assistant blocks. */
-export function withoutContextCalibration(history: UIMessage[]): UIMessage[] {
+export function withoutContextCalibration<T extends UIMessage>(history: T[]): T[] {
   return history.map((message) => ({
     ...message,
     parts: message.parts.filter((part) => part.type !== PART_TYPE),

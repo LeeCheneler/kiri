@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type * as configApi from "../../shared/api/config.ts";
 import {
   evaluateConfigHealth,
   evaluateModelListingHealth,
@@ -39,7 +40,7 @@ export function configRoutes(deps: ConfigRoutesDeps): Hono {
     if (deps.llmClients) {
       health.checks.push(...(await evaluateModelListingHealth(kiriConfig, deps.llmClients)));
     }
-    return c.json(health);
+    return c.json(health satisfies configApi.ConfigHealth);
   });
 
   return app;
