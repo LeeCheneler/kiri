@@ -90,8 +90,9 @@ new credentials automatically. No Kiri restart is needed. Returning to the
 app rechecks the health banner; a local expiry check does not verify backend
 access. Keep the credential file out of your repository and shared logs.
 
-Sessions support streaming, tools, token usage, and image input when the
-model advertises it. Utility calls and `llm:` steps collect the streamed
+Sessions support streaming, tools, token usage, image input when the model
+advertises it, and document input: PDFs in full, and Word, PowerPoint, and
+Excel files as extracted text. Utility calls and `llm:` steps collect the streamed
 response into their usual final text result. Effort is clamped to the
 model's advertised levels. This provider offers neither image generation
 nor audio transcription; configure another provider for those capabilities.
@@ -124,6 +125,11 @@ providers:
 Everything that takes a `model:` — pipeline steps, articles, summarisers,
 sessions — accepts `openrouter:google/gemini-3.7-flash` or
 `local:<model-id>` the same as a hosted first-party provider.
+
+Document attachments are the one difference between the two: sessions on an
+OpenRouter model take PDFs — parsed natively where the model reads files,
+otherwise through OpenRouter's free text parser — while sessions on a local
+server or another gateway take text files and images only.
 
 ## Model shortcuts
 

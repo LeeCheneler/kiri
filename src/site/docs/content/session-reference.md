@@ -470,9 +470,20 @@ request; it does not reset the turn's work-step limit.
 
 ## Attachments
 
-Sessions take file attachments and pasted images. Text files are sent inline
-so the model reads the whole file; images ride alongside — check your model
-accepts image input. Attachments are capped to fit the context window.
+Sessions take text files, images, and documents. Text files (Markdown, code,
+CSV, JSON, and the like) are sent inline so the model reads the whole file and
+reach every provider. Images ride alongside as visual input — check your model
+accepts it. Documents ride as files, so what you can attach depends on the
+session model's provider: PDFs reach Codex, OpenAI, Anthropic, and OpenRouter
+models; Word, PowerPoint, and Excel files reach Codex models, which read their
+text but not their embedded images. Local servers take no documents. The file
+picker offers exactly what the current model can read, and switching model
+changes it. Images are capped at 10 MB and documents at 20 MB; attachments
+count towards the context window.
+
+On OpenRouter, a model without native file input still reads a PDF: Kiri asks
+for OpenRouter's free text parser rather than its default paid OCR, so pages
+are never billed unasked. Models with native file input get the PDF as-is.
 
 ## Titles
 
