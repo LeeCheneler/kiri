@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import { generateImage, generateText, experimental_transcribe as transcribe } from "ai";
 import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
@@ -450,6 +450,174 @@ describe("llm clients", () => {
     expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(100);
     expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(100);
     expect(calls).toBe(1);
+  });
+
+  it("refreshes cached metadata immediately when an endpoint changes under the same provider name", async () => {
+    const calls = { old: 0, next: 0 };
+    server.use(
+      http.get("http://localhost:1234/v1/models", () => {
+        calls.old++;
+        return HttpResponse.json({
+          data: [{ id: "model", context_length: 100, supported_parameters: ["reasoning"] }],
+        });
+      }),
+      http.get("http://localhost:4321/v1/models", () => {
+        calls.next++;
+        return HttpResponse.json({ data: [{ id: "model", context_length: 200 }] });
+      }),
+    );
+    const registry = registryWith(local);
+    const clients = createLlmClients(registry, {});
+    expect(await clients.contextWindowFor("local:model")).toBe(100);
+    expect(await clients.reasoningOptionsFor("local:model", "high")).toEqual({
+      local: { reasoningEffort: "high" },
+    });
+    registry.replace(new Map([["local", { ...local, baseUrl: "http://localhost:4321/v1" }]]));
+    expect(await clients.contextWindowFor("local:model")).toBe(200);
+    expect(await clients.reasoningOptionsFor("local:model", "high")).toBeUndefined();
+    expect(calls).toEqual({ old: 1, next: 1 });
+    // The picker still bypasses the metadata cache on every listing request.
+    expect((await clients.listModels()).models[0]?.contextWindow).toBe(200);
+    await clients.listModels();
+    expect(calls).toEqual({ old: 1, next: 3 });
+    expect(await clients.contextWindowFor("local:model")).toBe(200);
+    expect(calls.next).toBe(3);
+  });
+
+  for (const removed of [false, true]) {
+    it(`isolates an older in-flight listing after provider ${removed ? "removal" : "replacement"}`, async () => {
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const calls = { old: 0, next: 0 };
+      server.use(
+        http.get("http://localhost:1234/v1/models", async () => {
+          calls.old++;
+          started.resolve();
+          await release.promise;
+          return HttpResponse.json({
+            data: [{ id: "gpt-5.2", context_length: 100, supported_parameters: ["reasoning"] }],
+          });
+        }),
+        http.get("https://api.openai.com/v1/models", () => {
+          calls.next++;
+          return HttpResponse.json({ data: [{ id: "gpt-5.2", context_length: 200 }] });
+        }),
+      );
+      const registry = registryWith(local);
+      const clients = createLlmClients(registry, { OPENAI_API_KEY: "sk-test" });
+      const oldContext = clients.contextWindowFor("local:gpt-5.2");
+      const oldReasoning = clients.reasoningOptionsFor("local:gpt-5.2", "high");
+      await started.promise;
+      registry.replace(removed ? new Map() : new Map([["local", { ...openai, name: "local" }]]));
+      const nextContext = removed ? undefined : 200;
+      const nextReasoning = removed ? undefined : { openai: { reasoningEffort: "high" } };
+      expect(await clients.contextWindowFor("local:gpt-5.2")).toEqual(nextContext);
+      expect(await clients.reasoningOptionsFor("local:gpt-5.2", "high")).toEqual(nextReasoning);
+      release.resolve();
+      expect(await oldContext).toBe(100);
+      // Finishing the old lookup must not combine old metadata with the new provider type.
+      expect(await oldReasoning).toEqual({ local: { reasoningEffort: "high" } });
+      expect(await clients.contextWindowFor("local:gpt-5.2")).toEqual(nextContext);
+      expect(await clients.reasoningOptionsFor("local:gpt-5.2", "high")).toEqual(nextReasoning);
+      expect(calls).toEqual({ old: 1, next: removed ? 0 : 1 });
+      if (removed)
+        expect(() => clients.resolveModel("local:gpt-5.2")).toThrow("unknown llm provider");
+    });
+  }
+
+  it("still expires metadata after five minutes within one revision", async () => {
+    let calls = 0;
+    let now = Date.now();
+    const clock = spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      server.use(
+        http.get("http://localhost:1234/v1/models", () => {
+          calls++;
+          return HttpResponse.json({ data: [{ id: "model", context_length: calls * 100 }] });
+        }),
+      );
+      const clients = createLlmClients(registryWith(local), {});
+      expect(await clients.contextWindowFor("local:model")).toBe(100);
+      now += 5 * 60_000 - 1;
+      expect(await clients.contextWindowFor("local:model")).toBe(100);
+      now++;
+      expect(await clients.contextWindowFor("local:model")).toBe(200);
+      expect(calls).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps a resolved model's document metadata on its original endpoint across reload and expiry", async () => {
+    let now = Date.now();
+    const clock = spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const calls = { old: 0, next: 0 };
+      const bodies: { endpoint: string; plugins: unknown }[] = [];
+      for (const endpoint of ["old", "next"] as const) {
+        server.use(
+          http.get(`https://openrouter.ai/${endpoint}/models`, () => {
+            calls[endpoint]++;
+            return HttpResponse.json({
+              data: [
+                {
+                  id: "reader",
+                  architecture: {
+                    input_modalities: endpoint === "old" ? ["text", "file"] : ["text"],
+                  },
+                },
+              ],
+            });
+          }),
+          http.post(`https://openrouter.ai/${endpoint}/chat/completions`, async ({ request }) => {
+            const body = (await request.json()) as Record<string, unknown>;
+            bodies.push({ endpoint, plugins: body.plugins });
+            return HttpResponse.json({
+              id: "chatcmpl-1",
+              object: "chat.completion",
+              created: 0,
+              model: "reader",
+              choices: [
+                { index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" },
+              ],
+            });
+          }),
+        );
+      }
+      const provider: LlmProvider = {
+        name: "router",
+        type: "openai-compatible",
+        baseUrl: "https://openrouter.ai/old",
+      };
+      const registry = registryWith(provider);
+      const clients = createLlmClients(registry, {});
+      const oldModel = clients.resolveModel("router:reader");
+      registry.replace(
+        new Map([["router", { ...provider, baseUrl: "https://openrouter.ai/next" }]]),
+      );
+      const newModel = clients.resolveModel("router:reader");
+      const messages = [
+        {
+          role: "user" as const,
+          content: [{ type: "file" as const, mediaType: "application/pdf", data: "AQI=" }],
+        },
+      ];
+      await generateText({ model: newModel, messages });
+      // The old model's first metadata lookup happens only after the replacement was cached.
+      await generateText({ model: oldModel, messages });
+      registry.replace(new Map());
+      now += 5 * 60_000;
+      await generateText({ model: oldModel, messages });
+      expect(bodies).toEqual([
+        { endpoint: "next", plugins: [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }] },
+        { endpoint: "old", plugins: undefined },
+        { endpoint: "old", plugins: undefined },
+      ]);
+      expect(calls).toEqual({ old: 2, next: 1 });
+      expect(await clients.contextWindowFor("router:reader")).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("resolves and completes in one call via the generateText method", async () => {

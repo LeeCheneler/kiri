@@ -13,7 +13,7 @@ import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { type LlmModelsResult, isOpenRouterUrl, listLlmModels } from "./models.ts";
 import { createOpenRouterModel } from "./openrouter-model.ts";
-import type { LlmProviderRegistry } from "./registry.ts";
+import { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
 
 /**
@@ -35,10 +35,8 @@ export type LlmImageModel = ImageModel;
  */
 export type LlmTranscriptionModel = TranscriptionModel;
 
-// How long a fetched model listing is reused for context-window lookups. A
-// model's window is effectively constant, so a few minutes' cache spares a
-// per-turn caller (the context budget check) from refetching every provider's
-// listing on each turn, while staying short enough to pick up provider changes.
+// Reuse model metadata within one provider configuration for a few minutes.
+// A registry replacement starts a fresh cache regardless of this TTL.
 const MODEL_LISTING_TTL_MS = 5 * 60_000;
 
 /** Token counts from a completed generation; a field is undefined when the provider omits it. */
@@ -100,8 +98,9 @@ export interface LlmClients {
    * The context window (max input tokens) for a `provider:model` id, or
    * undefined when the model isn't listed or its provider doesn't report one.
    * Reads the same provider listings as `listModels`, cached briefly so a
-   * per-turn caller doesn't refetch every provider each turn. A provider whose
-   * listing fails simply contributes no models, so its windows read as unknown
+   * per-turn caller doesn't refetch every provider each turn. Registry replacement
+   * starts a fresh cache; in-flight lookups retain their starting configuration.
+   * A provider whose listing fails contributes no models, so its windows read as unknown
    * rather than failing the lookup.
    */
   contextWindowFor(id: string): Promise<number | undefined>;
@@ -125,14 +124,32 @@ export function createLlmClients(
   registry: LlmProviderRegistry,
   env: Record<string, string | undefined>,
 ): LlmClients {
-  // Cache the listing for context-window lookups only; `listModels` stays
-  // uncached so the model picker always reflects the configured providers.
-  let listingCache: { at: number; promise: Promise<LlmModelsResult> } | undefined;
-  const cachedListing = (): Promise<LlmModelsResult> => {
-    if (listingCache === undefined || Date.now() - listingCache.at >= MODEL_LISTING_TTL_MS) {
-      listingCache = { at: Date.now(), promise: listLlmModels(registry, env) };
+  interface MetadataSnapshot {
+    revision: number;
+    registry: LlmProviderRegistry;
+    listing?: { at: number; promise: Promise<LlmModelsResult> };
+  }
+  let metadata: MetadataSnapshot | undefined;
+  const metadataSnapshot = (): MetadataSnapshot => {
+    const revision = registry.revision();
+    if (metadata === undefined || metadata.revision !== revision) {
+      // Keep old lookups and already-built models on their original endpoints.
+      const snapshot = createLlmProviderRegistry();
+      snapshot.replace(
+        new Map(registry.listProviders().map((provider) => [provider.name, provider])),
+      );
+      metadata = { revision, registry: snapshot };
     }
-    return listingCache.promise;
+    return metadata;
+  };
+  const cachedListing = (snapshot: MetadataSnapshot): Promise<LlmModelsResult> => {
+    if (
+      snapshot.listing === undefined ||
+      Date.now() - snapshot.listing.at >= MODEL_LISTING_TTL_MS
+    ) {
+      snapshot.listing = { at: Date.now(), promise: listLlmModels(snapshot.registry, env) };
+    }
+    return snapshot.listing.promise;
   };
 
   const clients: LlmClients = {
@@ -152,20 +169,22 @@ export function createLlmClients(
       return listLlmModels(registry, env);
     },
     async contextWindowFor(id) {
-      const { models } = await cachedListing();
+      const { models } = await cachedListing(metadataSnapshot());
       return models.find((model) => model.id === id)?.contextWindow;
     },
     async reasoningOptionsFor(id, effort) {
-      const { models } = await cachedListing();
+      const snapshot = metadataSnapshot();
+      const { models } = await cachedListing(snapshot);
       const model = models.find((model) => model.id === id);
       if (model?.reasoning !== true) return undefined;
-      const { provider, modelId } = resolveProvider(registry, id);
+      const { provider, modelId } = resolveProvider(snapshot.registry, id);
       return effortProviderOptions(provider, modelId, effort, model.reasoningLevels);
     },
     resolveModel(id) {
-      const { provider, modelId } = resolveProvider(registry, id);
+      const snapshot = metadataSnapshot();
+      const { provider, modelId } = resolveProvider(snapshot.registry, id);
       return buildModel(provider, modelId, env, async () => {
-        const { models } = await cachedListing();
+        const { models } = await cachedListing(snapshot);
         return models.find((model) => model.id === id)?.nativeDocuments;
       });
     },

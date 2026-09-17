@@ -214,6 +214,9 @@ same endpoint. Unset, push-to-talk stays off.
 Edits to `kiri.yaml` apply live; an invalid edit keeps the last-known-good
 config. Overlapping MCP reconnects keep the latest requested configuration,
 and tool calls already running retain their connections until they finish.
+Changing a provider refreshes its cached context limits, reasoning support, and
+document capabilities for new lookups. Models already resolved for a request
+keep their original endpoint and capabilities source.
 Problems — an unset key variable, a reference to an undeclared
 provider, or expired Codex credentials — never block boot: they're flagged in the boot report and the
 in-app health banner. See [Troubleshooting](/docs/troubleshooting).

@@ -26,7 +26,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** An older reload can finish last and overwrite newer configuration. Overlapping replacements can also leave connections outside registry cleanup.
 
-- [ ] **05 — Invalidate model metadata when provider configuration changes**
+- [x] **05 — Invalidate model metadata when provider configuration changes**
 
   **What:** Key metadata caches by provider/configuration revision or invalidate them explicitly. Prevent results from an older in-flight lookup from populating the new revision's cache.
 
