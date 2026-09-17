@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -282,6 +282,30 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
   app.delete("/:id", zValidator("param", idParamSchema, onZodFail("invalid project id")), (c) => {
     const { id } = c.req.valid("param");
     if (!getProject(db, id)) return c.json({ error: `project "${id}" not found` }, 404);
+    // Match the session cascade, including workers whose project id is absent.
+    // This check and deletion are synchronous: no turn can start between them.
+    const running = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.status, "running"),
+          or(
+            eq(sessions.projectId, id),
+            inArray(
+              sessions.parentSessionId,
+              db.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id)),
+            ),
+          ),
+        ),
+      )
+      .get();
+    if (running) {
+      return c.json(
+        { error: `project "${id}" has a session or delegated worker running; cancel it first` },
+        409,
+      );
+    }
     // Snapshot the top-level session ids before the cascade so their
     // deletions can be announced — the feed and session caches key off them.
     const sessionIds = projectSessions(db, id).map((row) => row.id);

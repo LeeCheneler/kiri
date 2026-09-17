@@ -3325,6 +3325,37 @@ describe("sessions routes", () => {
       expect(events).toContainEqual({ type: "session.deleted", id: "s1" });
     });
 
+    it("409s a parent with a running worker without deleting records or publishing", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "parent" });
+      createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "parent",
+        parentToolCallId: "call-1",
+      });
+      setSessionStatus(env.db, "child", "running");
+      const inbox = enqueueInboxItem(env.db, "parent", {
+        source: "child",
+        fromSessionId: "child",
+        text: "Keep report",
+      });
+
+      const res = await app.request("/api/sessions/parent", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("delegated worker running");
+      expect(getSession(env.db, "parent")).toBeDefined();
+      expect(getSession(env.db, "child")?.status).toBe("running");
+      expect(pendingInboxItems(env.db, "parent")).toEqual([inbox]);
+      expect(events).toEqual([]);
+    });
+
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions/ghost", {

@@ -1,15 +1,8 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import {
-  articles,
-  memories,
-  messages,
-  projects,
-  sessions,
-  taskGroups,
-  tasks,
-} from "../db/schema.ts";
+import { articles, memories, projects, sessions, taskGroups, tasks } from "../db/schema.ts";
+import { deleteSessions } from "../sessions/store.ts";
 
 /** A persisted project row. */
 export type Project = typeof projects.$inferSelect;
@@ -90,10 +83,10 @@ export function updateProject(
 /**
  * Permanently delete a project and everything in its container: the
  * project's articles, memories, and task list, its sessions — including the delegate
- * children those sessions spawned — and those sessions' messages and
- * articles, in one transaction. An in-code cascade matching the rest of the
- * codebase rather than a schema-level ON DELETE. Deleting an absent project
- * removes nothing.
+ * children those sessions spawned — and those sessions' messages, articles,
+ * and inbox rows, in one transaction. Callers must reject running sessions.
+ * An in-code cascade matching the rest of the codebase rather than a schema-level
+ * ON DELETE. Deleting an absent project removes nothing.
  */
 export function deleteProject(db: KiriDb, id: string): void {
   db.transaction((tx) => {
@@ -103,20 +96,7 @@ export function deleteProject(db: KiriDb, id: string): void {
       .where(eq(sessions.projectId, id))
       .all()
       .map((row) => row.id);
-    const childIds =
-      sessionIds.length > 0
-        ? tx
-            .select({ id: sessions.id })
-            .from(sessions)
-            .where(inArray(sessions.parentSessionId, sessionIds))
-            .all()
-            .map((row) => row.id)
-        : [];
-    const allSessionIds = [...childIds, ...sessionIds];
-    if (allSessionIds.length > 0) {
-      tx.delete(articles).where(inArray(articles.sessionId, allSessionIds)).run();
-      tx.delete(messages).where(inArray(messages.sessionId, allSessionIds)).run();
-    }
+    deleteSessions(tx, sessionIds);
     tx.delete(articles).where(eq(articles.projectId, id)).run();
     tx.delete(memories).where(eq(memories.projectId, id)).run();
     const groupIds = tx
@@ -127,9 +107,6 @@ export function deleteProject(db: KiriDb, id: string): void {
       .map((row) => row.id);
     if (groupIds.length > 0) tx.delete(tasks).where(inArray(tasks.groupId, groupIds)).run();
     tx.delete(taskGroups).where(eq(taskGroups.projectId, id)).run();
-    // Children first: they hold an FK to their parent, and foreign_keys is ON.
-    if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
-    if (sessionIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, sessionIds)).run();
     tx.delete(projects).where(eq(projects.id, id)).run();
   });
 }

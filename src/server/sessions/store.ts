@@ -456,27 +456,31 @@ export function setSessionStatus(
 }
 
 /**
- * Permanently delete a session — and any child sessions it spawned — with
- * their messages and articles in one transaction. Messages and articles hold
- * an FK to the session, so they go first — an in-code cascade matching the
- * rest of the codebase rather than a schema-level ON DELETE. Children never
- * have children of their own, so one level of cascade is complete. Deleting
- * an absent session removes nothing.
+ * Delete the given sessions and their children with all session-owned records
+ * in one transaction. Accepts an existing transaction so container deletion
+ * can roll back the entire operation. Callers must reject running sessions.
+ * Children cannot delegate, so one level of descendants is complete.
  */
-export function deleteSession(db: KiriDb, id: string): void {
+export function deleteSessions(db: Pick<KiriDb, "transaction">, sessionIds: string[]): void {
+  if (sessionIds.length === 0) return;
   db.transaction((tx) => {
     const childIds = tx
       .select({ id: sessions.id })
       .from(sessions)
-      .where(eq(sessions.parentSessionId, id))
+      .where(inArray(sessions.parentSessionId, sessionIds))
       .all()
       .map((row) => row.id);
-    const ids = [...childIds, id];
+    const ids = [...childIds, ...sessionIds];
     tx.delete(articles).where(inArray(articles.sessionId, ids)).run();
     tx.delete(messages).where(inArray(messages.sessionId, ids)).run();
     tx.delete(sessionInbox).where(inArray(sessionInbox.sessionId, ids)).run();
     // Children first: they hold an FK to the parent, and foreign_keys is ON.
     if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
-    tx.delete(sessions).where(eq(sessions.id, id)).run();
+    tx.delete(sessions).where(inArray(sessions.id, sessionIds)).run();
   });
+}
+
+/** Delete a non-running session and its children with all owned records; absent ids are a no-op. */
+export function deleteSession(db: KiriDb, id: string): void {
+  deleteSessions(db, [id]);
 }

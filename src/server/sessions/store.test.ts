@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, projects, sessions } from "../db/schema.ts";
+import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
+import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
   appendMessage,
   createSession,
@@ -420,12 +421,55 @@ describe("sessions store", () => {
     appendMessage(db, "child", { role: "user", parts: [{ type: "text", text: "Task" }] });
     createSession(db, MODEL, { id: "other" });
 
+    enqueueInboxItem(db, "parent", { source: "child", fromSessionId: "child", text: "Report" });
+    enqueueInboxItem(db, "child", { source: "parent", text: "Steering" });
+    const kept = enqueueInboxItem(db, "other", {
+      source: "child",
+      fromSessionId: "child",
+      text: "Keep report",
+    });
+
     deleteSession(db, "parent");
 
     expect(getSession(db, "parent")).toBeUndefined();
     expect(getSession(db, "child")).toBeUndefined();
     expect(getSessionMessages(db, "child")).toHaveLength(0);
     expect(getSession(db, "other")?.id).toBe("other");
+    expect(pendingInboxItems(db, "parent")).toEqual([]);
+    expect(pendingInboxItems(db, "child")).toEqual([]);
+    expect(pendingInboxItems(db, "other")).toEqual([kept]);
+  });
+
+  it("rolls back session-owned cleanup if deleting the parent fails", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call-1",
+    });
+    for (const id of ["parent", "child"]) {
+      appendMessage(db, id, { role: "user", parts: [{ type: "text", text: "Keep transcript" }] });
+      enqueueInboxItem(db, id, { source: "user", text: "Keep queued" });
+      db.insert(articles)
+        .values({
+          id: `article-${id}`,
+          sessionId: id,
+          slug: "notes",
+          name: "Notes",
+          contentMd: "# Kept",
+          createdAt: new Date(),
+        })
+        .run();
+    }
+    const tables = [sessions, messages, articles, sessionInbox];
+    const before = tables.map((table) => db.select().from(table).all());
+    db.$client.exec(`CREATE TEMP TRIGGER reject_parent_delete
+      BEFORE DELETE ON sessions WHEN OLD.id = 'parent'
+      BEGIN SELECT RAISE(ABORT, 'parent delete rejected'); END;`);
+
+    expect(() => deleteSession(db, "parent")).toThrow("parent delete rejected");
+
+    expect(tables.map((table) => db.select().from(table).all())).toEqual(before);
   });
 
   it("is a no-op deleting a session that does not exist", () => {

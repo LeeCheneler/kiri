@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, messages } from "../db/schema.ts";
+import { articles, messages, sessionInbox } from "../db/schema.ts";
+import { enqueueInboxItem } from "../sessions/inbox.ts";
 import { appendMessage, createSession, getSession } from "../sessions/store.ts";
 import { createProject, deleteProject, getProject, listProjects, updateProject } from "./store.ts";
 
@@ -105,6 +106,11 @@ describe("projects store", () => {
     createSession(db, MODEL, { id: "s1", projectId: "p1" });
     createSession(db, MODEL, { id: "c1", parentSessionId: "s1", parentToolCallId: "t1" });
     appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "hello" }] });
+    appendMessage(db, "c1", { role: "user", parts: [{ type: "text", text: "worker" }] });
+    enqueueInboxItem(db, "s1", { source: "child", fromSessionId: "c1", text: "Report" });
+    enqueueInboxItem(db, "c1", { source: "parent", text: "Steering" });
+    createSession(db, MODEL, { id: "sibling", projectId: "p1" });
+    enqueueInboxItem(db, "sibling", { source: "user", text: "Queued" });
     db.insert(articles)
       .values([
         {
@@ -131,8 +137,10 @@ describe("projects store", () => {
     expect(getProject(db, "p1")).toBeUndefined();
     expect(getSession(db, "s1")).toBeUndefined();
     expect(getSession(db, "c1")).toBeUndefined();
+    expect(getSession(db, "sibling")).toBeUndefined();
     expect(db.select().from(articles).all()).toEqual([]);
     expect(db.select().from(messages).all()).toEqual([]);
+    expect(db.select().from(sessionInbox).all()).toEqual([]);
   });
 
   it("leaves other projects and projectless sessions untouched", () => {
@@ -141,6 +149,14 @@ describe("projects store", () => {
     createSession(db, MODEL, { id: "s1", projectId: "p1" });
     createSession(db, MODEL, { id: "s2", projectId: "p2" });
     createSession(db, MODEL, { id: "s3" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "Delete me" });
+    const otherProjectInbox = enqueueInboxItem(db, "s2", { source: "user", text: "Keep me" });
+    // The recipient owns the message, even when its sender is being deleted.
+    const outsideInbox = enqueueInboxItem(db, "s3", {
+      source: "child",
+      fromSessionId: "s1",
+      text: "Keep this report",
+    });
     db.insert(articles)
       .values({
         id: "a1",
@@ -158,6 +174,7 @@ describe("projects store", () => {
     expect(getSession(db, "s1")).toBeUndefined();
     expect(getSession(db, "s2")?.id).toBe("s2");
     expect(getSession(db, "s3")?.id).toBe("s3");
+    expect(db.select().from(sessionInbox).all()).toEqual([otherProjectInbox, outsideInbox]);
     expect(db.select().from(articles).where(eq(articles.projectId, "p2")).all()).toHaveLength(1);
   });
 

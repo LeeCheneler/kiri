@@ -14,7 +14,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** The current PATCH handler can return 400 after changing the text model. Failed requests must leave state unchanged, and notifications must describe committed changes.
 
-- [ ] **03 — Complete project deletion and centralize owned-record cleanup**
+- [x] **03 — Complete project deletion and centralize owned-record cleanup**
 
   **What:** Include parent and worker inbox rows in project deletion. Consolidate session-owned cleanup into one operation, or use database cascades for unequivocal ownership. Preserve active-work restrictions and transactional rollback.
 
