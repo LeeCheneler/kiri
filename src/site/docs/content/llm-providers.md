@@ -212,7 +212,9 @@ same endpoint. Unset, push-to-talk stays off.
 ## Hot reload and health
 
 Edits to `kiri.yaml` apply live; an invalid edit keeps the last-known-good
-config. Problems — an unset key variable, a reference to an undeclared
+config. Overlapping MCP reconnects keep the latest requested configuration,
+and tool calls already running retain their connections until they finish.
+Problems — an unset key variable, a reference to an undeclared
 provider, or expired Codex credentials — never block boot: they're flagged in the boot report and the
 in-app health banner. See [Troubleshooting](/docs/troubleshooting).
 

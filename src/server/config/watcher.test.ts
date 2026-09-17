@@ -136,6 +136,105 @@ describe("watchKiriConfig", () => {
     watcher.stop();
   });
 
+  it("suppresses stale completion events while revalidating providers immediately", async () => {
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    const replacements: string[][] = [];
+    const revalidated: string[][] = [];
+    const events: string[] = [];
+    const bus = createEventBus();
+    bus.subscribe((event) => events.push(event.type));
+    const fakeMcp: McpRegistry = {
+      tools: () => ({}),
+      status: () => [],
+      catalog: () => [],
+      close: async () => {},
+      replace: async (servers) => {
+        replacements.push([...servers.keys()]);
+        await (replacements.length === 1 ? first.promise : second.promise);
+      },
+    };
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchKiriConfig(
+      config,
+      registry,
+      {},
+      {
+        debounceMs: 0,
+        watchFn,
+        mcpRegistry: fakeMcp,
+        bus,
+        onReload: () => {
+          revalidated.push(registry.listProviders().map((p) => p.name));
+        },
+      },
+    );
+    writeConfig(`${PROVIDER}mcp:\n  first:\n    type: stdio\n    command: first\n`);
+    triggerChange();
+    await waitFor(() => replacements.length === 1);
+    expect(revalidated).toEqual([["local"]]);
+    writeConfig(
+      `${PROVIDER.replace("local:", "new:")}mcp:\n  second:\n    type: stdio\n    command: second\n`,
+    );
+    triggerChange();
+    await waitFor(() => replacements.length === 2);
+    second.resolve();
+    await waitFor(() => events.length === 1);
+    first.resolve();
+    await first.promise;
+    await Bun.sleep(0);
+    expect(revalidated).toEqual([["local"], ["new"]]);
+    expect(registry.listProviders().map((p) => p.name)).toEqual(["new"]);
+    expect(events).toEqual(["config.changed"]);
+    expect(logs.filter((line) => line.includes("mcp server"))).toHaveLength(1);
+    watcher.stop();
+  });
+
+  it("suppresses pending reload completion and rescheduling after stop", async () => {
+    const pending = Promise.withResolvers<void>();
+    let started = false;
+    let revalidated = 0;
+    const events: string[] = [];
+    const bus = createEventBus();
+    bus.subscribe((event) => events.push(event.type));
+    const fakeMcp: McpRegistry = {
+      tools: () => ({}),
+      status: () => [],
+      catalog: () => [],
+      close: async () => {},
+      replace: async () => {
+        started = true;
+        await pending.promise;
+      },
+    };
+    const { watchFn, triggerChange, watcher: fsWatcher } = createFakeWatcher();
+    const watcher = watchKiriConfig(
+      config,
+      registry,
+      {},
+      {
+        debounceMs: 0,
+        watchFn,
+        mcpRegistry: fakeMcp,
+        bus,
+        onReload: () => {
+          revalidated++;
+        },
+      },
+    );
+    writeConfig(PROVIDER);
+    triggerChange();
+    await waitFor(() => started);
+    watcher.stop();
+    pending.resolve();
+    fsWatcher.emit("error", new Error("late watcher error"));
+    await pending.promise;
+    await Bun.sleep(10);
+    expect(revalidated).toBe(1);
+    expect(events).toEqual([]);
+    expect(logs.filter((line) => line.includes("mcp server"))).toEqual([]);
+  });
+
   it("reacts to a null filename even without an onReload handler", async () => {
     const { watchFn, triggerChange } = createFakeWatcher();
     const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });

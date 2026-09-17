@@ -11,6 +11,8 @@ export interface WatchOptions {
   debounceMs?: number;
   /** Injection hook for `fs.watch` so tests can drive watcher events deterministically. */
   watchFn?: typeof watch;
+  /** Injection hook for controlling asynchronous loads in tests. */
+  loadFn?: typeof loadWorkflows;
   /** Optional event bus. When supplied, the watcher publishes workflow.added / workflow.updated / workflow.removed on registry changes. */
   bus?: EventBus;
   /**
@@ -59,7 +61,8 @@ const buildSnapshot = (result: LoadResult): Snapshot => {
  * workflow that's already there.
  *
  * fs.watch on macOS fires multiple events per single edit; the debounce
- * collapses bursts into a single rebuild.
+ * collapses bursts into a single rebuild. Results superseded by a newer change
+ * or completed after stop are discarded before touching the registry or events.
  */
 export function watchWorkflows(
   config: ConfigStore,
@@ -70,24 +73,30 @@ export function watchWorkflows(
   const dir = config.workflowsDir();
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
+  const load = options.loadFn ?? loadWorkflows;
   const bus = options.bus;
   const getProviderNames = options.getProviderNames ?? (() => new Set<string>());
 
   let snapshot = buildSnapshot(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let revision = 0;
+  let stopped = false;
 
-  const rebuild = async () => {
+  const rebuild = async (requested: number) => {
     timer = null;
+    if (stopped) return;
     let result: LoadResult;
     try {
-      result = await loadWorkflows(config, getProviderNames());
+      result = await load(config, getProviderNames());
     } catch (cause) {
+      if (stopped || requested !== revision) return;
       // Directory disappeared between an fs.watch event and the debounced
       // rebuild — usually a teardown race. Log and bail; if it's transient
       // the next event reschedules a rebuild that succeeds.
       log.error(`rebuild failed: ${cause instanceof Error ? cause.message : String(cause)}`);
       return;
     }
+    if (stopped || requested !== revision) return;
     const next = buildSnapshot(result);
     for (const [name, info] of next.byName) {
       const prev = snapshot.byName.get(name);
@@ -120,9 +129,11 @@ export function watchWorkflows(
   };
 
   const schedule = () => {
+    if (stopped) return;
+    const requested = ++revision;
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
-      void rebuild();
+      void rebuild(requested);
     }, debounceMs);
   };
 
@@ -140,6 +151,7 @@ export function watchWorkflows(
 
   return {
     stop() {
+      stopped = true;
       if (timer !== null) clearTimeout(timer);
       fsWatcher.close();
     },

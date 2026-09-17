@@ -3,6 +3,7 @@ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { type Tool, type ToolExecutionOptions, type ToolSet, tool } from "ai";
 import { z } from "zod";
+import type { McpClient } from "./connect.ts";
 import { createMcpRegistry } from "./registry.ts";
 import type { McpServer } from "./schema.ts";
 
@@ -153,6 +154,210 @@ describe("createMcpRegistry", () => {
     await registry.replace(serverMap(stdio("b")), {});
     expect(closes).toEqual(["a"]);
     expect(Object.keys(registry.tools())).toEqual(["b__t"]);
+  });
+
+  it("keeps the latest replacement when connections finish in reverse order", async () => {
+    const old = Promise.withResolvers<McpClient>();
+    const closed: string[] = [];
+    let discoveries = 0;
+    const registry = createMcpRegistry(async (server) => {
+      if (server.name === "old") return old.promise;
+      return {
+        tools: async () => ({ t: aTool() }),
+        close: async () => {
+          closed.push(server.name);
+        },
+      };
+    });
+    await registry.replace(serverMap(stdio("initial")), {});
+    const stale = registry.replace(serverMap(stdio("old")), {});
+    await registry.replace(serverMap(stdio("new")), {});
+    old.resolve({
+      tools: async () => {
+        discoveries++;
+        return { t: aTool() };
+      },
+      close: async () => {
+        closed.push("old");
+      },
+    });
+    await stale;
+
+    expect(discoveries).toBe(0);
+    expect(Object.keys(registry.tools())).toEqual(["new__t"]);
+    expect(registry.status().map((s) => s.name)).toEqual(["new"]);
+    expect(registry.catalog().map((s) => s.name)).toEqual(["new"]);
+    expect(closed.sort()).toEqual(["initial", "old"]);
+    await registry.close();
+    expect(closed.sort()).toEqual(["initial", "new", "old"]);
+  });
+
+  for (const fails of [false, true]) {
+    it(`closes superseded discovery immediately and exactly once (${fails ? "failure" : "success"})`, async () => {
+      const discovery = Promise.withResolvers<ToolSet>();
+      const started = Promise.withResolvers<void>();
+      const closed = Promise.withResolvers<void>();
+      let closes = 0;
+      const registry = createMcpRegistry(async (server) => ({
+        tools: async () => {
+          if (server.name === "old") {
+            started.resolve();
+            return discovery.promise;
+          }
+          return { t: aTool() };
+        },
+        close: async () => {
+          if (server.name === "old") {
+            closes++;
+            closed.resolve();
+          }
+        },
+      }));
+      const stale = registry.replace(serverMap(stdio("old")), {});
+      await started.promise;
+      await registry.replace(serverMap(stdio("new")), {});
+      await closed.promise;
+      if (fails) discovery.reject(new Error("closed during discovery"));
+      else discovery.resolve({ t: aTool() });
+      await stale;
+
+      expect(closes).toBe(1);
+      expect(Object.keys(registry.tools())).toEqual(["new__t"]);
+      await registry.close();
+      expect(closes).toBe(1);
+    });
+  }
+
+  it("keeps the live client available while its predecessor is still closing", async () => {
+    const closing = Promise.withResolvers<void>();
+    const startedClosing = Promise.withResolvers<void>();
+    const connectLast = Promise.withResolvers<McpClient>();
+    const closed: string[] = [];
+    const registry = createMcpRegistry(async (server) => {
+      if (server.name === "last") return connectLast.promise;
+      return {
+        tools: async () => ({ t: aTool() }),
+        close: async () => {
+          closed.push(server.name);
+          if (server.name === "first") {
+            startedClosing.resolve();
+            await closing.promise;
+          }
+        },
+      };
+    });
+    await registry.replace(serverMap(stdio("first")), {});
+    const middle = registry.replace(serverMap(stdio("middle")), {});
+    await startedClosing.promise;
+    const last = registry.replace(serverMap(stdio("last")), {});
+    expect(await invoke(registry.tools().middle__t)).toBe("ok");
+    expect(closed).toEqual(["first"]);
+    connectLast.resolve({ tools: async () => ({}), close: async () => {} });
+    await last;
+    closing.resolve();
+    await middle;
+    expect(closed).toEqual(["first", "middle"]);
+    await registry.close();
+  });
+
+  it("drains pending connections on close and cannot be reopened", async () => {
+    const connected = Promise.withResolvers<McpClient>();
+    let connects = 0;
+    let discovers = 0;
+    let closes = 0;
+    const registry = createMcpRegistry(async () => {
+      connects++;
+      return connected.promise;
+    });
+    const replacing = registry.replace(serverMap(stdio("a")), {});
+    const closing = registry.close();
+    expect(registry.close()).toBe(closing);
+    await registry.replace(serverMap(stdio("b")), {});
+    connected.resolve({
+      tools: async () => {
+        discovers++;
+        return { t: aTool() };
+      },
+      close: async () => {
+        closes++;
+      },
+    });
+    await closing;
+    await replacing;
+    expect(connects).toBe(1);
+    expect(discovers).toBe(0);
+    expect(closes).toBe(1);
+    expect(registry.tools()).toEqual({});
+    expect(registry.status()).toEqual([]);
+    expect(registry.catalog()).toEqual([]);
+  });
+
+  it("closes clients still discovering tools without installing their late results", async () => {
+    const discovery = Promise.withResolvers<ToolSet>();
+    const started = Promise.withResolvers<void>();
+    const closed = Promise.withResolvers<void>();
+    let closes = 0;
+    const registry = createMcpRegistry(async () => ({
+      tools: async () => {
+        started.resolve();
+        return discovery.promise;
+      },
+      close: async () => {
+        closes++;
+        closed.resolve();
+      },
+    }));
+    const replacing = registry.replace(serverMap(stdio("a")), {});
+    await started.promise;
+    const closing = registry.close();
+    await closed.promise;
+    discovery.resolve({ t: aTool() });
+    await closing;
+    await replacing;
+    expect(closes).toBe(1);
+    expect(registry.tools()).toEqual({});
+    expect(registry.status()).toEqual([]);
+    expect(registry.catalog()).toEqual([]);
+  });
+
+  it("preserves active call leases across overlapping replacements and close", async () => {
+    const call = Promise.withResolvers<string>();
+    const staleConnection = Promise.withResolvers<McpClient>();
+    const closed: string[] = [];
+    const registry = createMcpRegistry(async (server) => {
+      if (server.name === "stale") return staleConnection.promise;
+      return {
+        tools: async () => ({
+          t: tool({ inputSchema: z.object({}), execute: () => call.promise }),
+        }),
+        close: async () => {
+          closed.push(server.name);
+        },
+      };
+    });
+    await registry.replace(serverMap(stdio("first")), {});
+    const firstTool = registry.tools().first__t;
+    const firstCall = invoke(firstTool);
+    const stale = registry.replace(serverMap(stdio("stale")), {});
+    await registry.replace(serverMap(stdio("last")), {});
+    const lastTool = registry.tools().last__t;
+    const lastCall = invoke(lastTool);
+    const closing = registry.close();
+    staleConnection.resolve({
+      tools: async () => ({}),
+      close: async () => {
+        closed.push("stale");
+      },
+    });
+    await stale;
+    await closing;
+    expect(closed).toEqual(["stale"]);
+    await expect(invoke(firstTool)).rejects.toThrow("no longer available");
+    await expect(invoke(lastTool)).rejects.toThrow("no longer available");
+    call.resolve("finished");
+    expect(await firstCall).toBe("finished");
+    expect(await lastCall).toBe("finished");
+    expect(closed.sort()).toEqual(["first", "last", "stale"]);
   });
 
   it("routes a tool captured before replacement through the current client", async () => {

@@ -20,7 +20,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Project deletion duplicates part of session deletion and omits inbox records, causing foreign-key failures. Every new owned table should have one place where its deletion behavior is defined.
 
-- [ ] **04 — Make asynchronous configuration replacement deterministic**
+- [x] **04 — Make asynchronous configuration replacement deterministic**
 
   **What:** Serialize reloads or reject superseded generations, close displaced connection attempts, and prevent a reload from installing resources after shutdown. Preserve MCP connections leased by calls already running. Test reversed completion order using controlled promises.
 
