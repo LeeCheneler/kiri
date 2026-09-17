@@ -37,6 +37,13 @@ export interface LlmModelInfo {
    */
   documentInput?: string[];
   /**
+   * Whether the model reads documents natively, when its listing reports
+   * input modalities (OpenRouter's does). Server-side only: it picks the
+   * parser an OpenRouter request asks for, and is stripped from the models
+   * endpoint's response.
+   */
+  nativeDocuments?: boolean;
+  /**
    * Whether the model supports reasoning parameters (an effort or
    * reasoning-effort setting). Heuristic: read from the listing's supported
    * parameters when reported, otherwise from well-known id families — and
@@ -214,6 +221,17 @@ function classifyImageInput(entry: ModalitySignals): boolean | undefined {
   return undefined;
 }
 
+// Classify whether a listing entry reads documents natively, from the same
+// input-modality signals as images (OpenRouter's `file` modality). No
+// modality signal at all is unknown, not false.
+function classifyDocumentInput(entry: ModalitySignals): boolean | undefined {
+  const modalities =
+    entry.architecture?.input_modalities ??
+    parseModalityArrow(entry.architecture?.modality)?.inputs;
+  if (modalities !== undefined && modalities.length > 0) return modalities.includes("file");
+  return undefined;
+}
+
 // Classify whether a listing entry supports reasoning parameters. An
 // OpenRouter-shaped `supported_parameters` array is authoritative either way:
 // it enumerates exactly what the endpoint accepts, so an entry that carries
@@ -289,6 +307,7 @@ const listingEntrySchema = z
     id: entry.id,
     output: classifyOutput(entry),
     imageInput: classifyImageInput(entry),
+    nativeDocuments: classifyDocumentInput(entry),
     reasoning: classifyReasoning(entry),
     limits: {
       contextWindow:
@@ -347,7 +366,8 @@ type ProviderModel = z.infer<typeof listingEntrySchema> & { reasoningLevels?: st
 // at it takes PDFs whatever the model's own listing says.
 const OPENROUTER_HOST = "openrouter.ai";
 
-const isOpenRouter = (baseUrl: string | undefined): boolean => {
+/** Whether a provider's base URL points at OpenRouter; a malformed or absent URL does not. */
+export const isOpenRouterUrl = (baseUrl: string | undefined): boolean => {
   try {
     return baseUrl !== undefined && new URL(baseUrl).hostname === OPENROUTER_HOST;
   } catch {
@@ -372,7 +392,7 @@ export function documentInputFor(provider: LlmProvider): string[] {
     case "anthropic":
       return [PDF_MEDIA_TYPE];
     case "openai-compatible":
-      return isOpenRouter(provider.baseUrl) ? [PDF_MEDIA_TYPE] : [];
+      return isOpenRouterUrl(provider.baseUrl) ? [PDF_MEDIA_TYPE] : [];
   }
 }
 
@@ -398,6 +418,8 @@ const codexListingSchema = z
           id: model.slug,
           output: "text" as const,
           imageInput: model.input_modalities?.includes("image"),
+          // Documents reach the Codex backend by provider rule, not by listing.
+          nativeDocuments: undefined,
           reasoning: reasoningLevels.some((level) => level !== "none"),
           reasoningLevels,
           limits: { contextWindow: model.context_window, outputLimit: undefined },
@@ -451,6 +473,7 @@ export async function listLlmModels(
         output: entry.output,
         imageInput: entry.imageInput,
         ...(documentInput.length > 0 && entry.output === "text" ? { documentInput } : {}),
+        ...(entry.nativeDocuments !== undefined ? { nativeDocuments: entry.nativeDocuments } : {}),
         reasoning: entry.reasoning,
         ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
       });

@@ -114,7 +114,13 @@ const fakeClients = (
   opts: {
     model?: LlmModel;
     resolveError?: string;
-    models?: { id: string; provider: string; output: "text" | "image"; reasoning?: boolean }[];
+    models?: {
+      id: string;
+      provider: string;
+      output: "text" | "image";
+      reasoning?: boolean;
+      nativeDocuments?: boolean;
+    }[];
     generateText?: LlmClients["generateText"];
     transcription?: LlmTranscriptionModel;
   } = {},
@@ -401,15 +407,23 @@ describe("sessions routes", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
         fakeClients({
-          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+          models: [
+            {
+              id: "anthropic:claude",
+              provider: "anthropic",
+              output: "text",
+              reasoning: true,
+              nativeDocuments: true,
+            },
+          ],
         }),
       );
 
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
-      // The reasoning flag is server-side send-or-omit state, stripped from
-      // the response — the client surface doesn't carry it.
+      // The reasoning and native-document flags are server-side send-or-omit
+      // state, stripped from the response — the client surface doesn't carry them.
       expect(await res.json()).toEqual({
         models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
         failures: [],

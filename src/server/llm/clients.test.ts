@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { generateImage, experimental_transcribe as transcribe } from "ai";
+import { generateImage, generateText, experimental_transcribe as transcribe } from "ai";
 import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import { createLlmClients, generateLlmText } from "./clients.ts";
@@ -90,6 +90,64 @@ describe("llm clients", () => {
 
     expect(result.text).toBe("hi from openai");
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 13, totalTokens: 20 });
+  });
+
+  it("asks OpenRouter for the free document parser only where the model lacks native support", async () => {
+    const openrouter: LlmProvider = {
+      name: "openrouter",
+      type: "openai-compatible",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKeyEnv: "OPENROUTER_API_KEY",
+    };
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      http.get("https://openrouter.ai/api/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "native/reader", architecture: { input_modalities: ["text", "file"] } },
+            { id: "plain/chat", architecture: { input_modalities: ["text"] } },
+          ],
+        }),
+      ),
+      http.post("https://openrouter.ai/api/v1/chat/completions", async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          created: 0,
+          model: "test-model",
+          choices: [
+            { index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" },
+          ],
+        });
+      }),
+    );
+    const clients = createLlmClients(registryWith(openrouter), { OPENROUTER_API_KEY: "sk-test" });
+    const pdfPrompt = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "file" as const, mediaType: "application/pdf", filename: "a.pdf", data: "AQI=" },
+          { type: "text" as const, text: "Summarise" },
+        ],
+      },
+    ];
+
+    await generateText({
+      model: clients.resolveModel("openrouter:plain/chat"),
+      messages: pdfPrompt,
+    });
+    await generateText({
+      model: clients.resolveModel("openrouter:native/reader"),
+      messages: pdfPrompt,
+    });
+    await generateText({ model: clients.resolveModel("openrouter:plain/chat"), prompt: "hello" });
+
+    expect(bodies.map((body) => body.plugins)).toEqual([
+      [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }],
+      undefined,
+      undefined,
+    ]);
   });
 
   it("constructs and completes an openai-compatible provider at its base_url", async () => {

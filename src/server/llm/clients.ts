@@ -11,7 +11,8 @@ import {
 } from "ai";
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
-import { type LlmModelsResult, listLlmModels } from "./models.ts";
+import { type LlmModelsResult, isOpenRouterUrl, listLlmModels } from "./models.ts";
+import { createOpenRouterModel } from "./openrouter-model.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
 
@@ -163,7 +164,10 @@ export function createLlmClients(
     },
     resolveModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);
-      return buildModel(provider, modelId, env);
+      return buildModel(provider, modelId, env, async () => {
+        const { models } = await cachedListing();
+        return models.find((model) => model.id === id)?.nativeDocuments;
+      });
     },
     resolveImageModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);
@@ -202,11 +206,16 @@ function resolveProvider(
   return { provider, modelId };
 }
 
-/** Construct an AI SDK model for a resolved provider, reading its API key from `env` now. */
+/**
+ * Construct an AI SDK model for a resolved provider, reading its API key from
+ * `env` now. `nativeDocuments` answers, per request, whether the model reads
+ * documents natively — only an OpenRouter-backed model asks.
+ */
 function buildModel(
   provider: LlmProvider,
   modelId: string,
   env: Record<string, string | undefined>,
+  nativeDocuments: () => Promise<boolean | undefined>,
 ): LlmModel {
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   switch (provider.type) {
@@ -219,18 +228,22 @@ function buildModel(
       // request shape with openai-compatible endpoints and is the portable
       // lowest common denominator for plain text completion.
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).chat(modelId);
-    case "openai-compatible":
+    case "openai-compatible": {
       // The schema requires `base_url` for this type, so it is always present.
       // `includeUsage` opts into `stream_options: { include_usage: true }` so
       // streamed turns (sessions) report token usage — unlike the `openai`
       // provider, this one omits it by default, which otherwise leaves every
       // streamed session turn with zero token counts.
-      return createOpenAICompatible({
+      const model = createOpenAICompatible({
         name: provider.name,
         baseURL: provider.baseUrl as string,
         apiKey,
         includeUsage: true,
       })(modelId);
+      return isOpenRouterUrl(provider.baseUrl)
+        ? createOpenRouterModel(model, provider.name, nativeDocuments)
+        : model;
+    }
   }
 }
 

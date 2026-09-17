@@ -663,13 +663,18 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // so the pickers can pin them and new sessions can start on the first one,
   // and the utility model, so the client knows which utility-driven actions
   // to offer. Read live, so a kiri.yaml edit is reflected on the next fetch. The
-  // reasoning flag stays server-side: it drives whether a turn sends provider
-  // reasoning parameters, and nothing client-side consumes it.
+  // reasoning and native-document flags stay server-side: they drive what a
+  // turn sends the provider, and nothing client-side consumes them.
   app.get("/models", async (c) => {
     const { models, failures } = await llmClients.listModels();
     return c.json({
       models: models.map(
-        ({ reasoning: _reasoning, reasoningLevels: _reasoningLevels, ...model }) => model,
+        ({
+          reasoning: _reasoning,
+          reasoningLevels: _reasoningLevels,
+          nativeDocuments: _nativeDocuments,
+          ...model
+        }) => model,
       ),
       failures,
       shortcuts: deps.getModelsConfig?.().shortcuts ?? {},

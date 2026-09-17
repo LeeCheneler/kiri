@@ -395,12 +395,20 @@ describe("listLlmModels", () => {
     expect(result.models).toEqual([
       // The arrow's left-hand side answers image input: chatty takes
       // text+image, painter takes text only.
-      { id: "local:chatty", provider: "local", output: "text", imageInput: true, reasoning: false },
+      {
+        id: "local:chatty",
+        provider: "local",
+        output: "text",
+        imageInput: true,
+        nativeDocuments: false,
+        reasoning: false,
+      },
       {
         id: "local:painter",
         provider: "local",
         output: "image",
         imageInput: false,
+        nativeDocuments: false,
         reasoning: false,
       },
       { id: "local:mystery", provider: "local", output: "text", reasoning: false },
@@ -513,6 +521,7 @@ describe("listLlmModels", () => {
         provider: "local",
         output: "text",
         imageInput: true,
+        nativeDocuments: false,
         reasoning: false,
       },
       {
@@ -520,6 +529,7 @@ describe("listLlmModels", () => {
         provider: "local",
         output: "text",
         imageInput: false,
+        nativeDocuments: false,
         reasoning: false,
       },
       { id: "local:mystery", provider: "local", output: "text", reasoning: false },
@@ -956,6 +966,28 @@ describe("documentInputFor", () => {
     expect(documentInputFor(local)).toEqual([]);
     expect(documentInputFor({ ...local, baseUrl: "not a url" })).toEqual([]);
     expect(documentInputFor({ ...local, baseUrl: undefined })).toEqual([]);
+  });
+
+  it("reads native document support from an OpenRouter-shaped listing", async () => {
+    server.use(
+      http.get("https://openrouter.ai/api/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "native", architecture: { input_modalities: ["text", "image", "file"] } },
+            { id: "parsed", architecture: { input_modalities: ["text"] } },
+            { id: "bare" },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(openrouter), {});
+
+    expect(result.models.map(({ id, nativeDocuments }) => [id, nativeDocuments])).toEqual([
+      ["openrouter:native", true],
+      ["openrouter:parsed", false],
+      ["openrouter:bare", undefined],
+    ]);
   });
 
   it("carries the accepted types onto text models only", async () => {
