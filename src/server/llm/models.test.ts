@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import type { LlmProvider, LlmProviderRegistry } from "./index.ts";
-import { listLlmModels } from "./models.ts";
+import { documentInputFor, listLlmModels } from "./models.ts";
 import { createLlmProviderRegistry } from "./registry.ts";
 
 const registryWith = (...providers: LlmProvider[]): LlmProviderRegistry => {
@@ -22,6 +22,8 @@ const local: LlmProvider = {
   type: "openai-compatible",
   baseUrl: "http://localhost:1234/v1",
 };
+
+const pdf = { documentInput: ["application/pdf"] };
 
 const modelList = (url: string, ids: unknown[]) =>
   http.get(url, () => HttpResponse.json({ data: ids.map((id) => ({ id })) }));
@@ -51,7 +53,13 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-haiku-4-5",
+        provider: "anthropic",
+        output: "text",
+        ...pdf,
+        reasoning: true,
+      },
     ]);
     expect(result.failures).toEqual([]);
     expect(headers?.get("x-api-key")).toBe("sk-test");
@@ -70,7 +78,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:gpt-4o-mini", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:gpt-4o-mini", provider: "openai", output: "text", ...pdf, reasoning: false },
     ]);
     expect(headers?.get("authorization")).toBe("Bearer sk-test");
   });
@@ -114,7 +122,13 @@ describe("listLlmModels", () => {
     });
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-haiku-4-5",
+        provider: "anthropic",
+        output: "text",
+        ...pdf,
+        reasoning: true,
+      },
       { id: "local:a", provider: "local", output: "text", reasoning: false },
       { id: "local:b", provider: "local", output: "text", reasoning: false },
     ]);
@@ -144,7 +158,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:gpt-4o", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:gpt-4o", provider: "openai", output: "text", ...pdf, reasoning: false },
     ]);
   });
 
@@ -190,6 +204,7 @@ describe("listLlmModels", () => {
       {
         id: "anthropic:claude-opus-4-8",
         provider: "anthropic",
+        ...pdf,
         contextWindow: 1000000,
         outputLimit: 128000,
         output: "text",
@@ -284,7 +299,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:gpt-x", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:gpt-x", provider: "openai", output: "text", ...pdf, reasoning: false },
     ]);
   });
 
@@ -531,6 +546,7 @@ describe("listLlmModels", () => {
       {
         id: "anthropic:claude-opus-4-8",
         provider: "anthropic",
+        ...pdf,
         output: "text",
         imageInput: true,
         reasoning: true,
@@ -538,11 +554,18 @@ describe("listLlmModels", () => {
       {
         id: "anthropic:claude-text-only",
         provider: "anthropic",
+        ...pdf,
         output: "text",
         imageInput: false,
         reasoning: true,
       },
-      { id: "anthropic:claude-bare", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-bare",
+        provider: "anthropic",
+        output: "text",
+        ...pdf,
+        reasoning: true,
+      },
     ]);
   });
 
@@ -664,7 +687,7 @@ describe("listLlmModels", () => {
         reasoning: false,
       },
       { id: "openai:grok-2-image", provider: "openai", output: "image", reasoning: false },
-      { id: "openai:gpt-4o", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:gpt-4o", provider: "openai", output: "text", ...pdf, reasoning: false },
     ]);
   });
 
@@ -716,17 +739,29 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:o3", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:o4-mini", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:gpt-5", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:gpt-5.2-mini", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:deepseek-r1-distill", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:qwq-32b", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:magistral-small", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:qwen3-thinking", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:o1-mini", provider: "openai", output: "text", reasoning: false },
-      { id: "openai:o1-preview", provider: "openai", output: "text", reasoning: false },
-      { id: "openai:gpt-5-chat-latest", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:o3", provider: "openai", output: "text", ...pdf, reasoning: true },
+      { id: "openai:o4-mini", provider: "openai", output: "text", ...pdf, reasoning: true },
+      { id: "openai:gpt-5", provider: "openai", output: "text", ...pdf, reasoning: true },
+      { id: "openai:gpt-5.2-mini", provider: "openai", output: "text", ...pdf, reasoning: true },
+      {
+        id: "openai:deepseek-r1-distill",
+        provider: "openai",
+        output: "text",
+        ...pdf,
+        reasoning: true,
+      },
+      { id: "openai:qwq-32b", provider: "openai", output: "text", ...pdf, reasoning: true },
+      { id: "openai:magistral-small", provider: "openai", output: "text", ...pdf, reasoning: true },
+      { id: "openai:qwen3-thinking", provider: "openai", output: "text", ...pdf, reasoning: true },
+      { id: "openai:o1-mini", provider: "openai", output: "text", ...pdf, reasoning: false },
+      { id: "openai:o1-preview", provider: "openai", output: "text", ...pdf, reasoning: false },
+      {
+        id: "openai:gpt-5-chat-latest",
+        provider: "openai",
+        output: "text",
+        ...pdf,
+        reasoning: false,
+      },
     ]);
   });
 
@@ -748,26 +783,42 @@ describe("listLlmModels", () => {
       {
         id: "anthropic:claude-3-7-sonnet-latest",
         provider: "anthropic",
+        ...pdf,
         output: "text",
         reasoning: true,
       },
-      { id: "anthropic:claude-sonnet-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-sonnet-4-5",
+        provider: "anthropic",
+        output: "text",
+        ...pdf,
+        reasoning: true,
+      },
       {
         id: "anthropic:claude-3-5-sonnet-latest",
         provider: "anthropic",
+        ...pdf,
         output: "text",
         reasoning: false,
       },
       {
         id: "anthropic:claude-3-haiku-20240307",
         provider: "anthropic",
+        ...pdf,
         output: "text",
         reasoning: false,
       },
-      { id: "anthropic:claude-2.1", provider: "anthropic", output: "text", reasoning: false },
+      {
+        id: "anthropic:claude-2.1",
+        provider: "anthropic",
+        output: "text",
+        ...pdf,
+        reasoning: false,
+      },
       {
         id: "anthropic:claude-instant-1.2",
         provider: "anthropic",
+        ...pdf,
         output: "text",
         reasoning: false,
       },
@@ -873,6 +924,63 @@ describe("listLlmModels", () => {
 
     expect(result.models).toEqual([
       { id: "local:google/gemma", provider: "local", output: "text", reasoning: false },
+    ]);
+  });
+});
+
+describe("documentInputFor", () => {
+  const codex: LlmProvider = { name: "chatgpt", type: "openai-codex" };
+  const openrouter: LlmProvider = {
+    name: "openrouter",
+    type: "openai-compatible",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+  };
+
+  it("decides by provider transport, not by the model", () => {
+    expect(documentInputFor(codex)).toEqual([
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+    ]);
+    expect(documentInputFor(openai)).toEqual(["application/pdf"]);
+    expect(documentInputFor(anthropic)).toEqual(["application/pdf"]);
+  });
+
+  it("takes PDFs on an openai-compatible provider only when it is OpenRouter", () => {
+    expect(documentInputFor(openrouter)).toEqual(["application/pdf"]);
+    expect(documentInputFor(local)).toEqual([]);
+    expect(documentInputFor({ ...local, baseUrl: "not a url" })).toEqual([]);
+    expect(documentInputFor({ ...local, baseUrl: undefined })).toEqual([]);
+  });
+
+  it("carries the accepted types onto text models only", async () => {
+    server.use(
+      http.get("https://openrouter.ai/api/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "anthropic/claude", architecture: { output_modalities: ["text"] } },
+            { id: "google/imagen", architecture: { output_modalities: ["image"] } },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(openrouter), {});
+
+    expect(result.models).toEqual([
+      {
+        id: "openrouter:anthropic/claude",
+        provider: "openrouter",
+        output: "text",
+        ...pdf,
+        reasoning: true,
+      },
+      { id: "openrouter:google/imagen", provider: "openrouter", output: "image", reasoning: false },
     ]);
   });
 });

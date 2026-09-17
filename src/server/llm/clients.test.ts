@@ -223,7 +223,13 @@ describe("llm clients", () => {
     const result = await clients.listModels();
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-haiku-4-5",
+        provider: "anthropic",
+        output: "text",
+        documentInput: ["application/pdf"],
+        reasoning: true,
+      },
     ]);
     expect(result.failures).toEqual([]);
   });

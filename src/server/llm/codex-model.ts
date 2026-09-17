@@ -32,6 +32,10 @@ export function createCodexModel(
             // turns replay reasoning without relying on server-side storage.
             store: false,
             include: ["reasoning.encrypted_content"],
+            // The SDK's Responses mapping only lets PDFs through as file
+            // parts; the backend also takes Office documents (see
+            // `documentInputFor`), so pass the rest through untouched.
+            passThroughUnsupportedFiles: true,
           },
         },
       }),

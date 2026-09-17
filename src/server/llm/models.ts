@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ALL_DOCUMENT_MEDIA_TYPES, PDF_MEDIA_TYPE } from "../../shared/document-types.ts";
 import { CODEX_BASE_URL, createCodexFetch } from "./codex-fetch.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider, ProviderType } from "./schema.ts";
@@ -29,6 +30,12 @@ export interface LlmModelInfo {
   output: LlmModelOutput;
   /** Whether the model accepts image input, when the provider's listing reports it. */
   imageInput?: boolean;
+  /**
+   * The document media types the model accepts as binary file parts, when
+   * its provider transport carries any (see `documentInputFor`). Absent when
+   * none do — text files are inlined as text and never counted here.
+   */
+  documentInput?: string[];
   /**
    * Whether the model supports reasoning parameters (an effort or
    * reasoning-effort setting). Heuristic: read from the listing's supported
@@ -336,6 +343,39 @@ const nativeListingSchema = z
 /** A model id from a provider's listing, with any limits the listing reported. */
 type ProviderModel = z.infer<typeof listingEntrySchema> & { reasoningLevels?: string[] };
 
+// OpenRouter parses PDFs for every model it routes to, so a provider pointed
+// at it takes PDFs whatever the model's own listing says.
+const OPENROUTER_HOST = "openrouter.ai";
+
+const isOpenRouter = (baseUrl: string | undefined): boolean => {
+  try {
+    return baseUrl !== undefined && new URL(baseUrl).hostname === OPENROUTER_HOST;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The document media types a provider's models accept as binary file parts.
+ * Whether a document reaches the model is decided by the provider transport,
+ * not the model, so this is a rule per provider type rather than a listing
+ * signal: the Codex backend speaks OpenAI's Responses API, which takes PDFs
+ * and Office documents (text-extracted); OpenAI's chat API and Anthropic take
+ * PDFs alone; and among `openai-compatible` endpoints only OpenRouter maps a
+ * file part — local servers reject one — so the rest take none.
+ */
+export function documentInputFor(provider: LlmProvider): string[] {
+  switch (provider.type) {
+    case "openai-codex":
+      return [...ALL_DOCUMENT_MEDIA_TYPES];
+    case "openai":
+    case "anthropic":
+      return [PDF_MEDIA_TYPE];
+    case "openai-compatible":
+      return isOpenRouter(provider.baseUrl) ? [PDF_MEDIA_TYPE] : [];
+  }
+}
+
 // The Codex backend requires a client version; pinned to the verified protocol.
 const CODEX_CLIENT_VERSION = "0.153.4";
 const codexListingEntrySchema = z.object({
@@ -401,6 +441,7 @@ export async function listLlmModels(
       failures.push({ provider: provider.name, reason });
       continue;
     }
+    const documentInput = documentInputFor(provider);
     for (const entry of entries) {
       if (entry.output === undefined) continue;
       models.push({
@@ -409,6 +450,7 @@ export async function listLlmModels(
         ...entry.limits,
         output: entry.output,
         imageInput: entry.imageInput,
+        ...(documentInput.length > 0 && entry.output === "text" ? { documentInput } : {}),
         reasoning: entry.reasoning,
         ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
       });

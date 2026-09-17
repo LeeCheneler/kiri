@@ -171,6 +171,43 @@ describe("Codex provider through the AI SDK", () => {
     ]);
   });
 
+  it("sends documents as file input, Office types included, through the streaming adapter", async () => {
+    let input: unknown;
+    server.use(
+      http.post(`${CODEX_BASE_URL}/responses`, async ({ request }) => {
+        input = ((await request.json()) as { input: unknown }).input;
+        return sse(textEvents);
+      }),
+    );
+    const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const result = streamText({
+      model: clients.resolveModel("chatgpt:gpt-5.4-mini"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "file", mediaType: "application/pdf", filename: "a.pdf", data: "AQI=" },
+            { type: "file", mediaType: docx, filename: "b.docx", data: "AwQ=" },
+            { type: "text", text: "Summarise both" },
+          ],
+        },
+      ],
+    });
+    expect(await result.text).toBe("violet");
+    // The SDK maps PDFs itself; Office documents only pass because the model
+    // opts into passing unsupported file parts through to the backend.
+    expect(input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_file", filename: "a.pdf", file_data: "data:application/pdf;base64,AQI=" },
+          { type: "input_file", filename: "b.docx", file_data: `data:${docx};base64,AwQ=` },
+          { type: "input_text", text: "Summarise both" },
+        ],
+      },
+    ]);
+  });
+
   it("runs an llm step through the streaming adapter and preserves its envelope", async () => {
     let input: unknown;
     server.use(
@@ -266,6 +303,7 @@ describe("Codex provider through the AI SDK", () => {
     expect(models[0]).toMatchObject({
       contextWindow: 200_000,
       imageInput: true,
+      documentInput: expect.arrayContaining(["application/pdf"]),
       output: "text",
       reasoning: true,
       reasoningLevels: ["low", "high"],
