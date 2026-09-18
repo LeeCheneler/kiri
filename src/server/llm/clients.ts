@@ -1,6 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModelV3 } from "@ai-sdk/provider";
 import {
   type ImageModel,
   type ImagePart,
@@ -194,12 +195,12 @@ export function createLlmClients(
     resolveModel(id) {
       const snapshot = metadataSnapshot();
       const { provider, modelId } = resolveProvider(snapshot.registry, id);
-      return buildModel(
-        provider,
-        modelId,
-        env,
-        async () => (await describe(snapshot, id)).model.nativeDocuments,
-      );
+      const model = buildModel(provider, modelId, env);
+      // Endpoint-specific request shaping wraps the generic model here, where
+      // the model's description is in reach.
+      return endpointFor(provider).kind === "openrouter"
+        ? createOpenRouterModel(model, () => describe(snapshot, id))
+        : model;
     },
     resolveImageModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);
@@ -238,17 +239,12 @@ function resolveProvider(
   return { provider, modelId };
 }
 
-/**
- * Construct an AI SDK model for a resolved provider, reading its API key from
- * `env` now. `nativeDocuments` answers, per request, whether the model reads
- * documents natively — only an OpenRouter-backed model asks.
- */
+/** Construct an AI SDK model for a resolved provider, reading its API key from `env` now. */
 function buildModel(
   provider: LlmProvider,
   modelId: string,
   env: Record<string, string | undefined>,
-  nativeDocuments: () => Promise<boolean | undefined>,
-): LlmModel {
+): LanguageModelV3 {
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   switch (provider.type) {
     case "openai-codex":
@@ -261,30 +257,19 @@ function buildModel(
       // lowest common denominator for plain text completion.
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).chat(modelId);
     case "openai-compatible":
-      return buildCompatibleModel(provider, modelId, apiKey, nativeDocuments);
+      // The schema requires `base_url` for an openai-compatible provider, so
+      // it is always present. `includeUsage` opts into `stream_options: {
+      // include_usage: true }` so streamed turns (sessions) report token
+      // usage — unlike the `openai` provider, this one omits it by default,
+      // which otherwise leaves every streamed session turn with zero token
+      // counts.
+      return createOpenAICompatible({
+        name: provider.name,
+        baseURL: provider.baseUrl as string,
+        apiKey,
+        includeUsage: true,
+      })(modelId);
   }
-}
-
-// The schema requires `base_url` for an openai-compatible provider, so it is
-// always present. `includeUsage` opts into `stream_options: { include_usage:
-// true }` so streamed turns (sessions) report token usage — unlike the `openai`
-// provider, this one omits it by default, which otherwise leaves every
-// streamed session turn with zero token counts.
-function buildCompatibleModel(
-  provider: LlmProvider,
-  modelId: string,
-  apiKey: string | undefined,
-  nativeDocuments: () => Promise<boolean | undefined>,
-): LlmModel {
-  const model = createOpenAICompatible({
-    name: provider.name,
-    baseURL: provider.baseUrl as string,
-    apiKey,
-    includeUsage: true,
-  })(modelId);
-  return endpointFor(provider).kind === "openrouter"
-    ? createOpenRouterModel(model, provider.name, nativeDocuments)
-    : model;
 }
 
 /** Construct an AI SDK image model for a resolved provider, reading its API key from `env` now. */
