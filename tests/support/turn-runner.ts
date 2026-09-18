@@ -11,10 +11,10 @@ import {
 import { createTurnStarter } from "../../src/server/sessions/turn-start.ts";
 import type {
   PreparedTurn,
-  ResumeTurnArgs,
   RunTurnArgs,
   RunTurnDeps,
   StartedTurn,
+  ToolApprovalDecision,
 } from "../../src/server/sessions/turn.ts";
 
 /** Cancels the turns started with it, as the runtime's `cancelTurn` does. */
@@ -64,6 +64,7 @@ const starterFor = ({ streamRegistry, lifecycle, canceller, ...deps }: TestTurnD
   canceller?.watch(turns);
   return createTurnStarter({
     db: deps.db,
+    llmClients: deps.llmClients,
     lifecycle: turns,
     prepareTurn: (session) => ({ session, turnDeps: { ...deps, bus } }),
   });
@@ -72,11 +73,13 @@ const starterFor = ({ streamRegistry, lifecycle, canceller, ...deps }: TestTurnD
 /** A starter over a fresh in-memory lifecycle on `bus`, for a driver under test. */
 export const turnStarter = (deps: {
   db: RunTurnDeps["db"];
+  llmClients: RunTurnDeps["llmClients"];
   bus: EventBus;
   prepareTurn: (session: Session) => PreparedTurn;
 }) =>
   createTurnStarter({
     db: deps.db,
+    llmClients: deps.llmClients,
     lifecycle: createTurnLifecycle({
       db: deps.db,
       bus: deps.bus,
@@ -85,18 +88,22 @@ export const turnStarter = (deps: {
     prepareTurn: deps.prepareTurn,
   });
 
-type Args<T> = Omit<T, "lease">;
+type Args = Pick<RunTurnArgs, "session">;
 
 /** Start a turn on a user message against exactly `deps`. */
-export const runTurn = (deps: TestTurnDeps, args: Args<RunTurnArgs>): Promise<StartedTurn> =>
+export const runTurn = (
+  deps: TestTurnDeps,
+  args: Args & Pick<RunTurnArgs, "userMessage">,
+): Promise<StartedTurn> =>
   starterFor(deps)(args.session, { kind: "message", userMessage: args.userMessage });
 
 /** Resume a turn paused on tool approvals against exactly `deps`. */
-export const resumeTurn = (deps: TestTurnDeps, args: Args<ResumeTurnArgs>): Promise<StartedTurn> =>
+export const resumeTurn = (
+  deps: TestTurnDeps,
+  args: Args & { approvals: ToolApprovalDecision[] },
+): Promise<StartedTurn> =>
   starterFor(deps)(args.session, { kind: "approvals", approvals: args.approvals });
 
 /** Start a turn from the session's queued backlog against exactly `deps`; null when nothing is queued. */
-export const runWakeTurn = (
-  deps: TestTurnDeps,
-  args: Pick<RunTurnArgs, "session">,
-): Promise<StartedTurn | null> => starterFor(deps)(args.session, { kind: "wake" });
+export const runWakeTurn = (deps: TestTurnDeps, args: Args): Promise<StartedTurn | null> =>
+  starterFor(deps)(args.session, { kind: "wake" });

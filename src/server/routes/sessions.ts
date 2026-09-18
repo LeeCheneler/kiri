@@ -45,6 +45,8 @@ import {
   updateSessionSettings,
 } from "../sessions/index.ts";
 import type { SessionRuntime } from "../sessions/runtime.ts";
+import { TurnInFlightError } from "../sessions/turn-lifecycle.ts";
+import type { TurnStart } from "../sessions/turn-start.ts";
 import { defaultWorkingDirectory } from "../sessions/working-directory.ts";
 import {
   serializeInboxItem,
@@ -674,17 +676,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const session = getSession(db, id);
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      // Reject only a concurrent turn (one already in flight). A session is
-      // long-lived and resumable: after an idle, failed, or cancelled turn it
-      // accepts the next message, picking the conversation back up.
-      if (session.status === "running") {
-        return c.json(
-          {
-            error: `session "${id}" already has a turn in flight`,
-          } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
-      }
+      // A session is long-lived and resumable: after an idle, failed, or
+      // cancelled turn it accepts the next message, picking the conversation
+      // back up. Only a concurrent turn is refused, by the start itself.
+      const start = async (turn: Exclude<TurnStart, { kind: "wake" }>) => {
+        try {
+          return (await runtime.startTurn(session, turn)).response;
+        } catch (cause) {
+          if (!(cause instanceof TurnInFlightError)) throw cause;
+          return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
+        }
+      };
       const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);
       const last = priorMessages.at(-1);
@@ -722,11 +724,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             });
           }
         }
-        const { response } = await runtime.startTurn(session, {
-          kind: "approvals",
-          approvals: extractApprovals(parts),
-        });
-        return response;
+        return start({ kind: "approvals", approvals: extractApprovals(parts) });
       }
 
       // A new user message can't start while a tool approval is still pending —
@@ -762,8 +760,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
 
       const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };
-      const { response } = await runtime.startTurn(session, { kind: "message", userMessage });
-      return response;
+      return start({ kind: "message", userMessage });
     },
   );
 

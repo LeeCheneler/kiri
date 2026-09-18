@@ -4,6 +4,7 @@ import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
 import { enqueueInboxItem } from "./inbox.ts";
 import { type Session, getSession, getSessionMessages } from "./store.ts";
+import { TurnInFlightError } from "./turn-lifecycle.ts";
 import type { StartTurn } from "./turn-start.ts";
 
 const log = createLogger("sessions");
@@ -114,6 +115,9 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
       const started = await startTurn(session, { kind: "wake" });
       await started?.done;
     } catch (cause) {
+      // Losing the session to another turn is no failure: that turn weaves
+      // the backlog in, or its idle settle wakes the session again.
+      if (cause instanceof TurnInFlightError) return;
       // The start has already settled the session as failed (for example, the
       // worker's model no longer resolves), which notices its parent below.
       log.error(`wake turn for session ${sessionId} failed`, cause);

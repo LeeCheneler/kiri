@@ -110,7 +110,12 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
   });
 
   const lifecycle = createTurnLifecycle({ db, bus, streamRegistry });
-  const startTurn = createTurnStarter({ db, lifecycle, prepareTurn: preparation.prepareTurn });
+  const startTurn = createTurnStarter({
+    db,
+    llmClients,
+    lifecycle,
+    prepareTurn: preparation.prepareTurn,
+  });
 
   mountDelegationMessaging({ db, bus, startTurn });
 

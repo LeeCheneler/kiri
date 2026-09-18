@@ -3228,15 +3228,25 @@ describe("sessions routes", () => {
     });
 
     it("409s when a turn is already in flight", async () => {
-      const app = makeApp(fakeClients());
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: pendingModel() }), { bus });
       createSession(env.db, MODEL, { id: "s1" });
-      setSessionStatus(env.db, "s1", "running");
+      // The turn parks (the model stream never closes), holding the session.
+      const turn = await postMessage(app, "s1", "Hi there");
 
-      const res = await postMessage(app, "s1", "hi");
+      const res = await postMessage(app, "s1", "and another thing");
 
       expect(res.status).toBe(409);
-      // No turn ran: still just the (none) persisted messages.
-      expect(getSessionMessages(env.db, "s1")).toHaveLength(0);
+      expect(((await res.json()) as { error: string }).error).toContain(
+        "already has a turn in flight",
+      );
+      // The refused message was not saved: only the first turn's is there.
+      expect(getSessionMessages(env.db, "s1").filter((m) => m.role === "user")).toHaveLength(1);
+
+      const settled = waitForSettled("s1");
+      await app.request("/api/sessions/s1/cancel", { method: "POST", headers: CLIENT_HEADERS });
+      await turn.text();
+      await settled;
     });
 
     it("resumes a session after a previous turn failed", async () => {

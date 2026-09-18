@@ -14,7 +14,7 @@ import {
 import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
-import { type LlmClients, effortProviderOptions } from "../llm/index.ts";
+import { type LlmClients, type LlmModel, effortProviderOptions } from "../llm/index.ts";
 import { compactContext } from "./compact-context.ts";
 import {
   type ContextCalibration,
@@ -124,6 +124,8 @@ export interface RunTurnArgs {
   session: Session;
   /** This execution's hold on the session: its cancellation signal, its resumable stream, and its status writes. */
   lease: TurnLease;
+  /** The session's model, resolved before the session was prepared so a bad id rejects the start with nothing written. */
+  model: LlmModel;
   /** The incoming user message, persisted before the assistant response streams. */
   userMessage: UIMessage;
 }
@@ -143,8 +145,16 @@ export interface ResumeTurnArgs {
   session: Session;
   /** This execution's hold on the session (see `RunTurnArgs.lease`). */
   lease: TurnLease;
-  /** Verdicts for the pending tool-approval requests on that assistant message. */
-  approvals: ToolApprovalDecision[];
+  /** The session's model (see `RunTurnArgs.model`). */
+  model: LlmModel;
+  /** The user's verdicts, applied to the assistant message they answer (see `applyPendingApprovals`). */
+  approved: AppliedApprovals;
+}
+
+/** A paused assistant message with the user's verdicts applied, ready to be saved as its turn resumes. */
+export interface AppliedApprovals {
+  messageId: string;
+  parts: UIMessage["parts"];
 }
 
 export interface StartedTurn {
@@ -235,16 +245,10 @@ function drainBacklog(db: KiriDb, bus: EventBus, sessionId: string): number {
  * client connection does *not* cancel: the stream is drained server-side, so the
  * turn runs to completion and persists whether or not anyone is reading it.
  *
- * Resolving the model can throw (bad id, unknown provider); it does so before
- * any state changes, so the route surfaces it as a clean error with nothing
- * half-persisted.
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus } = deps;
-  const { session, userMessage, lease } = args;
-
-  // Resolve before any writes so a bad id rejects with nothing half-persisted.
-  const model = llmClients.resolveModel(session.model);
+  const { db, bus } = deps;
+  const { session, userMessage, lease, model } = args;
 
   // Anything queued while the session was idle drains ahead of the message
   // that starts the turn.
@@ -272,13 +276,10 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
  */
 export async function runWakeTurn(
   deps: RunTurnDeps,
-  args: Pick<RunTurnArgs, "session" | "lease">,
+  args: Omit<RunTurnArgs, "userMessage">,
 ): Promise<StartedTurn> {
-  const { db, llmClients, bus } = deps;
-  const { session, lease } = args;
-
-  // Resolve before any writes so a bad id rejects with nothing half-persisted.
-  const model = llmClients.resolveModel(session.model);
+  const { db, bus } = deps;
+  const { session, lease, model } = args;
 
   const incomingMessageCount = drainBacklog(db, bus, session.id);
   bus.publish({ type: "session.message.added", sessionId: session.id });
@@ -288,22 +289,16 @@ export async function runWakeTurn(
 }
 
 /**
- * Resume a turn paused awaiting tool approval. Applies the user's verdicts to the
- * session's last (assistant) message — each pending tool call flipped to allowed
- * or denied — then streams the continuation: the AI SDK runs the allowed tools,
- * tells the model the denied ones were refused, and the model carries on. The
- * continuation extends that same assistant message in place rather than starting
- * a new one.
- *
- * Throws (before any write) if the session isn't actually awaiting approval, or
- * if no verdict matches a pending request — the route maps either to a 4xx.
+ * Apply the user's verdicts to the session's last (assistant) message — each
+ * pending tool call flipped to allowed or denied. Reads only: throws if the
+ * session isn't actually awaiting approval, or if no verdict matches a pending
+ * request.
  */
-export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients } = deps;
-  const { session, approvals, lease } = args;
-
-  const model = llmClients.resolveModel(session.model);
-
+export function applyPendingApprovals(
+  db: KiriDb,
+  session: Session,
+  approvals: ToolApprovalDecision[],
+): AppliedApprovals {
   const last = getSessionMessages(db, session.id).at(-1);
   if (!last || last.role !== "assistant") {
     throw new Error(`session "${session.id}" has no turn awaiting tool approval`);
@@ -312,7 +307,20 @@ export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promi
   if (applied === 0) {
     throw new Error(`session "${session.id}" has no pending tool approval matching the response`);
   }
-  updateMessage(db, session.id, last.id, { parts });
+  return { messageId: last.id, parts };
+}
+
+/**
+ * Resume a turn paused awaiting tool approval: save the applied verdicts, then
+ * stream the continuation — the AI SDK runs the allowed tools, tells the model
+ * the denied ones were refused, and the model carries on. The continuation
+ * extends that same assistant message in place rather than starting a new one.
+ */
+export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promise<StartedTurn> {
+  const { db } = deps;
+  const { session, approved, lease, model } = args;
+
+  updateMessage(db, session.id, approved.messageId, { parts: approved.parts });
   lease.begin();
 
   return streamCore(deps, session, lease, model);
@@ -379,7 +387,7 @@ async function streamCore(
   deps: RunTurnDeps,
   session: Session,
   lease: TurnLease,
-  model: ReturnType<LlmClients["resolveModel"]>,
+  model: LlmModel,
   incomingMessageCount = 0,
 ): Promise<StartedTurn> {
   const { db, llmClients, bus, buildSystemPrompt, tools, instructionContext } = deps;

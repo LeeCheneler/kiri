@@ -102,6 +102,7 @@ describe("delegate tool", () => {
     startTurn: turnStarter({
       db,
       bus,
+      llmClients: clientsFor(model),
       prepareTurn: (child) => {
         capture.childId = child.id;
         return { session: child, turnDeps: { db, llmClients: clientsFor(model), bus } };
@@ -162,6 +163,7 @@ describe("delegate tool", () => {
       startTurn: turnStarter({
         db,
         bus,
+        llmClients: clientsFor(reportingModel("done")),
         prepareTurn: (child) => {
           capture.childId = child.id;
           return {
@@ -500,6 +502,7 @@ describe("message_worker tool", () => {
       startTurn: turnStarter({
         db,
         bus,
+        llmClients: clientsFor(reportingModel("unused")),
         prepareTurn: (session) => ({
           session,
           turnDeps: { db, bus, llmClients: clientsFor(reportingModel("unused")) },

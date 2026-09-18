@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import { messageParentTool } from "./delegate-tool.ts";
 import { mountDelegationMessaging } from "./delegation-messaging.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
+  type Session,
   appendMessage,
   createSession,
   getSession,
@@ -23,6 +24,8 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
+import { TurnInFlightError } from "./turn-lifecycle.ts";
+import type { StartTurn } from "./turn-start.ts";
 import type { RunTurnDeps } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -96,7 +99,12 @@ describe("mountDelegationMessaging", () => {
     const unsubscribe = mountDelegationMessaging({
       db,
       bus,
-      startTurn: turnStarter({ db, bus, prepareTurn: (session) => ({ session, turnDeps }) }),
+      startTurn: turnStarter({
+        db,
+        bus,
+        llmClients: turnDeps.llmClients,
+        prepareTurn: (session) => ({ session, turnDeps }),
+      }),
     });
     return { bus, unsubscribe };
   };
@@ -125,6 +133,7 @@ describe("mountDelegationMessaging", () => {
       startTurn: turnStarter({
         db,
         bus,
+        llmClients: clientsFor(capturingModel([])),
         prepareTurn: (session) => ({
           session: updateSessionCwd(db, session.id, dir),
           turnDeps: {
@@ -157,6 +166,7 @@ describe("mountDelegationMessaging", () => {
       startTurn: turnStarter({
         db,
         bus,
+        llmClients: clientsFor(capturingModel([])),
         prepareTurn: (session) => {
           prepared += 1;
           return { session, turnDeps: { db, bus, llmClients: clientsFor(capturingModel([])) } };
@@ -235,6 +245,29 @@ describe("mountDelegationMessaging", () => {
     }
   });
 
+  it("treats losing the session to another turn as no failure", async () => {
+    const bus = createEventBus();
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    mountDelegationMessaging({
+      db,
+      bus,
+      startTurn: (async (session: Session) => {
+        throw new TurnInFlightError(session.id);
+      }) as StartTurn,
+    });
+    createSession(db, MODEL, { id: "parent" });
+    enqueueInboxItem(db, "parent", { source: "child", text: "report" });
+
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    await tick();
+
+    // The turn that holds the session delivers the backlog; nothing went wrong here.
+    expect(logged).not.toHaveBeenCalled();
+    expect(getSession(db, "parent")?.status).toBe("idle");
+    expect(pendingInboxItems(db, "parent")).toHaveLength(1);
+    logged.mockRestore();
+  });
+
   it("survives a wake whose turn cannot start, leaving the backlog queued", async () => {
     const bus = createEventBus();
     const turnDeps: RunTurnDeps = {
@@ -250,7 +283,12 @@ describe("mountDelegationMessaging", () => {
     mountDelegationMessaging({
       db,
       bus,
-      startTurn: turnStarter({ db, bus, prepareTurn: (session) => ({ session, turnDeps }) }),
+      startTurn: turnStarter({
+        db,
+        bus,
+        llmClients: turnDeps.llmClients,
+        prepareTurn: (session) => ({ session, turnDeps }),
+      }),
     });
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
@@ -506,19 +544,15 @@ describe("mountDelegationMessaging", () => {
       startTurn: turnStarter({
         db,
         bus,
-        prepareTurn: (session) => ({
-          session,
-          turnDeps: {
-            db,
-            bus,
-            llmClients: {
-              ...clientsFor(capturingModel([])),
-              resolveModel: () => {
-                throw "model removed";
-              },
-            },
+        llmClients: {
+          ...clientsFor(capturingModel([])),
+          resolveModel: () => {
+            throw "model removed";
           },
-        }),
+        },
+        prepareTurn: () => {
+          throw new Error("a session whose model does not resolve is not prepared");
+        },
       }),
     });
     createSession(db, MODEL, { id: "parent" });

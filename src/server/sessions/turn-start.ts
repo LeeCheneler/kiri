@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import type { KiriDb } from "../db/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import { pendingInboxItems } from "./inbox.ts";
 import type { Session } from "./store.ts";
 import type { TurnLease, TurnLifecycle } from "./turn-lifecycle.ts";
@@ -7,6 +8,7 @@ import {
   type PreparedTurn,
   type StartedTurn,
   type ToolApprovalDecision,
+  applyPendingApprovals,
   resumeTurn,
   runTurn,
   runWakeTurn,
@@ -31,6 +33,8 @@ export interface StartTurn {
 
 export interface TurnStarterDeps {
   db: KiriDb;
+  /** Resolves the session's model before anything is written. */
+  llmClients: LlmClients;
   /** Leases the session to the turn being started. */
   lifecycle: TurnLifecycle;
   /** Makes the session ready to run (see `TurnPreparation.prepareTurn`). */
@@ -39,9 +43,10 @@ export interface TurnStarterDeps {
 
 /**
  * Create the one path by which a turn starts, whoever drives it: lease the
- * session to the new execution, prepare it, then run the turn its start
- * describes under that lease. Throws `TurnInFlightError` when the session
- * already has a turn executing.
+ * session to the new execution, check the start can go ahead, prepare the
+ * session, then run the turn its start describes under that lease. Throws
+ * `TurnInFlightError`, having done nothing, when the session already has a
+ * turn executing.
  *
  * A start that fails gives the session back. A user's message or verdicts
  * reject to the caller that sent them, leaving a session that never began
@@ -49,23 +54,29 @@ export interface TurnStarterDeps {
  * session as a settled `failed` turn — which is what tells a worker's parent.
  */
 export function createTurnStarter(deps: TurnStarterDeps): StartTurn {
-  const { db, lifecycle, prepareTurn } = deps;
+  const { db, llmClients, lifecycle, prepareTurn } = deps;
 
-  const run = ({ session, turnDeps }: PreparedTurn, start: TurnStart, lease: TurnLease) => {
+  const run = (session: Session, start: TurnStart, lease: TurnLease) => {
+    // Whatever can refuse the start outright is settled before preparation,
+    // which may move the session's working directory: a repair made for a
+    // turn that never runs would be explained to no one.
+    const model = llmClients.resolveModel(session.model);
+    const approved =
+      start.kind === "approvals" ? applyPendingApprovals(db, session, start.approvals) : null;
+    const prepared = prepareTurn(session);
+    const args = { session: prepared.session, lease, model };
+    if (approved) return resumeTurn(prepared.turnDeps, { ...args, approved });
     if (start.kind === "message") {
-      return runTurn(turnDeps, { session, lease, userMessage: start.userMessage });
+      return runTurn(prepared.turnDeps, { ...args, userMessage: start.userMessage });
     }
-    if (start.kind === "approvals") {
-      return resumeTurn(turnDeps, { session, lease, approvals: start.approvals });
-    }
-    return runWakeTurn(turnDeps, { session, lease });
+    return runWakeTurn(prepared.turnDeps, args);
   };
 
   const startTurn = async (session: Session, start: TurnStart): Promise<StartedTurn | null> => {
     if (start.kind === "wake" && pendingInboxItems(db, session.id).length === 0) return null;
     const lease = lifecycle.acquire(session.id);
     try {
-      return await run(prepareTurn(session), start, lease);
+      return await run(session, start, lease);
     } catch (cause) {
       if (start.kind === "wake") {
         lease.settle({
