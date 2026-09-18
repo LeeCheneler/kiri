@@ -1,5 +1,3 @@
-import { existsSync, realpathSync } from "node:fs";
-import { sep } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import {
   type ModelMessage,
@@ -92,6 +90,12 @@ import {
   updateSessionSettings,
   workflowTools,
 } from "../sessions/index.ts";
+import {
+  defaultWorkingDirectory,
+  healMissingCwd,
+  prepareWorkingDirectory,
+  sandboxOf,
+} from "../sessions/working-directory.ts";
 import type { Registry } from "../workflows/index.ts";
 import {
   serializeInboxItem,
@@ -280,76 +284,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   } = deps;
   const app = new Hono();
 
-  // A snapshot's filesystem sandbox, filtered to directories that exist: a
-  // declared entry that isn't on disk can't be browsed, and offering tools (or
-  // advertising a root) that every call would then reject reads as broken —
-  // with nothing usable, the tools are withheld outright.
-  const sandboxOf = (snapshot: ConfigSnapshot): readonly string[] =>
-    snapshot.filesystem.allowedDirectories.filter((dir) => existsSync(dir));
-
   // The sandbox as configured now, for checks made outside a turn's own
   // snapshot.
   const sandboxDirectories = (): readonly string[] => sandboxOf(configService.current());
 
   const modelsConfig = (): ModelsConfig => configService.current().models;
-
-  // Where a new session starts working, on the same live-read, must-exist
-  // posture: a configured default that isn't on disk yields a session with no
-  // working directory rather than one pointing somewhere unusable.
-  const defaultWorkingDirectory = (): string | undefined => {
-    const dir = configService.current().filesystem.defaultWorkingDirectory;
-    return dir !== undefined && existsSync(dir) ? dir : undefined;
-  };
-
-  // Why a session's stored working directory can no longer be used — it left
-  // the disk, or a kiri.yaml edit moved the sandbox out from under it — or
-  // null while it remains valid. With an empty sandbox the check stands down:
-  // the filesystem and shell tools are withheld outright then, so a stale
-  // value can't send any work astray, and a plain chat shouldn't be blocked
-  // by config it no longer uses.
-  const staleCwdReason = (cwd: string): string | null => {
-    const roots: string[] = [];
-    for (const dir of sandboxDirectories()) {
-      try {
-        roots.push(realpathSync(dir));
-      } catch {
-        // Skipped: a declared directory that doesn't exist.
-      }
-    }
-    if (roots.length === 0) return null;
-    let real: string;
-    try {
-      real = realpathSync(cwd);
-    } catch {
-      return `The session's working directory "${cwd}" no longer exists.`;
-    }
-    if (!roots.some((dir) => real === dir || real.startsWith(dir + sep))) {
-      return `The session's working directory "${cwd}" is outside the allowed directories.`;
-    }
-    return null;
-  };
-
-  // What the model must hear when a turn heals a stale working directory:
-  // why the old one is unusable, where the session now runs (or that it has
-  // nowhere until one is set), and that the user should be told — the move
-  // happened out from under the conversation, so the model is the one who
-  // announces it.
-  const cwdMoveNotice = (reason: string, healed: string | null): string =>
-    healed !== null
-      ? `${reason} The session has been moved to the configured default working directory, "${healed}" — relative paths and commands now resolve there. Tell the user about the move before doing filesystem or shell work; if that isn't the right place, move with set_working_directory or have them update kiri.yaml.`
-      : `${reason} No usable default working directory is configured, so the session now has none — relative paths are rejected until one is set. Tell the user, and either move with set_working_directory or have them set filesystem.default_working_directory in kiri.yaml.`;
-
-  // Self-heal a session with no working directory — created before a default
-  // existed, or whose stale directory a turn just cleared: stamp the live
-  // config default, so the session picks one up the moment it becomes usable.
-  // A session that has a directory is returned untouched — a *stale* one is
-  // never swapped silently; the turn clears it, heals it here, and announces
-  // the move to the model instead.
-  const withHealedCwd = (session: Session): Session => {
-    if (session.cwd !== null) return session;
-    const dir = defaultWorkingDirectory();
-    return dir === undefined ? session : updateSessionCwd(db, session.id, dir);
-  };
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
   // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
@@ -752,7 +691,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           400,
         );
       }
-      const cwd = defaultWorkingDirectory();
+      const cwd = defaultWorkingDirectory(configService.current());
       const session = createSession(db, model, {
         ...(imageModel !== undefined ? { imageModel } : {}),
         ...(cwd !== undefined ? { cwd } : {}),
@@ -933,7 +872,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         transcriptRevision: session.transcriptRevision,
       };
       return c.json({
-        session: serializeSession(withHealedCwd(session)),
+        session: serializeSession(healMissingCwd(db, configService.current(), session)),
         transcriptRevision: snapshot.transcriptRevision,
         // Replaying a live stream starts from its original transcript. Durable
         // checkpoints already contain some of those frames and would duplicate
@@ -1181,23 +1120,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           409,
         );
       }
-      // A stale working directory — gone from disk (a deleted worktree), or
-      // moved outside the sandbox by a kiri.yaml edit — heals before the turn
-      // runs rather than failing it: the session falls back to the configured
-      // default (or to none when no usable default exists) and this turn's
-      // system prompt announces the move, so the model works from the new
-      // location knowingly and relays it to the user. Nothing ever runs under
-      // the stale directory, and no manual reset is needed.
-      let staleCwd: string | null = null;
-      if (session.cwd !== null) {
-        staleCwd = staleCwdReason(session.cwd);
-        if (staleCwd !== null) session = updateSessionCwd(db, id, null);
-      }
-      session = withHealedCwd(session);
-      if (staleCwd !== null) {
-        bus?.publish({ type: "session.updated", id, status: session.status });
-      }
-      const cwdNotice = staleCwd === null ? undefined : cwdMoveNotice(staleCwd, session.cwd);
+      const prepared = prepareWorkingDirectory({ db, bus }, configService.current(), session);
+      session = prepared.session;
+      const cwdNotice = prepared.notice;
 
       const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);
