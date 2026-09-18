@@ -66,14 +66,11 @@ export function cwdMoveNotice(reason: string, healed: string | null): string {
     : `${reason} No usable default working directory is configured, so the session now has none — relative paths are rejected until one is set. Tell the user, and either move with set_working_directory or have them set filesystem.default_working_directory in kiri.yaml.`;
 }
 
-/**
- * Self-heal a session with no working directory — created before a default
- * existed, or whose stale directory was just cleared: stamp the snapshot's
- * default, so the session picks one up the moment it becomes usable. A
- * session that has a directory is returned untouched — a *stale* one is never
- * swapped silently (see `prepareWorkingDirectory`).
- */
-export function healMissingCwd(db: KiriDb, snapshot: ConfigSnapshot, session: Session): Session {
+// Give a session with no working directory — created before a default
+// existed, or whose stale directory was just cleared — the snapshot's default,
+// so it picks one up the moment one becomes usable. A session that has a
+// directory is returned untouched: a *stale* one is never swapped silently.
+function healMissingCwd(db: KiriDb, snapshot: ConfigSnapshot, session: Session): Session {
   if (session.cwd !== null) return session;
   const dir = defaultWorkingDirectory(snapshot);
   return dir === undefined ? session : updateSessionCwd(db, session.id, dir);

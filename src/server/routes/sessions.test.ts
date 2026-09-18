@@ -2688,15 +2688,25 @@ describe("sessions routes", () => {
       );
     });
 
-    it("heals a session without a working directory from the live default", async () => {
+    it("gives a session without a working directory the live default when its turn runs, not when it is read", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
-      const app = makeApp(fakeClients(), { defaultWorkingDirectory: env.cwd });
-      createSession(env.db, MODEL, { id: "s1" });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: streamingModel(helloTurn()) }), {
+        bus,
+        defaultWorkingDirectory: env.cwd,
+      });
+      createSession(env.db, MODEL, { id: "s1", title: "no directory yet" });
 
-      // Loading the session detail stamps the default onto the row.
+      // Reading the session reports the row as stored and leaves it alone.
       const res = await app.request("/api/sessions/s1");
       expect(res.status).toBe(200);
-      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBe(env.cwd);
+      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
+      expect(getSession(env.db, "s1")?.cwd).toBeNull();
+
+      // Its next turn picks the default up.
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello")).text();
+      await settled;
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
     });
 
@@ -2728,15 +2738,6 @@ describe("sessions routes", () => {
       expect(prompts[1]).not.toContain("moved to the configured default working directory");
       expect(prompts[1]).toContain(`The session's working directory is ${realpathSync(next)}`);
       expect(prompts[1]).toContain("Follow the new repository's rules.");
-    });
-
-    it("leaves a session without a working directory alone when no default exists", async () => {
-      const app = makeApp(fakeClients());
-      createSession(env.db, MODEL, { id: "s1" });
-
-      const res = await app.request("/api/sessions/s1");
-      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
-      expect(getSession(env.db, "s1")?.cwd).toBeNull();
     });
 
     it("states the working directory in the system prompt when the session has one", async () => {

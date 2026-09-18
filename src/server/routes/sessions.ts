@@ -58,7 +58,7 @@ import {
 } from "../sessions/index.ts";
 import { createTurnPreparation } from "../sessions/turn-preparation.ts";
 import { createTurnTools } from "../sessions/turn-tools.ts";
-import { defaultWorkingDirectory, healMissingCwd } from "../sessions/working-directory.ts";
+import { defaultWorkingDirectory } from "../sessions/working-directory.ts";
 import type { Registry } from "../workflows/index.ts";
 import {
   serializeInboxItem,
@@ -548,7 +548,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         transcriptRevision: session.transcriptRevision,
       };
       return c.json({
-        session: serializeSession(healMissingCwd(db, configService.current(), session)),
+        session: serializeSession(session),
         transcriptRevision: snapshot.transcriptRevision,
         // Replaying a live stream starts from its original transcript. Durable
         // checkpoints already contain some of those frames and would duplicate
