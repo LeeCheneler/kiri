@@ -30,6 +30,7 @@ import {
   type StreamRegistry,
   createToolPermissionStore,
 } from "./sessions/index.ts";
+import { createSessionRuntime } from "./sessions/runtime.ts";
 import type { Registry } from "./workflows/index.ts";
 
 const log = createLogger("http");
@@ -248,17 +249,24 @@ export function createApp(deps: AppDeps): Hono {
       "/api",
       sessionsRoutes({
         db,
-        config,
-        registry,
         llmClients,
         bus,
         cancelRegistry,
-        mcpRegistry,
-        toolPermissions,
-        streamRegistry: deps.streamRegistry,
-        commandLearning: deps.commandLearning,
-        getProviderNames: deps.getProviderNames,
         configService,
+        runtime: createSessionRuntime({
+          db,
+          config,
+          configService,
+          registry,
+          llmClients,
+          bus,
+          cancelRegistry,
+          mcpRegistry,
+          toolPermissions,
+          streamRegistry: deps.streamRegistry,
+          commandLearning: deps.commandLearning,
+          getProviderNames: deps.getProviderNames,
+        }),
       }),
     );
   }

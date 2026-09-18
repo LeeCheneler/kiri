@@ -17,26 +17,19 @@ import {
 } from "../../shared/message-limits.ts";
 import type { ModelsConfig } from "../config/schema.ts";
 import type { ConfigService } from "../config/service.ts";
-import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients, toModelInfo } from "../llm/index.ts";
 import { createLogger } from "../log.ts";
-import type { McpRegistry } from "../mcp/registry.ts";
 import { getProject, listProjectArticles } from "../projects/store.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { withoutContextCalibration } from "../sessions/context-calibration.ts";
 import {
-  type CommandLearning,
   SESSION_TITLE_MAX_LENGTH,
-  type StreamRegistry,
   type ToolApprovalDecision,
-  type ToolPermissionStore,
   buildSessionListEntries,
-  createCommandLearning,
   createSession,
-  createStreamRegistry,
   deleteInboxItems,
   deleteMessagesFrom,
   deleteSession,
@@ -48,18 +41,14 @@ import {
   getSessionLabels,
   getSessionLastActivity,
   getSessionMessages,
-  mountDelegationMessaging,
   pendingInboxItems,
   resumeTurn,
   runTurn,
   transcribeDraft,
   updateSessionSettings,
-  workflowTools,
 } from "../sessions/index.ts";
-import { createTurnPreparation } from "../sessions/turn-preparation.ts";
-import { createTurnTools } from "../sessions/turn-tools.ts";
+import type { SessionRuntime } from "../sessions/runtime.ts";
 import { defaultWorkingDirectory } from "../sessions/working-directory.ts";
-import type { Registry } from "../workflows/index.ts";
 import {
   serializeInboxItem,
   serializeMessage,
@@ -72,10 +61,6 @@ const sessionsLog = createLogger("sessions");
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
-  /** Workspace config; the session system prompt reads `kiri.md` against it. */
-  config: ConfigStore;
-  /** Workflow registry backing the first-party workflow tools — read live, so a definition change is reflected on the next turn. */
-  registry: Registry;
   /**
    * Required: every session resolves and streams turns against a model, and
    * the picker lists models off this same client — a session surface without
@@ -89,37 +74,13 @@ export interface SessionsRoutesDeps {
    */
   cancelRegistry?: CancelRegistry;
   /**
-   * Registry of in-flight turn streams a reconnecting client rejoins. Defaults
-   * to a fresh registry owned by this surface; injectable for tests and to share
-   * one registry across surfaces later.
-   */
-  streamRegistry?: StreamRegistry;
-  /**
-   * MCP server registry. Its discovered tools are offered to each turn's model,
-   * read live so a config reload is reflected on the next turn. Omitted leaves
-   * sessions as a plain chat with no tools.
-   */
-  mcpRegistry?: McpRegistry;
-  /** Standing per-tool permissions: an "off" tool is withheld, an "ask" tool is gated, an "allow" tool runs straight through. */
-  toolPermissions: ToolPermissionStore;
-  /** Live provider names for the workflow authoring tools' validation gate; forwarded to `workflowTools`. */
-  getProviderNames?: () => ReadonlySet<string>;
-  /**
-   * The workspace's effective `kiri.yaml`: the filesystem sandbox and default
-   * working directory, and the models config (shortcuts ride the model listing
-   * so the pickers can pin them; delegates size the workers the delegate tool
-   * spawns). A turn takes one snapshot, so the tools it is offered and the
-   * guidance describing them agree; everything else reads it at the point of
-   * use, so a config edit applies to the next turn, session, or call.
+   * The workspace's effective `kiri.yaml`, read at the point of use: the
+   * models config rides the model listing so the pickers can pin shortcuts,
+   * and a new session starts in the default working directory.
    */
   configService: ConfigService;
-  /**
-   * The auto shell permission's learning loop: decisions and user verdicts
-   * feed the judgement log, and distilled precedent feeds back into the
-   * judge. Defaults to a file-backed instance under `.kiri`; injectable for
-   * tests.
-   */
-  commandLearning?: CommandLearning;
+  /** What prepares and runs this surface's turns, shared with the worker spawns and wakes that start turns without HTTP. */
+  runtime: SessionRuntime;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -217,75 +178,11 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
  * alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const {
-    db,
-    config,
-    configService,
-    registry,
-    llmClients,
-    bus,
-    cancelRegistry,
-    mcpRegistry,
-    toolPermissions,
-    getProviderNames,
-  } = deps;
+  const { db, configService, llmClients, bus, cancelRegistry, runtime } = deps;
+  const { streamRegistry, commandLearning } = runtime;
   const app = new Hono();
 
   const modelsConfig = (): ModelsConfig => configService.current().models;
-
-  // One registry of in-flight turn streams for this surface: the turn endpoint
-  // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
-  // rejoins the live response. A caller may inject one to share it.
-  const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
-
-  // The learning loop around the auto shell permission: every decision and
-  // user verdict lands in the judgement log, and the distilled precedent is
-  // read back into each judgement.
-  const commandLearning =
-    deps.commandLearning ??
-    createCommandLearning({
-      llmClients,
-      getModel: () => modelsConfig().utility,
-      logFile: config.commandJudgementsFile(),
-      guidanceFile: config.commandGuidanceFile(),
-    });
-
-  // The permission-gated tools each turn is offered. A worker the delegate
-  // tool spawns runs against the same turn dependencies as any session.
-  const turnTools = createTurnTools({
-    db,
-    config,
-    configService,
-    registry,
-    llmClients,
-    bus,
-    cancelRegistry,
-    mcpRegistry,
-    toolPermissions,
-    getProviderNames,
-    commandLearning,
-    prepareTurn: (session) => preparation.prepareTurn(session),
-  });
-
-  // Every driver of a turn — the turn endpoint, a delegate spawn, and a
-  // message-driven wake — prepares it the same way. Shares this surface's
-  // stream registry and cancel registry, so a reconnecting client can rejoin
-  // a live stream and a cancel reaches its turn.
-  const preparation = createTurnPreparation({
-    db,
-    config,
-    configService,
-    llmClients,
-    bus,
-    cancelRegistry,
-    streamRegistry,
-    turnTools,
-  });
-
-  // The delegation messaging loop: a message queued to a session that is out
-  // of a turn wakes it, and a child whose turn fails notices its parent.
-  // Lives for the app's lifetime, like the surface's routes themselves.
-  if (bus) mountDelegationMessaging({ db, bus, prepareTurn: preparation.prepareTurn });
 
   // The listing carries the configured model shortcuts alongside the models,
   // so the pickers can pin them and new sessions can start on the first one,
@@ -833,7 +730,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             });
           }
         }
-        const prepared = preparation.prepareTurn(session);
+        const prepared = runtime.prepareTurn(session);
         const { response } = await resumeTurn(prepared.turnDeps, {
           session: prepared.session,
           approvals: extractApprovals(parts),
@@ -874,7 +771,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
 
       const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };
-      const prepared = preparation.prepareTurn(session);
+      const prepared = runtime.prepareTurn(session);
       const { response } = await runTurn(prepared.turnDeps, {
         session: prepared.session,
         userMessage,
