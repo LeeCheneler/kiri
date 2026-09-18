@@ -26,7 +26,8 @@ import { useStagedAttachments } from "./use-staged-attachments.ts";
  * attachments, an auto-growing textarea, and a toolbar — add file on the left;
  * caller controls, an optional cancel, and an optional submit button on the
  * right. Images, documents and text files stage from the file picker (images
- * also from a paste), Enter submits and Shift+Enter breaks a line. Text is
+ * also from a paste) and show at once, dimmed until their contents are read —
+ * a submit waits for that. Enter submits and Shift+Enter breaks a line. Text is
  * controlled via `value`/`onChange`, so the caller owns persistence; staged
  * attachments start from `initialAttachments` and are cleared on submit.
  * `onSubmit` receives the assembled `UIMessage` parts — the attachments in the
@@ -123,11 +124,13 @@ export function MessageComposer({
 
   const submit = () => {
     if (busy || empty) return;
+    const read = staged.takeRead();
+    if (!read) return;
     const text = value.trim();
     // Attachments first, then the text, so the model reads them before the
     // question.
     const parts: UIMessage["parts"] = [
-      ...attachmentParts(attachments),
+      ...attachmentParts(read),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
     const sizeError = messagePartsError(parts);
@@ -149,6 +152,7 @@ export function MessageComposer({
               <StagedTile
                 key={attachment.id}
                 removeLabel={attachment.kind === "image" ? "Remove image" : `Remove ${name}`}
+                busy={attachment.kind === "reading"}
                 onRemove={() => staged.remove(attachment.id)}
               >
                 {attachment.kind === "image" ? (
@@ -229,19 +233,22 @@ export function MessageComposer({
 }
 
 // One staged attachment in the composer's row: its thumbnail with a remove
-// control pinned to the corner.
+// control pinned to the corner. `busy` — its file is still being read — dims
+// the thumbnail; it can still be removed.
 function StagedTile({
   removeLabel,
+  busy,
   onRemove,
   children,
 }: {
   removeLabel: string;
+  busy: boolean;
   onRemove: () => void;
   children: ReactNode;
 }) {
   return (
-    <li className="relative">
-      {children}
+    <li className="relative" aria-busy={busy}>
+      <div className={busy ? "opacity-50" : undefined}>{children}</div>
       <button
         type="button"
         onClick={onRemove}

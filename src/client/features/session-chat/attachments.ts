@@ -21,11 +21,18 @@ import {
 /** The kinds of attachment the composer stages. */
 export type AttachmentKind = "image" | "document" | "text";
 
-/** A staged attachment in the composer, before it is sent as a message part. */
-export type StagedAttachment =
+/** A staged attachment whose contents are in hand, ready to send as a message part. */
+export type ReadAttachment =
   | { id: string; kind: "image"; part: FileUIPart }
   | { id: string; kind: "document"; part: FileUIPart }
   | { id: string; kind: "text"; filename: string; content: string };
+
+/**
+ * A staged attachment in the composer. A picked file holds its place in the
+ * list as `reading` until its contents arrive, so staging order is pick order
+ * however long each read takes.
+ */
+export type StagedAttachment = ReadAttachment | { id: string; kind: "reading"; filename: string };
 
 /** What the session's model can be sent: images at all, and which document media types. */
 export type AttachmentCapabilities = { images: boolean; documents: readonly string[] };
@@ -152,9 +159,11 @@ async function fileToDataUrl(file: File, mediaType: string): Promise<string> {
   return `data:${mediaType};base64,${btoa(binary)}`;
 }
 
-/** Read a picked file into a staged attachment: a data-URL file part, or a text file's contents. */
-export async function readAttachment(picked: PickedFile): Promise<StagedAttachment> {
-  const id = crypto.randomUUID();
+/**
+ * Read a picked file into the attachment staged as `id`: a data-URL file part,
+ * or a text file's contents.
+ */
+export async function readAttachment(id: string, picked: PickedFile): Promise<ReadAttachment> {
   const { file } = picked;
   if (picked.kind === "text") {
     return { id, kind: "text", filename: file.name, content: await file.text() };
@@ -166,7 +175,7 @@ export async function readAttachment(picked: PickedFile): Promise<StagedAttachme
 
 /** The name a staged attachment shows under; restored file parts may carry none. */
 export function attachmentName(attachment: StagedAttachment): string {
-  if (attachment.kind === "text") return attachment.filename;
+  if (attachment.kind === "text" || attachment.kind === "reading") return attachment.filename;
   return (
     attachment.part.filename ??
     (attachment.kind === "image" ? "Attached image" : "Attached document")
@@ -178,7 +187,7 @@ export function attachmentName(attachment: StagedAttachment): string {
  * files ride as `<attached-file>` text parts, which reach every provider as
  * plain text.
  */
-export function attachmentParts(attachments: readonly StagedAttachment[]): UIMessage["parts"] {
+export function attachmentParts(attachments: readonly ReadAttachment[]): UIMessage["parts"] {
   return attachments.map((attachment) =>
     attachment.kind === "text"
       ? { type: "text", text: wrapAttachedFile(attachment.filename, attachment.content) }
@@ -187,8 +196,8 @@ export function attachmentParts(attachments: readonly StagedAttachment[]): UIMes
 }
 
 /** A sent message's attachments, restaged in the order they were sent — for editing it. */
-export function stagedAttachmentsFrom(message: UIMessage): StagedAttachment[] {
-  return message.parts.flatMap((part, index): StagedAttachment[] => {
+export function stagedAttachmentsFrom(message: UIMessage): ReadAttachment[] {
+  return message.parts.flatMap((part, index): ReadAttachment[] => {
     const id = `${message.id}-${index}`;
     if (part.type === "file") {
       return [{ id, kind: part.mediaType.startsWith("image/") ? "image" : "document", part }];

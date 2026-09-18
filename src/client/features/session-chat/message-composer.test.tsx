@@ -61,6 +61,13 @@ const fileInput = (container: HTMLElement) =>
 const pngFile = (name: string, bytes: BlobPart = "img") =>
   new File([bytes], name, { type: "image/png" });
 const txtFile = (name: string, content: BlobPart = "hello") => new File([content], name);
+// A text file whose contents arrive only when the test says so.
+const slowTextFile = (name: string) => {
+  const file = txtFile(name);
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  file.text = () => promise;
+  return { file, resolve, reject };
+};
 const PDF = "application/pdf";
 const pdfFile = (name: string) => new File(["%PDF"], name);
 
@@ -553,6 +560,89 @@ describe("<MessageComposer>", () => {
       "Images must be 10 MiB or smaller.",
       "This model can't read .pdf files. Switch model to attach it.",
     ]);
+  });
+
+  it("holds a submit until a staged file has been read, then sends it", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+    const slow = slowTextFile("notes.md");
+
+    await userEvent.upload(fileInput(container), slow.file);
+    // The file takes its place straight away, marked as still being read.
+    const tile = (await screen.findByText("notes.md")).closest("li");
+    expect(tile?.getAttribute("aria-busy")).toBe("true");
+
+    await userEvent.type(textbox(), "summarise this{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toMatch(/still being read/i);
+
+    slow.resolve("# heading");
+    await waitFor(() => expect(tile?.getAttribute("aria-busy")).toBe("false"));
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    await userEvent.type(textbox(), "{Enter}");
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual([
+      { type: "text", text: wrapAttachedFile("notes.md", "# heading") },
+      { type: "text", text: "summarise this" },
+    ]);
+  });
+
+  it("keeps pick order when an earlier file is read last", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+    const slow = slowTextFile("first.md");
+
+    await userEvent.upload(fileInput(container), slow.file);
+    await userEvent.upload(fileInput(container), txtFile("second.md", "two"));
+    await waitFor(() =>
+      expect(screen.getByText("second.md").closest("li")?.getAttribute("aria-busy")).toBe("false"),
+    );
+    slow.resolve("one");
+    await waitFor(() =>
+      expect(screen.getByText("first.md").closest("li")?.getAttribute("aria-busy")).toBe("false"),
+    );
+
+    await userEvent.type(textbox(), "{Enter}");
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual([
+      { type: "text", text: wrapAttachedFile("first.md", "one") },
+      { type: "text", text: wrapAttachedFile("second.md", "two") },
+    ]);
+  });
+
+  it("drops a file's contents when it was removed while being read", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+    const slow = slowTextFile("notes.md");
+
+    await userEvent.upload(fileInput(container), slow.file);
+    await userEvent.click(await screen.findByRole("button", { name: "Remove notes.md" }));
+    slow.resolve("late");
+    await userEvent.type(textbox(), "just text{Enter}");
+
+    expect(screen.queryByText("notes.md")).toBeNull();
+    expect(onSubmit.mock.calls).toEqual([[[{ type: "text", text: "just text" }]]]);
+  });
+
+  it("unstages a file that can't be read and says so, keeping its siblings' refusals", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+    const slow = slowTextFile("notes.md");
+
+    await userEvent.upload(fileInput(container), [
+      slow.file,
+      txtFile("big.txt", new Uint8Array(256 * 1024 + 1)),
+    ]);
+    await screen.findByText("notes.md");
+    slow.reject(new Error("gone"));
+
+    await waitFor(() => expect(screen.queryByText("notes.md")).toBeNull());
+    expect(screen.getAllByRole("alert").map((alert) => alert.textContent)).toEqual([
+      "Text files must be 256 KiB or smaller.",
+      "Couldn't read notes.md.",
+    ]);
+    // Nothing is left pending, so the text alone still sends.
+    await userEvent.type(textbox(), "carry on{Enter}");
+    expect(onSubmit.mock.calls).toEqual([[[{ type: "text", text: "carry on" }]]]);
   });
 
   it("shows a control's error on its own row, alongside an attachment error", async () => {

@@ -114,9 +114,9 @@ describe("screenPickedFiles", () => {
 
 describe("readAttachment", () => {
   it("reads an image into a data-URL file part", async () => {
-    const attachment = await readAttachment(image("shot.png", "hello"));
+    const attachment = await readAttachment("a1", image("shot.png", "hello"));
     expect(attachment).toEqual({
-      id: expect.any(String),
+      id: "a1",
       kind: "image",
       part: {
         type: "file",
@@ -128,9 +128,9 @@ describe("readAttachment", () => {
   });
 
   it("reads a document under the media type its extension maps to", async () => {
-    const attachment = await readAttachment(pdf("brief.pdf"));
+    const attachment = await readAttachment("a1", pdf("brief.pdf"));
     expect(attachment).toEqual({
-      id: expect.any(String),
+      id: "a1",
       kind: "document",
       part: {
         type: "file",
@@ -142,8 +142,8 @@ describe("readAttachment", () => {
   });
 
   it("reads a text file into its filename and contents", async () => {
-    expect(await readAttachment(text("notes.md", "# Title\nbody"))).toEqual({
-      id: expect.any(String),
+    expect(await readAttachment("a1", text("notes.md", "# Title\nbody"))).toEqual({
+      id: "a1",
       kind: "text",
       filename: "notes.md",
       content: "# Title\nbody",
@@ -163,6 +163,10 @@ describe("attachmentName", () => {
         part: { type: "file", mediaType: PDF, filename: "brief.pdf", url: "data:," },
       }),
     ).toBe("brief.pdf");
+  });
+
+  it("names a file still being read by its filename", () => {
+    expect(attachmentName({ id: "1", kind: "reading", filename: "notes.md" })).toBe("notes.md");
   });
 
   it("falls back to the kind when a restored file part carries no filename", () => {
