@@ -68,7 +68,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Session routes currently own runtime policy, and entry points apply different preparation. Common invariants should be reusable without invoking HTTP or remembering route-specific behavior.
 
-- [ ] **12 — Give each turn an explicit lifecycle owner and identity**
+- [x] **12 — Give each turn an explicit lifecycle owner and identity**
 
   **What:** Let the runtime acquire the session, identify the execution, register cancellation/stream resources, and settle/release them through one path. Handle startup failures before a stream exists. Reject stale completion and cleanup from an earlier turn. Make correctness-critical dependencies required and use small fakes in tests.
 
