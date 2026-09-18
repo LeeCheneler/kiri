@@ -62,7 +62,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** A turn currently waits for metadata discovery across unrelated providers. Capability facts also require repeated forwarding, and transport compatibility cannot be inferred from model identity alone.
 
-- [ ] **11 — Extract session preparation and tool assembly from HTTP**
+- [x] **11 — Extract session preparation and tool assembly from HTTP**
 
   **What:** Move execution-context preparation and tool assembly into focused session modules shared by HTTP, worker spawning, wakes, and approval continuations. Centralize cwd healing and its explanation. Make session GET read-only. Preserve per-step instruction refresh and approval receipts. Use direct internal imports as code moves.
 

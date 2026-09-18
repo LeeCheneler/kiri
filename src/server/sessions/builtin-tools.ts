@@ -20,7 +20,7 @@ export interface BuiltinTool {
 /**
  * Every first-party session tool, in the order the MCP page lists them. Each
  * rides the same standing tool-permission machinery as an MCP tool — the
- * session routes gate each listed tool per call, and the MCP page's Built-in
+ * tool assembly gates each listed tool per call, and the MCP page's Built-in
  * tools card shows its permission for review and change. Defaults encode the
  * trust posture: tools that only read or write kiri's own data run without
  * prompting (`allow` — the request in chat is the authorisation), as do the

@@ -317,8 +317,11 @@ filesystem:
   `default_working_directory` (or the first allowed directory) and the
   assistant can move it within the sandbox as the work settles somewhere
   else. The new directory's instructions apply within the same turn. If it
-  disappears — a deleted checkout, a narrowed sandbox — the
-  session falls back to the default and the assistant lets you know.
+  disappears — a deleted checkout, a narrowed sandbox — the session falls
+  back to the default at the start of its next turn and the assistant lets you
+  know, whether you started that turn or a worker's report did. A session
+  created before a default was configured picks it up the same way, on its
+  next turn.
 
 File searches start in the working directory. The assistant can target another
 allowed directory or explicitly search all allowed roots. Search and directory

@@ -15,7 +15,7 @@ export interface ImageToolsDeps {
 
 /**
  * First-party image tools for a session: `generate_image` renders a text
- * prompt with the session's selected image model. The session routes offer
+ * prompt with the session's selected image model. The tool assembly offers
  * the set only while an image model is selected, and the selection is re-read
  * on every call, so a mid-turn change applies immediately. The result carries
  * the image as a data URL for the transcript to render; the model only ever

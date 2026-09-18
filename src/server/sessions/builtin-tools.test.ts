@@ -52,7 +52,7 @@ describe("BUILTIN_TOOLS", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // The registry is the session routes' source of truth for which built-in
+  // The registry is the tool assembly's source of truth for which built-in
   // tools exist: each entry is offered by looking its name up in the merged
   // first-party toolset. A tool added to either side without the other would
   // ship un-gated or broken, so pin the two to exact agreement.
