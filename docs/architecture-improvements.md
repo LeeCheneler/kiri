@@ -44,7 +44,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** A newer transcript can have the same number of parts or fewer messages. Size-based reconciliation leaves changed content stale and deleted messages visible.
 
-- [ ] **08 — Unify staged attachment state**
+- [x] **08 — Unify staged attachment state**
 
   **What:** Use one discriminated attachment list with shared identity, removal, ordering, size accounting, read status, and error aggregation. Preserve specialized readers and renderers. Handle pending reads, refused submissions, late reads after reset, and model changes after staging.
 

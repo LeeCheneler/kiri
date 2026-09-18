@@ -478,9 +478,17 @@ session model's provider: PDFs reach Codex, OpenAI, Anthropic, and OpenRouter
 models; Word, PowerPoint, and Excel files reach Codex models, which read their
 text but not their embedded images. Local servers take no documents. The file
 picker offers exactly what the current model can read, and switching model
-changes it. Each image may be up to 10 MiB, each document up to 20 MiB, and
-each text file up to 256 KiB of UTF-8 content. Attachments count towards the
-context window.
+changes it. An attachment added before a switch to a model that can't read it
+stays in the draft and holds the message back, with an error, until you remove
+it or switch model again; the same check applies when you edit and resend an
+earlier message. Each image may be up to 10 MiB, each document up to 20 MiB,
+and each text file up to 256 KiB of UTF-8 content. Attachments count towards
+the context window.
+
+Attachments are sent in the order you add them, ahead of your text. A file
+joins the draft as soon as you add it, and a message waits until every
+attachment has been read, so nothing is left behind by a quick send. A file
+that can't be read is dropped from the draft with an error.
 
 A message request is capped at 32 MiB, including base64 encoding, UTF-8 text,
 filenames, and JSON overhead; 1 KiB is reserved for the request envelope.
