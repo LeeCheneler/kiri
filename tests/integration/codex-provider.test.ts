@@ -13,6 +13,7 @@ import { memories } from "../../src/server/db/schema.ts";
 import { CODEX_BASE_URL } from "../../src/server/llm/codex-fetch.ts";
 import {
   type LlmClients,
+  buildModelDescription,
   createLlmClients,
   createLlmProviderRegistry,
   effortProviderOptions,
@@ -53,6 +54,16 @@ const listedModel = {
   supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
 };
 const provider = { name: "chatgpt", type: "openai-codex" as const };
+
+// A reasoning-capable Codex model advertising `reasoningLevels`, as its listing would describe it.
+const reasoningModel = (modelId: string, reasoningLevels?: string[]) =>
+  buildModelDescription(provider, modelId, {
+    id: `chatgpt:${modelId}`,
+    provider: "chatgpt",
+    output: "text",
+    reasoning: true,
+    ...(reasoningLevels !== undefined ? { reasoningLevels } : {}),
+  });
 
 describe("Codex provider through the AI SDK", () => {
   let cwd: string;
@@ -135,7 +146,8 @@ describe("Codex provider through the AI SDK", () => {
       providerOptions: {
         openai: {
           store: true,
-          ...effortProviderOptions(provider, "future-reasoning-model", "high", ["high"])?.openai,
+          ...effortProviderOptions(reasoningModel("future-reasoning-model", ["high"]), "high")
+            ?.openai,
         },
       },
     });
@@ -314,25 +326,27 @@ describe("Codex provider through the AI SDK", () => {
       },
     });
     expect(models[1]).toMatchObject({ model: { reasoning: false, reasoningLevels: [] } });
-    expect(await clients.contextWindowFor("chatgpt:gpt-5.4-mini")).toBe(200_000);
-    expect(await clients.reasoningOptionsFor("chatgpt:gpt-5.4-mini", "max")).toEqual({
+    const mini = await clients.describeModel("chatgpt:gpt-5.4-mini");
+    expect(mini.model.contextWindow).toBe(200_000);
+    expect(effortProviderOptions(mini, "max")).toEqual({
       openai: { reasoningEffort: "high", forceReasoning: true },
     });
-    expect(await clients.reasoningOptionsFor("chatgpt:gpt-5.4-mini", "medium")).toEqual({
+    expect(effortProviderOptions(mini, "medium")).toEqual({
       openai: { reasoningEffort: "low", forceReasoning: true },
     });
-    expect(await clients.reasoningOptionsFor("chatgpt:plain", "high")).toBeUndefined();
-    expect(await clients.reasoningOptionsFor("chatgpt:none-only", "high")).toBeUndefined();
+    for (const id of ["chatgpt:plain", "chatgpt:none-only"]) {
+      expect(effortProviderOptions(await clients.describeModel(id), "high")).toBeUndefined();
+    }
   });
 
   it("handles a model whose lowest supported effort exceeds the requested one", () => {
-    expect(effortProviderOptions(provider, "model", "low", ["high", "xhigh"])).toEqual({
+    expect(effortProviderOptions(reasoningModel("model", ["high", "xhigh"]), "low")).toEqual({
       openai: { reasoningEffort: "high", forceReasoning: true },
     });
-    expect(effortProviderOptions(provider, "model", "max", ["high", "xhigh"])).toEqual({
+    expect(effortProviderOptions(reasoningModel("model", ["high", "xhigh"]), "max")).toEqual({
       openai: { reasoningEffort: "xhigh", forceReasoning: true },
     });
-    expect(effortProviderOptions(provider, "model", "high")).toBeUndefined();
+    expect(effortProviderOptions(reasoningModel("model"), "high")).toBeUndefined();
   });
 
   it("collects listing failures without failing the aggregate", async () => {

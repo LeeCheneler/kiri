@@ -6,6 +6,7 @@ import { APICallError, type LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
@@ -50,8 +51,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 // Capturing event bus: records every published event, never delivers.
@@ -624,13 +624,12 @@ describe("runTurn", () => {
         };
       },
     }) as unknown as LlmModel;
-    const askedFor: { id?: string; effort?: string } = {};
+    const askedFor: string[] = [];
     const llmClients: LlmClients = {
       ...clientsFor(model),
-      reasoningOptionsFor: async (id, effort) => {
-        askedFor.id = id;
-        askedFor.effort = effort;
-        return { anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } } };
+      describeModel: async (id) => {
+        askedFor.push(id);
+        return describedModel(id, { reasoning: true });
       },
     };
     const session = createSession(db, MODEL, { id: "s1", effort: "high" });
@@ -642,12 +641,35 @@ describe("runTurn", () => {
     await response.text();
     await done;
 
-    // The mapping is asked for this session's model at its stored effort, and
-    // what it returns rides the model call unchanged.
-    expect(askedFor).toEqual({ id: MODEL, effort: "high" });
-    expect(capture.providerOptions).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } },
-    });
+    // This session's model is described, and its stored effort rides the
+    // model call as that provider's reasoning parameters.
+    expect(askedFor).toEqual([MODEL]);
+    expect(capture.providerOptions).toEqual({ lmstudio: { reasoningEffort: "high" } });
+  });
+
+  it("cuts the wait on model discovery short when the turn is cancelled", async () => {
+    const cancelRegistry = createCancelRegistry();
+    const session = createSession(db, MODEL, { id: "s1" });
+    // Discovery that settles only once its caller's signal fires.
+    const llmClients: LlmClients = {
+      ...clientsFor(pendingModel()),
+      describeModel: (id, options) =>
+        new Promise((resolve) => {
+          options?.signal?.addEventListener("abort", () => resolve(describedModel(id)), {
+            once: true,
+          });
+          queueMicrotask(() => cancelRegistry.requestCancel("s1"));
+        }),
+    };
+
+    const { response, done } = await runTurn(
+      { db, llmClients, cancelRegistry },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
   });
 
   it("sends no provider options when the model has no reasoning support", async () => {
@@ -667,7 +689,7 @@ describe("runTurn", () => {
     }) as unknown as LlmModel;
     const session = createSession(db, MODEL, { id: "s1", effort: "high" });
 
-    // clientsFor's reasoningOptionsFor resolves undefined — a model the
+    // clientsFor describes a model without reasoning support — one the
     // listing doesn't mark reasoning-capable gets no parameters at all.
     const { response, done } = await runTurn(
       { db, llmClients: clientsFor(model) },
@@ -748,7 +770,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 272000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 272000 }),
           generateText: async () => {
             summaries += 1;
             return { text: "", usage: {} };
@@ -793,9 +815,9 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => {
+          describeModel: async (id) => {
             enqueueInboxItem(db, "s1", { source: "user", text: "Check the contracts too" });
-            return 20000;
+            return describedModel(id, { contextWindow: 20000 });
           },
           generateText: async ({ model, prompt }) => {
             summaries += 1;
@@ -883,7 +905,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 8192,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
           generateText: async () => {
             summaries += 1;
             return { text: "A changed request", usage: {} };
@@ -957,7 +979,7 @@ describe("runTurn", () => {
         buildSystemPrompt: () => system,
         llmClients: {
           ...clientsFor(model),
-          contextWindowFor: async () => 8192,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
           generateText: async ({ prompt }) => {
             summaries += 1;
             expect(prompt).toContain(`Action ${summaries} completed`);
@@ -1041,7 +1063,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 8192,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
           generateText: async ({ prompt }) => {
             summaries += 1;
             expect(prompt).toContain("Approved action completed");
@@ -1097,7 +1119,7 @@ describe("runTurn", () => {
         tools: gatedEchoTools,
         llmClients: {
           ...clientsFor(capturingModel({})),
-          contextWindowFor: async () => 20000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 20000 }),
           generateText: async () => {
             throw new Error("Pending approvals must not be summarized");
           },
@@ -1162,7 +1184,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(model),
-          contextWindowFor: async () => 20000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 20000 }),
           generateText: async () => {
             summaries += 1;
             return { text: "Goal retained in checkpoint", usage: {} };
@@ -1230,7 +1252,7 @@ describe("runTurn", () => {
           cancelRegistry,
           llmClients: {
             ...clientsFor(model),
-            contextWindowFor: async () => 8192,
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
             generateText: async ({ abortSignal }) => {
               summaries += 1;
               if (ending === "error") throw new Error("compaction provider unavailable");
@@ -1289,7 +1311,10 @@ describe("runTurn", () => {
       const { response, done } = await runTurn(
         {
           db,
-          llmClients: { ...clientsFor(model), contextWindowFor: async () => window },
+          llmClients: {
+            ...clientsFor(model),
+            describeModel: async (id) => describedModel(id, { contextWindow: window }),
+          },
           bus: recordingBus(events),
         },
         {
@@ -1360,7 +1385,10 @@ describe("runTurn", () => {
           db,
           cancelRegistry,
           bus: recordingBus(events),
-          llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+          llmClients: {
+            ...clientsFor(model),
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
+          },
           tools: {
             run_command: tool({
               inputSchema: z.object({}),
@@ -1403,7 +1431,7 @@ describe("runTurn", () => {
           db,
           llmClients: {
             ...clientsFor(capturingModel(capture)),
-            contextWindowFor: async () => 8192,
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
             generateText: async () => {
               summaries += 1;
               return { text: "summary", usage: {} };
@@ -1442,7 +1470,10 @@ describe("runTurn", () => {
     const { response, done } = await runTurn(
       {
         db,
-        llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+        llmClients: {
+          ...clientsFor(model),
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
+        },
         tools: {
           large: tool({
             description: "schema explanation".repeat(2000),
@@ -1515,7 +1546,8 @@ describe("runTurn", () => {
     const llmClients: LlmClients = {
       ...clientsFor(base),
       resolveModel: () => base,
-      contextWindowFor: async (id) => (id === "test:small" ? 8192 : 65536),
+      describeModel: async (id) =>
+        describedModel(id, { contextWindow: id === "test:small" ? 8192 : 65536 }),
     };
     const session = createSession(db, "test:large", { id: "s1" });
     appendMessage(db, "s1", {
@@ -1616,9 +1648,7 @@ describe("runTurn", () => {
       let session = createSession(db, MODEL, { id: "s1" });
       const clients: LlmClients = {
         ...clientsFor(model),
-        contextWindowFor: async () => contextWindow,
-        reasoningOptionsFor: async () =>
-          highEffort ? { openai: { reasoningEffort: "high" } } : undefined,
+        describeModel: async (id) => describedModel(id, { contextWindow, reasoning: highEffort }),
         generateText: async ({ prompt }) => {
           summaries += 1;
           expect(prompt).not.toContain("data-context-calibration");
@@ -1715,7 +1745,7 @@ describe("runTurn", () => {
       db,
       llmClients: {
         ...clientsFor(model),
-        contextWindowFor: async () => 100000,
+        describeModel: async (id: string) => describedModel(id, { contextWindow: 100000 }),
         generateText: async () => {
           summaries += 1;
           return { text: "summary", usage: {} };
@@ -1816,7 +1846,10 @@ describe("runTurn", () => {
       const turn = await runTurn(
         {
           db,
-          llmClients: { ...clientsFor(model), contextWindowFor: async () => 32000 },
+          llmClients: {
+            ...clientsFor(model),
+            describeModel: async (id) => describedModel(id, { contextWindow: 32000 }),
+          },
           tools: {
             search: tool({ inputSchema: z.object({}), execute: () => "r".repeat(outputLength) }),
           },
@@ -1957,8 +1990,7 @@ describe("runTurn", () => {
       },
       generateText: async () => ({ text: "", usage: {} }),
       listModels: async () => ({ models: [], failures: [] }),
-      contextWindowFor: async () => undefined,
-      reasoningOptionsFor: async () => undefined,
+      describeModel: async (id) => describedModel(id),
     };
     const session = createSession(db, MODEL, { id: "s1" });
 
@@ -3435,7 +3467,7 @@ describe("runWakeTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 20000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 20000 }),
           generateText: async ({ prompt }) => {
             summaries += 1;
             expect(prompt).toContain(evidence);

@@ -20,7 +20,7 @@ export {
 export {
   type LlmModelsResult,
   type ModelDescription,
-  describeModel,
+  buildModelDescription,
   toModelInfo,
 } from "./model-description.ts";
 export type { ListedModel, LlmModelOutput } from "./models.ts";

@@ -2,7 +2,8 @@ import { describe, expect, it, spyOn } from "bun:test";
 import { generateImage, generateText, experimental_transcribe as transcribe } from "ai";
 import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
-import { createLlmClients, generateLlmText } from "./clients.ts";
+import { type LlmClients, createLlmClients, generateLlmText } from "./clients.ts";
+import { type Effort, effortProviderOptions } from "./effort.ts";
 import type { LlmProvider, LlmProviderRegistry } from "./index.ts";
 import { createLlmProviderRegistry } from "./registry.ts";
 
@@ -11,6 +12,12 @@ const registryWith = (...providers: LlmProvider[]): LlmProviderRegistry => {
   registry.replace(new Map(providers.map((provider) => [provider.name, provider])));
   return registry;
 };
+
+// The two facts a turn reads off a model's description.
+const contextWindowFor = async (clients: LlmClients, id: string) =>
+  (await clients.describeModel(id)).model.contextWindow;
+const reasoningOptionsFor = async (clients: LlmClients, id: string, effort: Effort) =>
+  effortProviderOptions(await clients.describeModel(id), effort);
 
 const anthropic: LlmProvider = {
   name: "anthropic",
@@ -341,10 +348,10 @@ describe("llm clients", () => {
     const clients = createLlmClients(registryWith(local, anthropic), {
       ANTHROPIC_API_KEY: "sk-test",
     });
-    const hung = clients.contextWindowFor("local:model");
+    const hung = contextWindowFor(clients, "local:model");
 
-    expect(await clients.contextWindowFor("anthropic:claude-opus-4-8")).toBe(100);
-    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-8", "high")).toEqual({
+    expect(await contextWindowFor(clients, "anthropic:claude-opus-4-8")).toBe(100);
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-8", "high")).toEqual({
       anthropic: { effort: "high" },
     });
 
@@ -363,7 +370,7 @@ describe("llm clients", () => {
     // The full ladder passes through untouched — no thinking config is set,
     // so the model keeps its own default reasoning behaviour.
     for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
-      expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-8", effort)).toEqual({
+      expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-8", effort)).toEqual({
         anthropic: { effort },
       });
     }
@@ -387,36 +394,36 @@ describe("llm clients", () => {
     const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
     // The 4.6 generation has no xhigh (clamped to high) but does take max.
-    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-6", "xhigh")).toEqual({
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-6", "xhigh")).toEqual({
       anthropic: { effort: "high" },
     });
-    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-6", "max")).toEqual({
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-6", "max")).toEqual({
       anthropic: { effort: "max" },
     });
     // Opus 4.5 takes low/medium/high only.
-    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-5", "xhigh")).toEqual({
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-5", "xhigh")).toEqual({
       anthropic: { effort: "high" },
     });
-    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-5", "max")).toEqual({
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-5", "max")).toEqual({
       anthropic: { effort: "high" },
     });
-    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-5", "medium")).toEqual({
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-opus-4-5", "medium")).toEqual({
       anthropic: { effort: "medium" },
     });
     // Pre-effort thinking generations get no parameters at all.
     expect(
-      await clients.reasoningOptionsFor("anthropic:claude-sonnet-4-5", "high"),
+      await reasoningOptionsFor(clients, "anthropic:claude-sonnet-4-5", "high"),
     ).toBeUndefined();
     expect(
-      await clients.reasoningOptionsFor("anthropic:claude-3-7-sonnet-latest", "max"),
+      await reasoningOptionsFor(clients, "anthropic:claude-3-7-sonnet-latest", "max"),
     ).toBeUndefined();
     // A dated 4.0-generation id reads as major 4 with no minor — the date
     // suffix is not a minor version — so it gets no parameters either.
     expect(
-      await clients.reasoningOptionsFor("anthropic:claude-opus-4-20250514", "high"),
+      await reasoningOptionsFor(clients, "anthropic:claude-opus-4-20250514", "high"),
     ).toBeUndefined();
     // An id outside the recognised family-version shape is treated as modern.
-    expect(await clients.reasoningOptionsFor("anthropic:claude-fable-5", "xhigh")).toEqual({
+    expect(await reasoningOptionsFor(clients, "anthropic:claude-fable-5", "xhigh")).toEqual({
       anthropic: { effort: "xhigh" },
     });
   });
@@ -429,16 +436,16 @@ describe("llm clients", () => {
     );
     const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
-    expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "low")).toEqual({
+    expect(await reasoningOptionsFor(clients, "openai:gpt-5.2", "low")).toEqual({
       openai: { reasoningEffort: "low" },
     });
     // xhigh passes through as requested — a model that rejects it surfaces a
     // provider error like any other, never a silent clamp.
-    expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "xhigh")).toEqual({
+    expect(await reasoningOptionsFor(clients, "openai:gpt-5.2", "xhigh")).toEqual({
       openai: { reasoningEffort: "xhigh" },
     });
     // The openai-style enum has no max, so kiri's max sends its top.
-    expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "max")).toEqual({
+    expect(await reasoningOptionsFor(clients, "openai:gpt-5.2", "max")).toEqual({
       openai: { reasoningEffort: "xhigh" },
     });
   });
@@ -453,12 +460,12 @@ describe("llm clients", () => {
     );
     const clients = createLlmClients(registryWith(local), {});
 
-    expect(await clients.reasoningOptionsFor("local:some-deep-model", "high")).toEqual({
+    expect(await reasoningOptionsFor(clients, "local:some-deep-model", "high")).toEqual({
       local: { reasoningEffort: "high" },
     });
   });
 
-  it("returns undefined from reasoningOptionsFor for models without reasoning support", async () => {
+  it("sends no reasoning options for models without reasoning support", async () => {
     server.use(
       http.get("https://api.openai.com/v1/models", () =>
         HttpResponse.json({ data: [{ id: "gpt-4o" }] }),
@@ -466,10 +473,55 @@ describe("llm clients", () => {
     );
     const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
-    // A listed non-reasoning model, and a model that isn't listed at all —
-    // neither ever gets reasoning parameters sent blind.
-    expect(await clients.reasoningOptionsFor("openai:gpt-4o", "high")).toBeUndefined();
-    expect(await clients.reasoningOptionsFor("openai:ghost", "high")).toBeUndefined();
+    // A listed non-reasoning model, and an unlisted one whose id names no
+    // reasoning family — neither ever gets reasoning parameters sent blind.
+    expect(await reasoningOptionsFor(clients, "openai:gpt-4o", "high")).toBeUndefined();
+    expect(await reasoningOptionsFor(clients, "openai:ghost", "high")).toBeUndefined();
+  });
+
+  it("describes a model its listing doesn't carry from its id family", async () => {
+    server.use(
+      http.get(
+        "https://api.anthropic.com/v1/models",
+        () => new HttpResponse(null, { status: 503 }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    // The listing is down, but a recognised family still runs at its effort.
+    const description = await clients.describeModel("anthropic:claude-opus-4-8");
+    expect(description.listed).toBe(false);
+    expect(description.model).toEqual({ output: "text", reasoning: true });
+    expect(effortProviderOptions(description, "high")).toEqual({ anthropic: { effort: "high" } });
+  });
+
+  it("rejects a description for an id that doesn't resolve", async () => {
+    const clients = createLlmClients(registryWith(anthropic), {});
+
+    await expect(clients.describeModel("nope")).rejects.toThrow('expected "provider:model" form');
+    await expect(clients.describeModel("ghost:model")).rejects.toThrow("unknown llm provider");
+  });
+
+  it("describes from the id at once when the caller's signal cuts discovery short", async () => {
+    const release = Promise.withResolvers<void>();
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", async () => {
+        await release.promise;
+        return HttpResponse.json({ data: [{ id: "claude-opus-4-8", max_input_tokens: 100 }] });
+      }),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+    const controller = new AbortController();
+    const cancelled = clients.describeModel("anthropic:claude-opus-4-8", {
+      signal: controller.signal,
+    });
+
+    controller.abort();
+    expect((await cancelled).listed).toBe(false);
+
+    // The shared discovery carries on for the next reader.
+    release.resolve();
+    expect(await contextWindowFor(clients, "anthropic:claude-opus-4-8")).toBe(100);
   });
 
   it("returns a model's context window via contextWindowFor", async () => {
@@ -480,7 +532,7 @@ describe("llm clients", () => {
     );
     const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
-    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(200000);
+    expect(await contextWindowFor(clients, "anthropic:claude-haiku-4-5")).toBe(200000);
   });
 
   it("reports an unknown window as undefined from contextWindowFor", async () => {
@@ -493,8 +545,8 @@ describe("llm clients", () => {
 
     // Listed but the provider reports no window, and a model that isn't listed
     // at all — both read as "unknown" rather than throwing.
-    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBeUndefined();
-    expect(await clients.contextWindowFor("anthropic:ghost")).toBeUndefined();
+    expect(await contextWindowFor(clients, "anthropic:claude-haiku-4-5")).toBeUndefined();
+    expect(await contextWindowFor(clients, "anthropic:ghost")).toBeUndefined();
   });
 
   it("caches the listing so repeated contextWindowFor lookups don't refetch", async () => {
@@ -507,8 +559,8 @@ describe("llm clients", () => {
     );
     const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
-    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(100);
-    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(100);
+    expect(await contextWindowFor(clients, "anthropic:claude-haiku-4-5")).toBe(100);
+    expect(await contextWindowFor(clients, "anthropic:claude-haiku-4-5")).toBe(100);
     expect(calls).toBe(1);
   });
 
@@ -528,20 +580,20 @@ describe("llm clients", () => {
     );
     const registry = registryWith(local);
     const clients = createLlmClients(registry, {});
-    expect(await clients.contextWindowFor("local:model")).toBe(100);
-    expect(await clients.reasoningOptionsFor("local:model", "high")).toEqual({
+    expect(await contextWindowFor(clients, "local:model")).toBe(100);
+    expect(await reasoningOptionsFor(clients, "local:model", "high")).toEqual({
       local: { reasoningEffort: "high" },
     });
     registry.replace(new Map([["local", { ...local, baseUrl: "http://localhost:4321/v1" }]]));
-    expect(await clients.contextWindowFor("local:model")).toBe(200);
-    expect(await clients.reasoningOptionsFor("local:model", "high")).toBeUndefined();
+    expect(await contextWindowFor(clients, "local:model")).toBe(200);
+    expect(await reasoningOptionsFor(clients, "local:model", "high")).toBeUndefined();
     expect(calls).toEqual({ old: 1, next: 1 });
     // The picker discovers afresh on every listing request, and execution
     // then reads what it was shown rather than discovering again.
     expect((await clients.listModels()).models[0]?.model.contextWindow).toBe(200);
     await clients.listModels();
     expect(calls).toEqual({ old: 1, next: 3 });
-    expect(await clients.contextWindowFor("local:model")).toBe(200);
+    expect(await contextWindowFor(clients, "local:model")).toBe(200);
     expect(calls.next).toBe(3);
   });
 
@@ -566,23 +618,31 @@ describe("llm clients", () => {
       );
       const registry = registryWith(local);
       const clients = createLlmClients(registry, { OPENAI_API_KEY: "sk-test" });
-      const oldContext = clients.contextWindowFor("local:gpt-5.2");
-      const oldReasoning = clients.reasoningOptionsFor("local:gpt-5.2", "high");
+      const oldContext = contextWindowFor(clients, "local:gpt-5.2");
+      const oldReasoning = reasoningOptionsFor(clients, "local:gpt-5.2", "high");
       await started.promise;
       registry.replace(removed ? new Map() : new Map([["local", { ...openai, name: "local" }]]));
-      const nextContext = removed ? undefined : 200;
-      const nextReasoning = removed ? undefined : { openai: { reasoningEffort: "high" } };
-      expect(await clients.contextWindowFor("local:gpt-5.2")).toEqual(nextContext);
-      expect(await clients.reasoningOptionsFor("local:gpt-5.2", "high")).toEqual(nextReasoning);
+      // A removed provider no longer resolves, for a description as for a model.
+      const expectNext = async () => {
+        if (removed) {
+          await expect(clients.describeModel("local:gpt-5.2")).rejects.toThrow(
+            "unknown llm provider",
+          );
+          expect(() => clients.resolveModel("local:gpt-5.2")).toThrow("unknown llm provider");
+          return;
+        }
+        expect(await contextWindowFor(clients, "local:gpt-5.2")).toBe(200);
+        expect(await reasoningOptionsFor(clients, "local:gpt-5.2", "high")).toEqual({
+          openai: { reasoningEffort: "high" },
+        });
+      };
+      await expectNext();
       release.resolve();
       expect(await oldContext).toBe(100);
       // Finishing the old lookup must not combine old metadata with the new provider type.
       expect(await oldReasoning).toEqual({ local: { reasoningEffort: "high" } });
-      expect(await clients.contextWindowFor("local:gpt-5.2")).toEqual(nextContext);
-      expect(await clients.reasoningOptionsFor("local:gpt-5.2", "high")).toEqual(nextReasoning);
+      await expectNext();
       expect(calls).toEqual({ old: 1, next: removed ? 0 : 1 });
-      if (removed)
-        expect(() => clients.resolveModel("local:gpt-5.2")).toThrow("unknown llm provider");
     });
   }
 
@@ -598,11 +658,11 @@ describe("llm clients", () => {
         }),
       );
       const clients = createLlmClients(registryWith(local), {});
-      expect(await clients.contextWindowFor("local:model")).toBe(100);
+      expect(await contextWindowFor(clients, "local:model")).toBe(100);
       now += 5 * 60_000 - 1;
-      expect(await clients.contextWindowFor("local:model")).toBe(100);
+      expect(await contextWindowFor(clients, "local:model")).toBe(100);
       now++;
-      expect(await clients.contextWindowFor("local:model")).toBe(200);
+      expect(await contextWindowFor(clients, "local:model")).toBe(200);
       expect(calls).toBe(2);
     } finally {
       clock.mockRestore();
@@ -675,7 +735,7 @@ describe("llm clients", () => {
         { endpoint: "old", plugins: undefined },
       ]);
       expect(calls).toEqual({ old: 2, next: 1 });
-      expect(await clients.contextWindowFor("router:reader")).toBeUndefined();
+      await expect(clients.describeModel("router:reader")).rejects.toThrow("unknown llm provider");
     } finally {
       clock.mockRestore();
     }

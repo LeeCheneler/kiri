@@ -14,7 +14,7 @@ import {
 import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
-import type { LlmClients } from "../llm/index.ts";
+import { type LlmClients, effortProviderOptions } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { compactContext } from "./compact-context.ts";
 import {
@@ -422,13 +422,18 @@ async function streamCore(
     if (!senderLabels.has(id)) senderLabels.set(id, getSessionLabels(db, [id]).get(id));
     return senderLabels.get(id);
   };
-  const contextWindow = await llmClients.contextWindowFor(session.model);
+  // A cancel cuts the wait on discovery short; the stream then opens on an
+  // aborted signal and the turn lands as cancelled.
+  const description = await llmClients.describeModel(session.model, {
+    signal: controller.signal,
+  });
+  const contextWindow = description.model.contextWindow;
 
   // The session's effort as this turn's provider reasoning parameters —
   // undefined for a model without reasoning support, which leaves the call
   // without provider options rather than sending parameters blind. Resolved
   // per turn like the model, so a mid-session change applies next turn.
-  const providerOptions = await llmClients.reasoningOptionsFor(session.model, session.effort);
+  const providerOptions = effortProviderOptions(description, session.effort);
   // Inbox items that arrive while the turn runs are delivered at the next
   // step boundary: `prepareStep` (inside `execute` below) injects them into
   // the step's model messages and mirrors each one into the UI stream as its

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import type { ConfigCheck } from "../config/health.ts";
 import { createApp } from "../index.ts";
-import { type LlmClients, describeModel } from "../llm/index.ts";
+import { type LlmClients, buildModelDescription } from "../llm/index.ts";
 import { type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const writeConfig = (cwd: string, yaml: string): void =>
@@ -150,7 +151,7 @@ describe("config routes", () => {
         generateText: async () => ({ text: "", usage: {} }),
         listModels: async () => ({
           models: [
-            describeModel(
+            buildModelDescription(
               { name: "local", type: "openai-compatible", baseUrl: "http://x" },
               "listed",
               { id: "local:listed", provider: "local", output: "text", reasoning: false },
@@ -158,8 +159,7 @@ describe("config routes", () => {
           ],
           failures: [],
         }),
-        contextWindowFor: async () => undefined,
-        reasoningOptionsFor: async () => undefined,
+        describeModel: async (id) => describedModel(id),
       };
       const app = createApp({
         db: env.db,

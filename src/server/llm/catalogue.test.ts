@@ -123,21 +123,22 @@ describe("model catalogue", () => {
     const abandoned = catalogue.listing(openai, { signal: controller.signal });
     const patient = catalogue.listing(openai, { signal: new AbortController().signal });
 
-    controller.abort(new Error("turn cancelled"));
-    await expect(abandoned).rejects.toThrow("turn cancelled");
+    controller.abort();
+    expect(await abandoned).toEqual({ models: [], reason: "discovery wait cancelled" });
 
     release.resolve();
     expect(windowOf(await patient)).toBe(100);
     expect(calls).toBe(1);
   });
 
-  it("rejects at once for a reader whose signal has already fired", async () => {
+  it("answers at once for a reader whose signal has already fired", async () => {
     server.use(http.get(OPENAI_MODELS, () => listing(100)));
     const catalogue = createModelCatalogue({});
 
-    await expect(
-      catalogue.listing(openai, { signal: AbortSignal.abort(new Error("already cancelled")) }),
-    ).rejects.toThrow("already cancelled");
+    expect(await catalogue.listing(openai, { signal: AbortSignal.abort() })).toEqual({
+      models: [],
+      reason: "discovery wait cancelled",
+    });
   });
 
   it("bounds discovery by its timeout", async () => {

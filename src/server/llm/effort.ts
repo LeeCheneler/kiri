@@ -1,6 +1,6 @@
 import type { JSONValue } from "ai";
 import type { SessionEffort as Effort } from "../../shared/api/sessions.ts";
-import type { LlmProvider } from "./schema.ts";
+import type { ModelDescription } from "./model-description.ts";
 
 export { EFFORT_LEVELS } from "../../shared/api/sessions.ts";
 export type { SessionEffort as Effort } from "../../shared/api/sessions.ts";
@@ -76,30 +76,33 @@ function clampClaudeEffort(modelId: string, effort: Effort): Effort | undefined 
 }
 
 /**
- * Map an effort level to the provider options one model call needs to run at
- * it: Anthropic's effort parameter (`output_config.effort` on the wire,
- * clamped to what the Claude generation accepts, thinking left unset so
- * modern models keep their adaptive default), or an OpenAI-style
- * `reasoning_effort` — sent under the provider's own options key for an
- * `openai-compatible` endpoint, which passes it through in the same shape.
- * Undefined when the model takes no effort parameter at all. Callers gate on
- * the model's reasoning capability; this maps within that gate.
+ * Map an effort level to the provider options one call to the described
+ * model needs to run at it: Anthropic's effort parameter
+ * (`output_config.effort` on the wire, clamped to what the Claude generation
+ * accepts, thinking left unset so modern models keep their adaptive
+ * default), or an OpenAI-style `reasoning_effort` — sent under the
+ * provider's own options key for an `openai-compatible` endpoint, which
+ * passes it through in the same shape. Undefined for a model without
+ * reasoning support, or whose generation takes no effort parameter —
+ * reasoning parameters are only ever sent where the model takes them, never
+ * blind.
  */
 export function effortProviderOptions(
-  provider: LlmProvider,
-  modelId: string,
+  description: ModelDescription,
   effort: Effort,
-  reasoningLevels?: string[],
 ): EffortProviderOptions | undefined {
-  switch (provider.type) {
+  if (!description.model.reasoning) return undefined;
+  switch (description.transport.type) {
     case "anthropic": {
-      const clamped = clampClaudeEffort(modelId, effort);
+      const clamped = clampClaudeEffort(description.modelId, effort);
       return clamped === undefined ? undefined : { anthropic: { effort: clamped } };
     }
     case "openai-codex": {
       const target = OPENAI_REASONING_EFFORT[effort];
       const levels = ["none", "minimal", "low", "medium", "high", "xhigh"];
-      const supported = levels.filter((level) => reasoningLevels?.includes(level));
+      const supported = levels.filter((level) =>
+        description.model.reasoningLevels?.includes(level),
+      );
       const clamped =
         supported.filter((level) => levels.indexOf(level) <= levels.indexOf(target)).at(-1) ??
         supported[0];
@@ -113,6 +116,6 @@ export function effortProviderOptions(
     case "openai-compatible":
       // The AI SDK reads an openai-compatible model's options under the name
       // the provider was created with — kiri's configured provider name.
-      return { [provider.name]: { reasoningEffort: OPENAI_REASONING_EFFORT[effort] } };
+      return { [description.provider]: { reasoningEffort: OPENAI_REASONING_EFFORT[effort] } };
   }
 }

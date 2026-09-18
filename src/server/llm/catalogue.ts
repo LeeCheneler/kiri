@@ -16,8 +16,9 @@ export interface ModelCatalogue {
   /**
    * The provider's listing, from cache while fresh, discovering it otherwise.
    * Concurrent readers share one discovery request. `signal` abandons this
-   * caller's wait — rejecting with the abort reason — and leaves the shared
-   * request running for the others; nothing else rejects.
+   * caller's wait — it settles at once with an empty listing whose `reason`
+   * says so — and leaves the shared request running for the others. Never
+   * rejects: every failure is a `reason`.
    */
   listing(provider: LlmProvider, options?: { signal?: AbortSignal }): Promise<ProviderListing>;
   /**
@@ -83,16 +84,19 @@ export function createModelCatalogue(
   };
 }
 
-// Settle with `promise`, or reject with the abort reason once `signal` fires.
+// Settle with `promise`, or with an empty listing once `signal` fires.
 // `promise` itself never rejects — discovery reports failure as a value.
-function abandonable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
+function abandonable(
+  promise: Promise<ProviderListing>,
+  signal: AbortSignal,
+): Promise<ProviderListing> {
+  return new Promise((resolve) => {
+    const onAbort = () => resolve({ models: [], reason: "discovery wait cancelled" });
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
-    promise.then((value) => {
+    promise.then((listing) => {
       signal.removeEventListener("abort", onAbort);
-      resolve(value);
+      resolve(listing);
     });
   });
 }

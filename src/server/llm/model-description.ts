@@ -46,7 +46,7 @@ export interface LlmModelsResult {
  * no listing entry — from id-family fallbacks, so an unlisted model still
  * gets a usable description rather than none.
  */
-export function describeModel(
+export function buildModelDescription(
   provider: LlmProvider,
   modelId: string,
   listed: ListedModel | undefined,

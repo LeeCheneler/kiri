@@ -32,6 +32,7 @@ import {
   updateSessionCwd,
   updateSessionImageModel,
 } from "../../src/server/sessions/index.ts";
+import { describedModel } from "../../tests/support/described-model.ts";
 import { FAKE_IMAGE_B64, type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
 
 /**
@@ -185,7 +186,10 @@ describe("session turn streaming", () => {
     const { response, done } = await runTurn(
       {
         db,
-        llmClients: { ...llmClients, contextWindowFor: async () => 8192 },
+        llmClients: {
+          ...llmClients,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
+        },
         tools: {
           read_file: tool({
             inputSchema: z.object({}),
@@ -227,7 +231,10 @@ describe("session turn streaming", () => {
     const { response, done } = await runTurn(
       {
         db,
-        llmClients: { ...llmClients, contextWindowFor: async () => 8192 },
+        llmClients: {
+          ...llmClients,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
+        },
         tools: {
           save: tool({
             inputSchema: z.object({}),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { acceptedDocuments, describeModel, toModelInfo } from "./model-description.ts";
+import { acceptedDocuments, buildModelDescription, toModelInfo } from "./model-description.ts";
 import type { ListedModel } from "./models.ts";
 import type { LlmProvider } from "./schema.ts";
 
@@ -16,7 +16,7 @@ const openrouter: LlmProvider = {
 };
 
 const listed = (provider: LlmProvider, modelId: string, facts: Partial<ListedModel> = {}) =>
-  describeModel(provider, modelId, {
+  buildModelDescription(provider, modelId, {
     id: `${provider.name}:${modelId}`,
     provider: provider.name,
     output: "text",
@@ -24,7 +24,7 @@ const listed = (provider: LlmProvider, modelId: string, facts: Partial<ListedMod
     ...facts,
   });
 
-describe("describeModel", () => {
+describe("buildModelDescription", () => {
   it("keeps the model's listed facts apart from its transport and parser", () => {
     const description = listed(openrouter, "vendor/reader", {
       contextWindow: 128000,
@@ -55,7 +55,7 @@ describe("describeModel", () => {
   });
 
   it("falls back to id-family facts for a model the listing doesn't carry", () => {
-    expect(describeModel(anthropic, "claude-opus-4-8", undefined)).toEqual({
+    expect(buildModelDescription(anthropic, "claude-opus-4-8", undefined)).toEqual({
       id: "anthropic:claude-opus-4-8",
       provider: "anthropic",
       modelId: "claude-opus-4-8",

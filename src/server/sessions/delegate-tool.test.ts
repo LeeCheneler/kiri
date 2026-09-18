@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { projects } from "../db/schema.ts";
@@ -41,8 +42,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 const usage = (input: number, output: number) => ({

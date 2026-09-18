@@ -10,6 +10,7 @@ import {
 } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { wrapAttachedFile } from "../../shared/attached-file.ts";
 import {
   MAX_DOCUMENT_BYTES,
@@ -28,7 +29,7 @@ import {
   type LlmModel,
   type LlmTranscriptionModel,
   type ModelDescription,
-  describeModel,
+  buildModelDescription,
 } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { listTaskGroups } from "../projects/tasks.ts";
@@ -150,8 +151,7 @@ const fakeClients = (
     models: opts.models ?? [],
     failures: [],
   }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 // Bus paired with a `waitForSettled(id)` that resolves when a session returns
@@ -441,7 +441,7 @@ describe("sessions routes", () => {
       const app = makeApp(
         fakeClients({
           models: [
-            describeModel({ name: "anthropic", type: "anthropic" }, "claude", {
+            buildModelDescription({ name: "anthropic", type: "anthropic" }, "claude", {
               id: "anthropic:claude",
               provider: "anthropic",
               output: "text",
@@ -1877,7 +1877,7 @@ describe("sessions routes", () => {
                     ];
         const clients = fakeClients({ model: streamingModel(helloTurn()) });
         // Size policy is independent of provider context budgets.
-        clients.contextWindowFor = async () => 10_000_000;
+        clients.describeModel = async (id) => describedModel(id, { contextWindow: 10_000_000 });
         const { bus, waitForSettled } = createSessionWaiter();
         const app = makeApp(clients, { bus });
         createSession(env.db, MODEL, { id: "s1" });
@@ -3804,7 +3804,10 @@ describe("sessions routes", () => {
       // The full catalogue plus standing instructions and worker reports needs
       // a model window large enough to exercise the delegation flow.
       const app = makeApp(
-        { ...fakeClients({ model }), contextWindowFor: async () => 128_000 },
+        {
+          ...fakeClients({ model }),
+          describeModel: async (id) => describedModel(id, { contextWindow: 128_000 }),
+        },
         {
           bus,
           mcpRegistry: fakeMcp({ tavily__search: mcpTool(), linear__create_issue: mcpTool() }),

@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { renderHealth } from "../launch-screen.ts";
-import { type LlmClients, describeModel } from "../llm/index.ts";
+import { type LlmClients, buildModelDescription } from "../llm/index.ts";
 import type { LlmProvider } from "../llm/schema.ts";
 import type { McpServer } from "../mcp/schema.ts";
 import {
@@ -286,7 +287,7 @@ describe("evaluateModelListingHealth", () => {
     generateText: async () => ({ text: "", usage: {} }),
     listModels: async () => ({
       models: models.map(({ id, provider }) =>
-        describeModel(
+        buildModelDescription(
           { name: provider, type: "openai-compatible", baseUrl: "http://x" },
           id.slice(provider.length + 1),
           { id, provider, output: "text", reasoning: false },
@@ -294,8 +295,7 @@ describe("evaluateModelListingHealth", () => {
       ),
       failures,
     }),
-    contextWindowFor: async () => undefined,
-    reasoningOptionsFor: async () => undefined,
+    describeModel: async (id) => describedModel(id),
   });
 
   const configured = (models: KiriConfigLoadResult["models"]): ConfigSnapshot =>

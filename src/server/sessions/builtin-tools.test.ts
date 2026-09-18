@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
@@ -33,8 +34,7 @@ const stubClients: LlmClients = {
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 };
 
 describe("BUILTIN_TOOLS", () => {

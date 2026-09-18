@@ -11,10 +11,12 @@ import {
 } from "ai";
 import { type ModelCatalogue, createModelCatalogue } from "./catalogue.ts";
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
-import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { endpointFor } from "./endpoint.ts";
-import { type LlmModelsResult, describeModel } from "./model-description.ts";
-import type { ListedModel } from "./models.ts";
+import {
+  type LlmModelsResult,
+  type ModelDescription,
+  buildModelDescription,
+} from "./model-description.ts";
 import { createOpenRouterModel } from "./openrouter-model.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
@@ -96,25 +98,18 @@ export interface LlmClients {
    */
   listModels(): Promise<LlmModelsResult>;
   /**
-   * The context window (max input tokens) for a `provider:model` id, or
-   * undefined when the model isn't listed or its provider doesn't report one.
-   * Reads the model's own provider's listing — no other provider is asked —
-   * cached briefly and refreshed by `listModels`, with discovery bounded so a
-   * hung endpoint can't hold a turn. Registry replacement starts a fresh cache;
-   * in-flight lookups retain their starting configuration. A provider whose
-   * listing fails contributes no models, so its windows read as unknown rather
-   * than failing the lookup.
-   */
-  contextWindowFor(id: string): Promise<number | undefined>;
-  /**
-   * The provider options that run a `provider:model` id at `effort`, or
-   * undefined for a model without reasoning support (per the same cached
-   * listings as `contextWindowFor`) or whose generation takes no effort
-   * parameter — reasoning parameters are only ever sent where the model
-   * takes them, never blind. Throws for an id that doesn't resolve, matching
+   * Describe a `provider:model` id: the model's facts, the transport that
+   * carries requests to it, and what its endpoint parses for it. Reads the
+   * model's own provider's listing — no other provider is asked — cached
+   * briefly and refreshed by `listModels`, with discovery bounded so a hung
+   * endpoint can't hold a turn. A model the listing doesn't carry — or whose
+   * listing failed, or whose wait `signal` cut short — is described from its
+   * id alone (`listed: false`) rather than failing. Registry replacement
+   * starts a fresh cache; in-flight lookups retain their starting
+   * configuration. Rejects for an id that doesn't resolve, matching
    * `resolveModel`.
    */
-  reasoningOptionsFor(id: string, effort: Effort): Promise<EffortProviderOptions | undefined>;
+  describeModel(id: string, options?: { signal?: AbortSignal }): Promise<ModelDescription>;
 }
 
 /**
@@ -145,15 +140,19 @@ export function createLlmClients(
     }
     return metadata;
   };
-  // What the model's own provider lists for it — no other provider is asked.
-  const listedModel = async (
+  // Describe a model from its own provider's listing — no other provider is asked.
+  const describe = async (
     snapshot: MetadataSnapshot,
     id: string,
-  ): Promise<ListedModel | undefined> => {
-    const provider = snapshot.registry.getProvider(splitModelId(id).providerName);
-    if (provider === undefined) return undefined;
-    const { models } = await snapshot.catalogue.listing(provider);
-    return models.find((model) => model.id === id);
+    signal?: AbortSignal,
+  ): Promise<ModelDescription> => {
+    const { provider, modelId } = resolveProvider(snapshot.registry, id);
+    const { models } = await snapshot.catalogue.listing(provider, { signal });
+    return buildModelDescription(
+      provider,
+      modelId,
+      models.find((model) => model.id === id),
+    );
   };
 
   const clients: LlmClients = {
@@ -184,20 +183,13 @@ export function createLlmClients(
         }
         for (const listed of listing.models) {
           const modelId = listed.id.slice(provider.name.length + 1);
-          result.models.push(describeModel(provider, modelId, listed));
+          result.models.push(buildModelDescription(provider, modelId, listed));
         }
       }
       return result;
     },
-    async contextWindowFor(id) {
-      return (await listedModel(metadataSnapshot(), id))?.contextWindow;
-    },
-    async reasoningOptionsFor(id, effort) {
-      const snapshot = metadataSnapshot();
-      const model = await listedModel(snapshot, id);
-      if (model?.reasoning !== true) return undefined;
-      const { provider, modelId } = resolveProvider(snapshot.registry, id);
-      return effortProviderOptions(provider, modelId, effort, model.reasoningLevels);
+    async describeModel(id, { signal } = {}) {
+      return describe(metadataSnapshot(), id, signal);
     },
     resolveModel(id) {
       const snapshot = metadataSnapshot();
@@ -206,7 +198,7 @@ export function createLlmClients(
         provider,
         modelId,
         env,
-        async () => (await listedModel(snapshot, id))?.nativeDocuments,
+        async () => (await describe(snapshot, id)).model.nativeDocuments,
       );
     },
     resolveImageModel(id) {
@@ -221,20 +213,14 @@ export function createLlmClients(
   return clients;
 }
 
-// The two halves of a `provider:model` id; the model half is empty without a separator.
-function splitModelId(id: string): { providerName: string; modelId: string } {
-  const separator = id.indexOf(":");
-  return separator === -1
-    ? { providerName: id, modelId: "" }
-    : { providerName: id.slice(0, separator), modelId: id.slice(separator + 1) };
-}
-
 /** Split a `provider:model` id and look its provider up in the registry, throwing on either failure. */
 function resolveProvider(
   registry: LlmProviderRegistry,
   id: string,
 ): { provider: LlmProvider; modelId: string } {
-  const { providerName, modelId } = splitModelId(id);
+  const separator = id.indexOf(":");
+  const providerName = separator === -1 ? id : id.slice(0, separator);
+  const modelId = separator === -1 ? "" : id.slice(separator + 1);
   if (!providerName || !modelId) {
     throw new Error(`invalid llm model id "${id}" — expected "provider:model" form`);
   }

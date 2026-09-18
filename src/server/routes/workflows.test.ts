@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
@@ -237,8 +238,7 @@ describe("workflows routes", () => {
           },
           generateText: async () => ({ text: "hi back", usage: {} }),
           listModels: async () => ({ models: [], failures: [] }),
-          contextWindowFor: async () => undefined,
-          reasoningOptionsFor: async () => undefined,
+          describeModel: async (id) => describedModel(id),
         },
       });
       const res = await app.request("/api/workflows/llm-flow/runs", {

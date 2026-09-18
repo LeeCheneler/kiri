@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { GenerateLlmTextResult, LlmClients } from "../llm/index.ts";
 import type { ChildHandle } from "./cancel-registry.ts";
@@ -46,8 +47,7 @@ describe("runLlmStep", () => {
         return result;
       },
       listModels: async () => ({ models: [], failures: [] }),
-      contextWindowFor: async () => undefined,
-      reasoningOptionsFor: async () => undefined,
+      describeModel: async (id) => describedModel(id),
     };
   };
 
@@ -129,8 +129,7 @@ describe("runLlmStep", () => {
         throw new Error("401 invalid x-api-key");
       },
       listModels: async () => ({ models: [], failures: [] }),
-      contextWindowFor: async () => undefined,
-      reasoningOptionsFor: async () => undefined,
+      describeModel: async (id) => describedModel(id),
     };
 
     const envelope = await runLlmStep({
@@ -159,8 +158,7 @@ describe("runLlmStep", () => {
       },
       generateText: () => Promise.reject("socket hang up"),
       listModels: async () => ({ models: [], failures: [] }),
-      contextWindowFor: async () => undefined,
-      reasoningOptionsFor: async () => undefined,
+      describeModel: async (id) => describedModel(id),
     };
 
     const envelope = await runLlmStep({
@@ -191,8 +189,7 @@ describe("runLlmStep", () => {
           abortSignal?.addEventListener("abort", () => reject(new Error("call aborted")));
         }),
       listModels: async () => ({ models: [], failures: [] }),
-      contextWindowFor: async () => undefined,
-      reasoningOptionsFor: async () => undefined,
+      describeModel: async (id) => describedModel(id),
     };
 
     let handle: ChildHandle | undefined;

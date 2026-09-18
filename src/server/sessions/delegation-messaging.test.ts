@@ -6,6 +6,7 @@ import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
@@ -58,8 +59,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 // Wake turns run detached from the event that triggered them, so assertions
