@@ -494,6 +494,23 @@ describe("sessions routes", () => {
       );
     });
 
+    it("keeps serving the shortcuts from the last good config after an invalid edit", async () => {
+      const path = join(env.cwd, "kiri.yaml");
+      writeFileSync(path, "models:\n  shortcuts:\n    text:\n      sonnet: a:mid\n");
+      const app = makeApp(fakeClients());
+      const shortcuts = async () =>
+        ((await (await app.request("/api/models")).json()) as { shortcuts: ModelShortcutsConfig })
+          .shortcuts;
+      expect(await shortcuts()).toEqual({ text: { sonnet: "a:mid" } });
+
+      // A typo elsewhere in the file must not empty the pickers.
+      writeFileSync(path, "providers: [not, a, map]\n");
+      expect(await shortcuts()).toEqual({ text: { sonnet: "a:mid" } });
+
+      writeFileSync(path, "models:\n  shortcuts:\n    text:\n      opus: a:big\n");
+      expect(await shortcuts()).toEqual({ text: { opus: "a:big" } });
+    });
+
     it("carries the configured utility model alongside the listing", async () => {
       const app = makeApp(fakeClients(), {
         models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },

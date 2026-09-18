@@ -11,12 +11,13 @@ import type { ConfigStore } from "./store.ts";
  * an edit produces a new snapshot with a higher `revision`.
  *
  * An invalid edit affects the sections differently, deliberately. Connectivity
- * (`providers`, `mcp`) keeps its last good value, so a mid-edit typo never
- * takes a working provider out from under a running session. `filesystem`
- * fails closed — no directory stays reachable on the strength of a file that
- * no longer says so — and so does `models`. `diagnostics` always describes the
- * latest load, so a newly introduced error is visible while the last good
- * connectivity is still being served.
+ * — `providers`, `mcp`, and the `models` that name them — keeps its last good
+ * value, so a mid-edit typo never takes a working provider, or the shortcuts
+ * and delegates pointing at it, out from under a running session. `filesystem`
+ * fails closed: no directory stays reachable on the strength of a file that no
+ * longer says so. `diagnostics` always describes the latest load, so a newly
+ * introduced error is visible while the last good connectivity is still being
+ * served.
  */
 export interface ConfigSnapshot {
   /** Advances on every load, so holders can tell whether they have seen this snapshot. */
@@ -25,7 +26,7 @@ export interface ConfigSnapshot {
   readonly providers: ReadonlyMap<string, LlmProvider>;
   /** MCP servers keyed by name whose declared env refs all resolve. Last good on a failed load. */
   readonly mcp: ReadonlyMap<string, McpServer>;
-  /** Model shortcuts, delegates, and the utility and transcription models. Empty on a failed load. */
+  /** Model shortcuts, delegates, and the utility and transcription models. Last good on a failed load. */
   readonly models: ModelsConfig;
   /** The session filesystem sandbox. Empty — tools withheld — on a failed load. */
   readonly filesystem: {
@@ -73,13 +74,13 @@ function snapshotOf(
   previous: ConfigSnapshot | undefined,
 ): ConfigSnapshot {
   // A failed load carries empty sections; connectivity falls back to the last
-  // good snapshot while everything else takes the empty, fail-closed value.
+  // good snapshot while the filesystem takes the empty, fail-closed value.
   const connectivity = result.failure && previous ? previous : result;
   return Object.freeze({
     revision,
     providers: connectivity.providers,
     mcp: connectivity.mcp,
-    models: Object.freeze(result.models),
+    models: Object.freeze(connectivity.models),
     filesystem: Object.freeze({
       allowedDirectories: Object.freeze(result.allowedDirectories),
       ...(result.defaultWorkingDirectory !== undefined

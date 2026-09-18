@@ -80,7 +80,7 @@ describe("createConfigService", () => {
     expect([...service.current().providers.keys()]).toEqual(["local"]);
   });
 
-  it("keeps connectivity but closes the sandbox and models on an invalid edit", () => {
+  it("keeps connectivity and models but closes the sandbox on an invalid edit", () => {
     write(VALID);
     const service = createConfigService(config, {});
     service.current();
@@ -89,8 +89,8 @@ describe("createConfigService", () => {
     const broken = service.current();
     expect([...broken.providers.keys()]).toEqual(["local"]);
     expect([...broken.mcp.keys()]).toEqual(["docs"]);
+    expect(broken.models.shortcuts).toEqual({ text: { fast: "local:small" } });
     expect(broken.filesystem).toEqual({ allowedDirectories: [] });
-    expect(broken.models).toEqual({ shortcuts: {}, delegates: {} });
     expect(broken.diagnostics.failure?.path).toBe(join(cwd, "kiri.yaml"));
 
     // A second invalid edit still serves the last *good* connectivity.
