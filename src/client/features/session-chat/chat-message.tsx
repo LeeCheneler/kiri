@@ -70,11 +70,15 @@ const attachedFiles = (message: UIMessage): { filename: string; content: string 
 function UserMessage({
   message,
   busy,
+  acceptsImages,
+  acceptsDocuments,
   onResubmit,
   onDelete,
 }: {
   message: UIMessage;
   busy: boolean;
+  acceptsImages: boolean;
+  acceptsDocuments: readonly string[];
   onResubmit: ResubmitHandler;
   onDelete: DeleteMessageHandler;
 }) {
@@ -115,6 +119,8 @@ function UserMessage({
             value={draft}
             onChange={setDraft}
             busy={busy}
+            acceptsImages={acceptsImages}
+            acceptsDocuments={acceptsDocuments}
             initialAttachments={stagedAttachmentsFrom(message)}
             onSubmit={(parts) => onResubmit(message.id, parts)}
             onCancel={() => setEditing(false)}
@@ -399,6 +405,8 @@ function AssistantMessage({
 export const ChatMessage = memo(function ChatMessage({
   message,
   busy,
+  acceptsImages,
+  acceptsDocuments,
   sessionId,
   pageLinks,
   liveConsoles,
@@ -409,6 +417,10 @@ export const ChatMessage = memo(function ChatMessage({
 }: {
   message: UIMessage;
   busy: boolean;
+  /** Whether the session's model reads images; gates what an edited message can resend. */
+  acceptsImages: boolean;
+  /** The document media types the session's model can be sent; must be referentially stable. */
+  acceptsDocuments: readonly string[];
   /** The owning session; lets a delegate call render its embedded child session. */
   sessionId?: string;
   /** Where the session's article, memory, and project pages live; tool results link through it. */
@@ -435,7 +447,14 @@ export const ChatMessage = memo(function ChatMessage({
       );
     }
     return (
-      <UserMessage message={message} busy={busy} onResubmit={onResubmit} onDelete={onDelete} />
+      <UserMessage
+        message={message}
+        busy={busy}
+        acceptsImages={acceptsImages}
+        acceptsDocuments={acceptsDocuments}
+        onResubmit={onResubmit}
+        onDelete={onDelete}
+      />
     );
   }
   const segments = segmentParts(message.parts);

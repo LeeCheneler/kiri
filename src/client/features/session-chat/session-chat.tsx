@@ -397,6 +397,8 @@ function ChatView({
               key={message.id}
               message={message}
               busy={busy}
+              acceptsImages={acceptsImages}
+              acceptsDocuments={acceptsDocuments}
               sessionId={session.id}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}

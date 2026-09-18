@@ -87,6 +87,7 @@ describe("<MessageComposer>", () => {
       <Harness
         onSubmit={onSubmit}
         submitLabel="send"
+        acceptsDocuments={[PDF]}
         initialAttachments={[
           {
             id: "image",
@@ -528,6 +529,7 @@ describe("<MessageComposer>", () => {
     render(
       <Harness
         onSubmit={onSubmit}
+        acceptsDocuments={[PDF]}
         initialAttachments={[{ id: "seed-1", kind: "document", part }]}
       />,
     );
@@ -643,6 +645,31 @@ describe("<MessageComposer>", () => {
     // Nothing is left pending, so the text alone still sends.
     await userEvent.type(textbox(), "carry on{Enter}");
     expect(onSubmit.mock.calls).toEqual([[[{ type: "text", text: "carry on" }]]]);
+  });
+
+  it("refuses to send an attachment staged before a switch to a model that can't read it", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container, rerender } = render(
+      <Harness onSubmit={onSubmit} acceptsDocuments={[PDF]} />,
+    );
+    await userEvent.upload(fileInput(container), [pdfFile("brief.pdf"), txtFile("notes.md")]);
+    await waitFor(() =>
+      expect(screen.getByText("notes.md").closest("li")?.getAttribute("aria-busy")).toBe("false"),
+    );
+
+    rerender(<Harness onSubmit={onSubmit} acceptsDocuments={[]} />);
+    await userEvent.type(textbox(), "read these{Enter}");
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "This model can't read .pdf files. Switch model to attach it.",
+    );
+    // Everything stays staged; switching back sends the lot.
+    expect(screen.getByRole("button", { name: "Remove brief.pdf" })).toBeDefined();
+    rerender(<Harness onSubmit={onSubmit} acceptsDocuments={[PDF]} />);
+    await userEvent.type(textbox(), "{Enter}");
+    expect(onSubmit.mock.calls[0]?.[0]).toHaveLength(3);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows a control's error on its own row, alongside an attachment error", async () => {

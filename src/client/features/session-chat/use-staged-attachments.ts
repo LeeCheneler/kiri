@@ -6,6 +6,7 @@ import {
   type StagedAttachment,
   readAttachment,
   screenPickedFiles,
+  unreadableAttachmentErrors,
 } from "./attachments.ts";
 
 const STILL_READING = "Attachments are still being read. Send again in a moment.";
@@ -18,7 +19,8 @@ const isRead = (attachment: StagedAttachment): attachment is ReadAttachment =>
  * from the latest attempt to add to or send it. Each batch of picked files is
  * screened against the model's `capabilities` and the size caps in one pass, so
  * every refusal in it is reported together. Accepted files are staged at once
- * as `reading` and filled in as their contents arrive.
+ * as `reading` and filled in as their contents arrive. The capabilities are
+ * checked again on sending, since the model can change under a staged draft.
  */
 export function useStagedAttachments(
   initial: StagedAttachment[],
@@ -61,14 +63,18 @@ export function useStagedAttachments(
     setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
 
   /**
-   * The staged attachments, once every one has been read — or `undefined`,
-   * with the reason shown, while any is still being read: sending now would
-   * leave it behind.
+   * The staged attachments, when they can be sent — or `undefined`, with the
+   * reason shown. Sending while one is still being read would leave it behind,
+   * and one the current model can't read would only fail the turn.
    */
-  const takeRead = (): ReadAttachment[] | undefined => {
+  const takeSendable = (): ReadAttachment[] | undefined => {
     const read = attachments.filter(isRead);
-    if (read.length === attachments.length) return read;
-    setErrors([STILL_READING]);
+    const blockers =
+      read.length < attachments.length
+        ? [STILL_READING]
+        : unreadableAttachmentErrors(read, capabilities);
+    if (blockers.length === 0) return read;
+    setErrors(blockers);
   };
 
   const clear = () => {
@@ -76,5 +82,5 @@ export function useStagedAttachments(
     setErrors([]);
   };
 
-  return { attachments, errors, addFiles, remove, takeRead, clear, setErrors };
+  return { attachments, errors, addFiles, remove, takeSendable, clear, setErrors };
 }

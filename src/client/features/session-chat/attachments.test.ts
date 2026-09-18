@@ -11,6 +11,7 @@ import {
   readAttachment,
   screenPickedFiles,
   stagedAttachmentsFrom,
+  unreadableAttachmentErrors,
 } from "./attachments.ts";
 
 const PDF = "application/pdf";
@@ -109,6 +110,34 @@ describe("screenPickedFiles", () => {
     );
     expect(accepted).toEqual([ok]);
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe("unreadableAttachmentErrors", () => {
+  const filePart = (mediaType: string) => ({ type: "file" as const, mediaType, url: "data:," });
+  const staged = [
+    { id: "1", kind: "image" as const, part: filePart("image/png") },
+    { id: "2", kind: "image" as const, part: filePart("image/jpeg") },
+    { id: "3", kind: "document" as const, part: filePart(PDF) },
+    { id: "4", kind: "text" as const, filename: "notes.md", content: "body" },
+  ];
+
+  it("passes attachments the model reads", () => {
+    expect(unreadableAttachmentErrors(staged, EVERYTHING)).toEqual([]);
+  });
+
+  it("gives each distinct reason once, and never refuses a text file", () => {
+    expect(unreadableAttachmentErrors(staged, { images: false, documents: [] })).toEqual([
+      "This model reads text only. Switch model to attach images.",
+      "This model can't read .pdf files. Switch model to attach it.",
+    ]);
+  });
+
+  it("names a document outside the shared vocabulary by its media type", () => {
+    const odd = [{ id: "1", kind: "document" as const, part: filePart("application/rtf") }];
+    expect(unreadableAttachmentErrors(odd, EVERYTHING)).toEqual([
+      "This model can't read application/rtf files. Switch model to attach it.",
+    ]);
   });
 });
 

@@ -55,7 +55,10 @@ import { useStagedAttachments } from "./use-staged-attachments.ts";
  * pass `true`) when images are fine or the model's input support is unknown.
  * `acceptsDocuments` lists the document media types the model's provider
  * carries (PDF, Office): the picker offers exactly those, and a picked file of
- * any other document type gets the same kind of inline error.
+ * any other document type gets the same kind of inline error. Both are
+ * checked again on submit: an attachment staged before a model switch — or
+ * restored from a message sent to another model — refuses the submit with that
+ * error, and stays staged to be removed or sent once the model is switched.
  */
 
 const NO_DOCUMENTS: readonly string[] = [];
@@ -124,13 +127,13 @@ export function MessageComposer({
 
   const submit = () => {
     if (busy || empty) return;
-    const read = staged.takeRead();
-    if (!read) return;
+    const sendable = staged.takeSendable();
+    if (!sendable) return;
     const text = value.trim();
     // Attachments first, then the text, so the model reads them before the
     // question.
     const parts: UIMessage["parts"] = [
-      ...attachmentParts(read),
+      ...attachmentParts(sendable),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
     const sizeError = messagePartsError(parts);

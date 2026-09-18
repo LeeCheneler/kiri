@@ -115,15 +115,30 @@ const SIZE_CAPS: Record<AttachmentKind, { bytes: number; error: string }> = {
   },
 };
 
+// Why the model can't be sent a binary attachment, if it can't. A document is
+// named by its extension — or, for a media type outside the shared vocabulary,
+// by the type itself.
+function modelRefusal(
+  kind: "image" | "document",
+  mediaType: string,
+  capabilities: AttachmentCapabilities,
+): string | undefined {
+  if (kind === "image") {
+    return capabilities.images
+      ? undefined
+      : "This model reads text only. Switch model to attach images.";
+  }
+  if (capabilities.documents.includes(mediaType)) return;
+  const extension = DOCUMENT_TYPES.find((type) => type.mediaType === mediaType)?.extension;
+  return `This model can't read ${extension ?? mediaType} files. Switch model to attach it.`;
+}
+
 // Why a picked file can't be staged, if it can't: the model doesn't read its
 // kind, or it is over its kind's size cap.
 function refusal(picked: PickedFile, capabilities: AttachmentCapabilities): string | undefined {
-  if (picked.kind === "image" && !capabilities.images) {
-    return "This model reads text only. Switch model to attach images.";
-  }
-  if (picked.kind === "document" && !capabilities.documents.includes(picked.mediaType)) {
-    return `This model can't read ${extensionOf(picked.file.name)} files. Switch model to attach it.`;
-  }
+  const unreadable =
+    picked.kind === "text" ? undefined : modelRefusal(picked.kind, picked.mediaType, capabilities);
+  if (unreadable) return unreadable;
   if (picked.file.size > SIZE_CAPS[picked.kind].bytes) return SIZE_CAPS[picked.kind].error;
 }
 
@@ -145,6 +160,21 @@ export function screenPickedFiles(
     else accepted.push(picked);
   }
   return { accepted, errors: [...errors] };
+}
+
+/**
+ * The distinct reasons the model can't be sent these staged attachments — the
+ * staging screen again, for a model switched (or a message sent) since.
+ */
+export function unreadableAttachmentErrors(
+  attachments: readonly ReadAttachment[],
+  capabilities: AttachmentCapabilities,
+): string[] {
+  const errors = attachments.flatMap((attachment) => {
+    if (attachment.kind === "text") return [];
+    return modelRefusal(attachment.kind, attachment.part.mediaType, capabilities) ?? [];
+  });
+  return [...new Set(errors)];
 }
 
 // Encode the file as a base64 data URL from its bytes. Reading the byte buffer

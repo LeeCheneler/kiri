@@ -324,6 +324,8 @@ describe("<ChildSession>", () => {
               } as Parameters<typeof ChatMessage>[0]["message"]
             }
             busy={false}
+            acceptsImages
+            acceptsDocuments={[]}
             sessionId="parent-1"
             onResubmit={() => {}}
             onDelete={() => {}}
