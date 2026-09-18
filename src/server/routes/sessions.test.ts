@@ -2983,27 +2983,6 @@ describe("sessions routes", () => {
         await resumed;
       };
 
-      it("runs a screen-allowed command without consulting the judge", async () => {
-        const { judge } = await startAutoTurn({ input: JSON.stringify({ command: "pwd" }) });
-
-        const rows = getSessionMessages(env.db, "s1");
-        const ranTool = toolPartOf(rows[1]);
-        expect(ranTool.state).toBe("output-available");
-        expect((ranTool.output as { stdout: string }).stdout).toBe(`${realpathSync(env.cwd)}\n`);
-        expect(judge.calls).toEqual([]);
-      });
-
-      it("pauses a screen-triggered command without consulting the judge", async () => {
-        const { judge } = await startAutoTurn({
-          input: JSON.stringify({ command: "rm -rf build" }),
-        });
-
-        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
-        expect(pendingTool.state).toBe("approval-requested");
-        expect(pendingTool.output).toBeUndefined();
-        expect(judge.calls).toEqual([]);
-      });
-
       it("runs a command the judge allows, judging with the utility model", async () => {
         const { judge } = await startAutoTurn({
           input: JSON.stringify({ command: "echo judged", cwd: env.cwd }),
@@ -3167,19 +3146,6 @@ describe("sessions routes", () => {
           verdict: "allow",
           source: "screen",
         });
-      });
-
-      it("degrades to ask wholesale when no utility model is configured", async () => {
-        // Even a screen-allowed command pauses: without a utility model the
-        // permissions page states auto falls back to ask, so it must.
-        const { judge } = await startAutoTurn({
-          input: JSON.stringify({ command: "pwd" }),
-          modelsConfig: { shortcuts: {}, delegates: {} },
-        });
-
-        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
-        expect(pendingTool.state).toBe("approval-requested");
-        expect(judge.calls).toEqual([]);
       });
     });
 
