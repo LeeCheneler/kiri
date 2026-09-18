@@ -27,23 +27,30 @@ describe("endpointFor", () => {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel",
       ],
+      parsedDocuments: [],
     });
     expect(endpointFor({ name: "openai", type: "openai" })).toEqual({
       kind: "openai",
       documents: ["application/pdf"],
+      parsedDocuments: [],
     });
     expect(endpointFor({ name: "anthropic", type: "anthropic" })).toEqual({
       kind: "anthropic",
       documents: ["application/pdf"],
+      parsedDocuments: [],
     });
   });
 
-  it("recognises OpenRouter by its base URL and carries PDFs to it", () => {
-    expect(endpointFor(openrouter)).toEqual({ kind: "openrouter", documents: ["application/pdf"] });
+  it("recognises OpenRouter by its base URL, carrying PDFs and parsing them on request", () => {
+    expect(endpointFor(openrouter)).toEqual({
+      kind: "openrouter",
+      documents: ["application/pdf"],
+      parsedDocuments: ["application/pdf"],
+    });
   });
 
   it("treats any other openai-compatible endpoint as custom, carrying no documents", () => {
-    const custom: LlmEndpoint = { kind: "custom", documents: [] };
+    const custom: LlmEndpoint = { kind: "custom", documents: [], parsedDocuments: [] };
     expect(endpointFor(local)).toEqual(custom);
     expect(endpointFor({ ...local, baseUrl: "not a url" })).toEqual(custom);
     expect(endpointFor({ ...local, baseUrl: undefined })).toEqual(custom);

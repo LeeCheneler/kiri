@@ -292,9 +292,11 @@ describe("llm clients", () => {
       {
         id: "anthropic:claude-haiku-4-5",
         provider: "anthropic",
-        output: "text",
-        documentInput: ["application/pdf"],
-        reasoning: true,
+        modelId: "claude-haiku-4-5",
+        listed: true,
+        model: { output: "text", reasoning: true },
+        transport: { type: "anthropic", endpoint: "anthropic", documents: ["application/pdf"] },
+        parser: { documents: [] },
       },
     ]);
     expect(result.failures).toEqual([]);
@@ -485,7 +487,7 @@ describe("llm clients", () => {
     expect(await clients.reasoningOptionsFor("local:model", "high")).toBeUndefined();
     expect(calls).toEqual({ old: 1, next: 1 });
     // The picker still bypasses the metadata cache on every listing request.
-    expect((await clients.listModels()).models[0]?.contextWindow).toBe(200);
+    expect((await clients.listModels()).models[0]?.model.contextWindow).toBe(200);
     await clients.listModels();
     expect(calls).toEqual({ old: 1, next: 3 });
     expect(await clients.contextWindowFor("local:model")).toBe(200);

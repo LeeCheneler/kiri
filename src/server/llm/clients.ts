@@ -12,7 +12,8 @@ import {
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { endpointFor } from "./endpoint.ts";
-import { type LlmModelsResult, listLlmModels } from "./models.ts";
+import { type LlmModelsResult, describeModel } from "./model-description.ts";
+import { type ListedModelsResult, listLlmModels } from "./models.ts";
 import { createOpenRouterModel } from "./openrouter-model.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
@@ -88,8 +89,8 @@ export interface LlmClients {
     abortSignal?: AbortSignal;
   }): Promise<GenerateLlmTextResult>;
   /**
-   * List the models every configured provider currently offers, namespaced as
-   * `provider:model` ids ready to hand back to `resolveModel`. A provider that
+   * Describe the models every configured provider currently offers, namespaced
+   * as `provider:model` ids ready to hand back to `resolveModel`. A provider that
    * is down or unauthorised is collected as a failure, never fatal. Lives here
    * so callers list models off the same object they resolve them through,
    * without touching the registry or AI SDK directly.
@@ -128,7 +129,7 @@ export function createLlmClients(
   interface MetadataSnapshot {
     revision: number;
     registry: LlmProviderRegistry;
-    listing?: { at: number; promise: Promise<LlmModelsResult> };
+    listing?: { at: number; promise: Promise<ListedModelsResult> };
   }
   let metadata: MetadataSnapshot | undefined;
   const metadataSnapshot = (): MetadataSnapshot => {
@@ -143,7 +144,7 @@ export function createLlmClients(
     }
     return metadata;
   };
-  const cachedListing = (snapshot: MetadataSnapshot): Promise<LlmModelsResult> => {
+  const cachedListing = (snapshot: MetadataSnapshot): Promise<ListedModelsResult> => {
     if (
       snapshot.listing === undefined ||
       Date.now() - snapshot.listing.at >= MODEL_LISTING_TTL_MS
@@ -166,8 +167,16 @@ export function createLlmClients(
         abortSignal: options.abortSignal,
       });
     },
-    listModels() {
-      return listLlmModels(registry, env);
+    async listModels() {
+      const { registry: providers } = metadataSnapshot();
+      const { models, failures } = await listLlmModels(providers, env);
+      return {
+        models: models.map((listed) => {
+          const { provider, modelId } = resolveProvider(providers, listed.id);
+          return describeModel(provider, modelId, listed);
+        }),
+        failures,
+      };
     },
     async contextWindowFor(id) {
       const { models } = await cachedListing(metadataSnapshot());

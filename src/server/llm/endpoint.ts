@@ -21,6 +21,12 @@ export interface LlmEndpoint {
    * routes to; and a custom endpoint takes none — local servers reject one.
    */
   documents: string[];
+  /**
+   * The document media types the endpoint parses, on request, for a model
+   * that cannot read them itself. Only OpenRouter offers one: its file-parser
+   * plugin extracts a PDF's text for any model it routes to.
+   */
+  parsedDocuments: string[];
 }
 
 const OPENROUTER_HOST = "openrouter.ai";
@@ -38,14 +44,18 @@ const isOpenRouterUrl = (baseUrl: string | undefined): boolean => {
 export function endpointFor(provider: LlmProvider): LlmEndpoint {
   switch (provider.type) {
     case "openai-codex":
-      return { kind: "openai-codex", documents: [...ALL_DOCUMENT_MEDIA_TYPES] };
+      return {
+        kind: "openai-codex",
+        documents: [...ALL_DOCUMENT_MEDIA_TYPES],
+        parsedDocuments: [],
+      };
     case "openai":
-      return { kind: "openai", documents: [PDF_MEDIA_TYPE] };
+      return { kind: "openai", documents: [PDF_MEDIA_TYPE], parsedDocuments: [] };
     case "anthropic":
-      return { kind: "anthropic", documents: [PDF_MEDIA_TYPE] };
+      return { kind: "anthropic", documents: [PDF_MEDIA_TYPE], parsedDocuments: [] };
     case "openai-compatible":
       return isOpenRouterUrl(provider.baseUrl)
-        ? { kind: "openrouter", documents: [PDF_MEDIA_TYPE] }
-        : { kind: "custom", documents: [] };
+        ? { kind: "openrouter", documents: [PDF_MEDIA_TYPE], parsedDocuments: [PDF_MEDIA_TYPE] }
+        : { kind: "custom", documents: [], parsedDocuments: [] };
   }
 }

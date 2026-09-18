@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ConfigCheck } from "../config/health.ts";
 import { createApp } from "../index.ts";
-import type { LlmClients } from "../llm/index.ts";
+import { type LlmClients, describeModel } from "../llm/index.ts";
 import { type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const writeConfig = (cwd: string, yaml: string): void =>
@@ -149,7 +149,13 @@ describe("config routes", () => {
         },
         generateText: async () => ({ text: "", usage: {} }),
         listModels: async () => ({
-          models: [{ id: "local:listed", provider: "local", output: "text", reasoning: false }],
+          models: [
+            describeModel(
+              { name: "local", type: "openai-compatible", baseUrl: "http://x" },
+              "listed",
+              { id: "local:listed", provider: "local", output: "text", reasoning: false },
+            ),
+          ],
           failures: [],
         }),
         contextWindowFor: async () => undefined,

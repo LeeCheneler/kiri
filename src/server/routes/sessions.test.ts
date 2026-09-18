@@ -23,7 +23,13 @@ import { type ConfigService, type ConfigSnapshot, createConfigService } from "..
 import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
-import type { LlmClients, LlmModel, LlmTranscriptionModel } from "../llm/index.ts";
+import {
+  type LlmClients,
+  type LlmModel,
+  type LlmTranscriptionModel,
+  type ModelDescription,
+  describeModel,
+} from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { listTaskGroups } from "../projects/tasks.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
@@ -123,16 +129,7 @@ const fakeClients = (
   opts: {
     model?: LlmModel;
     resolveError?: string;
-    models?: {
-      id: string;
-      provider: string;
-      output: "text" | "image";
-      reasoning?: boolean;
-      nativeDocuments?: boolean;
-      providerInternalMetadata?: string;
-      contextWindow?: number;
-      documentInput?: string[];
-    }[];
+    models?: ModelDescription[];
     generateText?: LlmClients["generateText"];
     transcription?: LlmTranscriptionModel;
   } = {},
@@ -150,7 +147,7 @@ const fakeClients = (
   },
   generateText: opts.generateText ?? (async () => ({ text: "", usage: {} })),
   listModels: async () => ({
-    models: (opts.models ?? []).map((model) => ({ reasoning: false, ...model })),
+    models: opts.models ?? [],
     failures: [],
   }),
   contextWindowFor: async () => undefined,
@@ -444,16 +441,14 @@ describe("sessions routes", () => {
       const app = makeApp(
         fakeClients({
           models: [
-            {
+            describeModel({ name: "anthropic", type: "anthropic" }, "claude", {
               id: "anthropic:claude",
               provider: "anthropic",
               output: "text",
               reasoning: true,
               nativeDocuments: true,
-              providerInternalMetadata: "server-only",
               contextWindow: 200000,
-              documentInput: ["application/pdf"],
-            },
+            }),
           ],
         }),
       );
@@ -461,8 +456,8 @@ describe("sessions routes", () => {
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
-      // The reasoning and native-document flags are server-side send-or-omit
-      // state, stripped from the response — the client surface doesn't carry them.
+      // Only the description's public view is sent: the reasoning,
+      // native-document and transport facts are server-side send-or-omit state.
       expect(await res.json()).toEqual({
         models: [
           {

@@ -301,14 +301,19 @@ describe("Codex provider through the AI SDK", () => {
       "chatgpt:none-only",
     ]);
     expect(models[0]).toMatchObject({
-      contextWindow: 200_000,
-      imageInput: true,
-      documentInput: expect.arrayContaining(["application/pdf"]),
-      output: "text",
-      reasoning: true,
-      reasoningLevels: ["low", "high"],
+      model: {
+        contextWindow: 200_000,
+        imageInput: true,
+        output: "text",
+        reasoning: true,
+        reasoningLevels: ["low", "high"],
+      },
+      transport: {
+        endpoint: "openai-codex",
+        documents: expect.arrayContaining(["application/pdf"]),
+      },
     });
-    expect(models[1]).toMatchObject({ reasoning: false, reasoningLevels: [] });
+    expect(models[1]).toMatchObject({ model: { reasoning: false, reasoningLevels: [] } });
     expect(await clients.contextWindowFor("chatgpt:gpt-5.4-mini")).toBe(200_000);
     expect(await clients.reasoningOptionsFor("chatgpt:gpt-5.4-mini", "max")).toEqual({
       openai: { reasoningEffort: "high", forceReasoning: true },

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { ModelsFailure as LlmModelsFailure, ModelInfo } from "../../shared/api/models.ts";
 import { CODEX_BASE_URL, createCodexFetch } from "./codex-fetch.ts";
-import { endpointFor } from "./endpoint.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider, ProviderType } from "./schema.ts";
 
@@ -14,22 +13,33 @@ const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
   openai: "https://api.openai.com/v1",
 };
 
-/** Model facts needed by execution, extending the browser's public description. */
-export interface LlmModelInfo extends ModelInfo {
+/**
+ * What a provider's listing says about one model — facts about the model
+ * itself, never about the transport that carries requests to it.
+ */
+export interface ListedModel {
+  /** `provider:model` id. */
+  id: string;
+  /** The provider the model came from. */
+  provider: string;
+  /** Maximum context (input) tokens, when the listing reports it. */
+  contextWindow?: number;
+  /** Maximum output tokens, when the listing reports it. */
+  outputLimit?: number;
+  /** What the model produces. Models producing neither text nor images are never listed. */
+  output: LlmModelOutput;
+  /** Whether the model accepts image input; absent when the listing doesn't say. */
+  imageInput?: boolean;
   /**
    * Whether the model reads documents natively, when its listing reports
-   * input modalities (OpenRouter's does). Server-side only: it picks the
-   * parser an OpenRouter request asks for, and is stripped from the models
-   * endpoint's response.
+   * input modalities (OpenRouter's does); absent when it doesn't say.
    */
   nativeDocuments?: boolean;
   /**
    * Whether the model supports reasoning parameters (an effort or
    * reasoning-effort setting). Heuristic: read from the listing's supported
    * parameters when reported, otherwise from well-known id families — and
-   * false when neither says yes, so nothing is ever sent blind. Server-side
-   * only — it drives the turn's send-or-omit decision and is stripped from
-   * the models endpoint's response.
+   * false when neither says yes, so nothing is ever sent blind.
    */
   reasoning: boolean;
   /** Server-side effort levels advertised by Codex, ordered by capability at use. */
@@ -41,9 +51,9 @@ export type LlmModelOutput = ModelInfo["output"];
 export type { ModelsFailure as LlmModelsFailure } from "../../shared/api/models.ts";
 
 /** The aggregate of model listings across every configured provider. */
-export interface LlmModelsResult {
+export interface ListedModelsResult {
   /** Every model offered, flattened and namespaced by provider. */
-  models: LlmModelInfo[];
+  models: ListedModel[];
   /** One entry per provider whose listing failed; the rest still succeed. */
   failures: LlmModelsFailure[];
 }
@@ -393,35 +403,54 @@ const codexListingSchema = z
 export async function listLlmModels(
   registry: LlmProviderRegistry,
   env: Record<string, string | undefined>,
-): Promise<LlmModelsResult> {
+): Promise<ListedModelsResult> {
   const settled = await Promise.all(
     registry.listProviders().map((provider) => listProviderModels(provider, env)),
   );
 
-  const models: LlmModelInfo[] = [];
+  const models: ListedModel[] = [];
   const failures: LlmModelsFailure[] = [];
   for (const { provider, entries, reason } of settled) {
     if (reason !== undefined) {
       failures.push({ provider: provider.name, reason });
       continue;
     }
-    const documentInput = endpointFor(provider).documents;
     for (const entry of entries) {
-      if (entry.output === undefined) continue;
-      models.push({
-        id: `${provider.name}:${entry.id}`,
-        provider: provider.name,
-        ...entry.limits,
-        output: entry.output,
-        imageInput: entry.imageInput,
-        ...(documentInput.length > 0 && entry.output === "text" ? { documentInput } : {}),
-        ...(entry.nativeDocuments !== undefined ? { nativeDocuments: entry.nativeDocuments } : {}),
-        reasoning: entry.reasoning,
-        ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
-      });
+      if (entry.output !== undefined) models.push(listedModel(provider, entry, entry.output));
     }
   }
   return { models, failures };
+}
+
+// A listing entry as the model facts it reports, namespaced by its provider.
+function listedModel(
+  provider: LlmProvider,
+  entry: ProviderModel,
+  output: LlmModelOutput,
+): ListedModel {
+  return {
+    id: `${provider.name}:${entry.id}`,
+    provider: provider.name,
+    ...entry.limits,
+    output,
+    imageInput: entry.imageInput,
+    ...(entry.nativeDocuments !== undefined ? { nativeDocuments: entry.nativeDocuments } : {}),
+    reasoning: entry.reasoning,
+    ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
+  };
+}
+
+/**
+ * The facts for a model its provider's listing doesn't carry — the listing
+ * failed or is incomplete, or a custom endpoint serves none — read from the
+ * id alone, by the same well-known families a bare listing falls back to.
+ * Limits and input capabilities stay unknown, reasoning is claimed only for
+ * a recognised family, and an id that names no output reads as text: a model
+ * being described is one a session is about to drive.
+ */
+export function unlistedModel(provider: LlmProvider, modelId: string): ListedModel {
+  const entry = listingEntrySchema.parse({ id: modelId });
+  return listedModel(provider, entry, entry.output ?? "text");
 }
 
 /**

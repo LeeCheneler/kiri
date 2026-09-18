@@ -30,7 +30,7 @@ import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
-import { EFFORT_LEVELS, type LlmClients } from "../llm/index.ts";
+import { EFFORT_LEVELS, type LlmClients, toModelInfo } from "../llm/index.ts";
 import { c, createLogger } from "../log.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { getProject, listProjectArticles } from "../projects/store.ts";
@@ -675,23 +675,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // The listing carries the configured model shortcuts alongside the models,
   // so the pickers can pin them and new sessions can start on the first one,
   // and the utility model, so the client knows which utility-driven actions
-  // to offer. Read live, so a kiri.yaml edit is reflected on the next fetch. The
-  // reasoning and native-document flags stay server-side: they drive what a
-  // turn sends the provider, and nothing client-side consumes them.
+  // to offer. Read live, so a kiri.yaml edit is reflected on the next fetch. Only
+  // each description's public view is sent: the reasoning, native-document
+  // and transport facts drive what a turn sends the provider, and nothing
+  // client-side consumes them.
   app.get("/models", async (c) => {
     const { models, failures } = await llmClients.listModels();
     return c.json({
-      models: models.map(
-        ({ id, provider, contextWindow, outputLimit, output, imageInput, documentInput }) => ({
-          id,
-          provider,
-          contextWindow,
-          outputLimit,
-          output,
-          imageInput,
-          documentInput,
-        }),
-      ),
+      models: models.map(toModelInfo),
       failures,
       shortcuts: modelsConfig().shortcuts,
       utility: modelsConfig().utility,

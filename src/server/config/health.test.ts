@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHealth } from "../launch-screen.ts";
-import type { LlmClients } from "../llm/index.ts";
+import { type LlmClients, describeModel } from "../llm/index.ts";
 import type { LlmProvider } from "../llm/schema.ts";
 import type { McpServer } from "../mcp/schema.ts";
 import {
@@ -285,7 +285,13 @@ describe("evaluateModelListingHealth", () => {
     },
     generateText: async () => ({ text: "", usage: {} }),
     listModels: async () => ({
-      models: models.map((m) => ({ ...m, output: "text" as const, reasoning: false })),
+      models: models.map(({ id, provider }) =>
+        describeModel(
+          { name: provider, type: "openai-compatible", baseUrl: "http://x" },
+          id.slice(provider.length + 1),
+          { id, provider, output: "text", reasoning: false },
+        ),
+      ),
       failures,
     }),
     contextWindowFor: async () => undefined,
