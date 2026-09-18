@@ -4,7 +4,7 @@ import type { EventBus } from "../events/index.ts";
 import type { LlmProviderRegistry } from "../llm/index.ts";
 import { createLogger } from "../log.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
-import { loadKiriConfig } from "./loader.ts";
+import type { ConfigService } from "./service.ts";
 import type { ConfigStore } from "./store.ts";
 
 const log = createLogger("config");
@@ -30,7 +30,9 @@ const DEFAULT_DEBOUNCE_MS = 50;
 /**
  * Watch the workspace's `kiri.yaml` / `kiri.yml` for changes and keep the LLM
  * provider `registry` — and, when supplied, the MCP server `mcpRegistry` — in
- * sync, the same hot-reload `workflows/` already has. On a successful reload the
+ * sync with `service`'s current snapshot, the same hot-reload `workflows/`
+ * already has. The watcher parses nothing itself: the service owns the config,
+ * and a change is only the cue to apply its snapshot to the registries. On a successful reload the
  * provider registry is swapped and `onReload` fires before MCP reconnection
  * finishes, so workflows can re-check their providers without waiting for tools.
  * A reload that fails to parse or validate is logged and the last-known-good registry is kept, so a mid-edit
@@ -46,6 +48,7 @@ const DEFAULT_DEBOUNCE_MS = 50;
  */
 export function watchKiriConfig(
   config: ConfigStore,
+  service: ConfigService,
   registry: LlmProviderRegistry,
   env: Record<string, string | undefined>,
   options: WatchConfigOptions = {},
@@ -63,11 +66,12 @@ export function watchKiriConfig(
   const reload = async (requested: number) => {
     timer = null;
     if (stopped) return;
-    const result = loadKiriConfig(config, env);
-    if (result.warning) log.warn(`kiri.yaml: ${result.warning}`);
-    if (result.failure) {
+    const result = service.current();
+    const { failure, warning } = result.diagnostics;
+    if (warning) log.warn(`kiri.yaml: ${warning}`);
+    if (failure) {
       // Keep the last-known-good registries on an invalid edit; just surface why.
-      log.error(`kiri.yaml: failed to load ${result.failure.path}: ${result.failure.reason}`);
+      log.error(`kiri.yaml: failed to load ${failure.path}: ${failure.reason}`);
     } else {
       registry.replace(result.providers);
       log.info(`kiri.yaml: reloaded ${result.providers.size} provider(s)`);

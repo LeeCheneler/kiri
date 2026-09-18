@@ -4,8 +4,8 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import type { ApiErrorBody } from "../shared/api/errors.ts";
 import { API_BODY_LIMIT_BYTES } from "../shared/message-limits.ts";
-import { loadKiriConfig } from "./config/loader.ts";
 import type { ModelsConfig } from "./config/schema.ts";
+import { type ConfigService, createConfigService } from "./config/service.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
@@ -55,6 +55,12 @@ export interface AppDeps {
   db: KiriDb;
   registry: Registry;
   config: ConfigStore;
+  /**
+   * The workspace's effective `kiri.yaml`. Defaults to a service built over
+   * `config` and `env`; supply the process's own so the app and the config
+   * watcher read the same snapshots.
+   */
+  configService?: ConfigService;
   staticRoot?: string;
   bus?: EventBus;
   eventsHeartbeatMs?: number;
@@ -169,6 +175,7 @@ export function createApp(deps: AppDeps): Hono {
     deps;
   const version = deps.version ?? "dev";
   const env = deps.env ?? process.env;
+  const configService = deps.configService ?? createConfigService(config, env);
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
   const app = new Hono();
 
@@ -245,7 +252,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api", systemRoutes({ version }));
   // Mounted unconditionally — it reports *why* the workspace may have no
   // providers, so it must answer even when the session surface is absent.
-  app.route("/api/config", configRoutes({ config, env, llmClients }));
+  app.route("/api/config", configRoutes({ configService, env, llmClients }));
   app.route(
     "/api/workflows",
     workflowsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }),
@@ -274,11 +281,12 @@ export function createApp(deps: AppDeps): Hono {
         commandLearning: deps.commandLearning,
         getProviderNames: deps.getProviderNames,
         getAllowedDirectories:
-          deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
+          deps.getAllowedDirectories ??
+          (() => configService.current().filesystem.allowedDirectories),
         getDefaultWorkingDirectory:
           deps.getDefaultWorkingDirectory ??
-          (() => loadKiriConfig(config, env).defaultWorkingDirectory),
-        getModelsConfig: deps.getModelsConfig ?? (() => loadKiriConfig(config, env).models),
+          (() => configService.current().filesystem.defaultWorkingDirectory),
+        getModelsConfig: deps.getModelsConfig ?? (() => configService.current().models),
       }),
     );
   }
@@ -290,7 +298,7 @@ export function createApp(deps: AppDeps): Hono {
     app.route(
       "/api/mcp",
       mcpRoutes({
-        config,
+        configService,
         env,
         registry: mcpRegistry,
         permissions: toolPermissions,

@@ -3,8 +3,7 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import { Hono } from "hono";
 import { z } from "zod";
 import type * as mcpApi from "../../shared/api/mcp.ts";
-import { loadKiriConfig } from "../config/loader.ts";
-import type { ConfigStore } from "../config/store.ts";
+import type { ConfigService } from "../config/service.ts";
 import type { EventBus } from "../events/index.ts";
 import type { McpCredentialStore } from "../mcp/oauth-store.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
@@ -25,9 +24,9 @@ export type McpAuth = (
 ) => Promise<"AUTHORIZED" | "REDIRECT">;
 
 export interface McpRoutesDeps {
-  /** Workspace config — read fresh per request to resolve a server's URL and OAuth flag. */
-  config: ConfigStore;
-  /** Environment the config loader resolves `{ env: }` refs against. */
+  /** The workspace's effective config — read per request to resolve a server's URL and OAuth flag. */
+  configService: ConfigService;
+  /** Environment MCP servers resolve their `{ env: }` refs against on reconnect. */
   env: Record<string, string | undefined>;
   /** Live MCP registry — its per-server status and tool catalog are served, and it is reconnected after sign-in. */
   registry: McpRegistry;
@@ -79,18 +78,18 @@ const errorHtml = (name: string, message: string): string =>
  * `GET /:server/auth/callback` completes it and reconnects the server.
  */
 export function mcpRoutes(deps: McpRoutesDeps): Hono {
-  const { config, env, registry, permissions, credentialStore, auth, bus } = deps;
+  const { configService, env, registry, permissions, credentialStore, auth, bus } = deps;
   const app = new Hono();
 
   /** Resolve `name` to its OAuth http server config, or undefined when it isn't one. */
   const oauthServer = (name: string): McpHttpServer | undefined => {
-    const server = loadKiriConfig(config, env).mcp.get(name);
+    const server = configService.current().mcp.get(name);
     return server?.type === "http" && server.oauth ? server : undefined;
   };
 
   /** Reconnect all servers (the just-authed one now has tokens) and signal the UI. */
   const reconnect = async (): Promise<void> => {
-    await registry.replace(loadKiriConfig(config, env).mcp, env);
+    await registry.replace(configService.current().mcp, env);
     bus?.publish({ type: "config.changed" });
   };
 

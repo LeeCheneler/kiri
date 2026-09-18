@@ -6,7 +6,7 @@ import { bootstrap } from "../src/server/bootstrap.ts";
 import { DEFAULT_PORT, resolveConfigDir, resolvePort } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
 import { evaluateConfigHealth, evaluateProviderAuthHealth } from "../src/server/config/health.ts";
-import { loadKiriConfig } from "../src/server/config/loader.ts";
+import { createConfigService } from "../src/server/config/service.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
 import { createEventBus } from "../src/server/events/index.ts";
@@ -131,7 +131,8 @@ const cancelRegistry = createCancelRegistry();
 
 // Providers load first: workflow validation needs the provider names to
 // check `llm:` model prefixes against.
-const kiriConfig = loadKiriConfig(config, process.env);
+const configService = createConfigService(config, process.env);
+const kiriConfig = configService.current();
 llmRegistry.replace(kiriConfig.providers);
 
 // MCP servers connect at boot; their tools are offered to every session, merged
@@ -191,7 +192,7 @@ for (const failure of initial.failures) {
 const watcher = watchWorkflows(config, registry, initial, { bus, getProviderNames });
 // Hot-reload kiri.yaml the way workflows already reload: swap the provider
 // registry, then revalidate workflows so `llm:` steps re-check their provider.
-const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
+const configWatcher = watchKiriConfig(config, configService, llmRegistry, process.env, {
   onReload: () => watcher.revalidate(),
   bus,
   mcpRegistry,
@@ -200,6 +201,7 @@ const app = createApp({
   db,
   registry,
   config,
+  configService,
   bus,
   cancelRegistry,
   llmClients,

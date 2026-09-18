@@ -81,6 +81,29 @@ describe("config routes", () => {
       expect(JSON.stringify(renewed)).not.toContain("private-");
     });
 
+    it("reports only the load failure once a good config is broken by an edit", async () => {
+      // Codex with no saved login: a provider whose credential check reports an error.
+      writeConfig(env.cwd, "providers:\n  codex:\n    type: openai-codex\n");
+      const app = createApp({
+        db: env.db,
+        registry: env.registry,
+        config: env.config,
+        env: { CODEX_HOME: env.cwd },
+      });
+      const before = (await (await app.request("/api/config/health")).json()) as {
+        checks: ConfigCheck[];
+      };
+      expect(areasByLevel(before.checks, "error")).toEqual(["providers"]);
+
+      // The last good provider is still being served, but the report describes
+      // the file as it is now: broken, and nothing else.
+      writeConfig(env.cwd, "providers: [not, a, map]\n");
+      const after = (await (await app.request("/api/config/health")).json()) as {
+        checks: ConfigCheck[];
+      };
+      expect(after.checks.map((check) => check.area)).toEqual(["config"]);
+    });
+
     it("flags a configured provider whose key is missing as an error", async () => {
       writeConfig(env.cwd, "providers:\n  anthropic:\n    type: anthropic\n");
       const app = createApp({ db: env.db, registry: env.registry, config: env.config, env: {} });

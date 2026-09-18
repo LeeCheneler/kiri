@@ -1,8 +1,8 @@
 import type { ConfigCheck, ConfigHealth } from "../../shared/api/config.ts";
 import { readCodexAuth } from "../llm/codex-auth.ts";
 import type { LlmClients } from "../llm/index.ts";
-import type { KiriConfigLoadResult } from "./loader.ts";
 import type { ModelsConfig } from "./schema.ts";
+import type { ConfigSnapshot } from "./service.ts";
 
 export type {
   ConfigCheck,
@@ -47,7 +47,9 @@ const providerOf = (ref: string): string | null => {
 
 /**
  * Classify a workspace's configuration into ok / degraded / error checks from
- * an already-loaded {@link KiriConfigLoadResult} and the process environment.
+ * a {@link ConfigSnapshot} and the process environment. It reports on the
+ * latest load: when that failed, the failure is the whole story, whatever last
+ * good connectivity the snapshot still carries.
  * Pure: no disk, no console — the single source of truth both the CLI boot
  * report and `GET /api/config/health` render. "Required" is contextual: no
  * providers is *degraded* (sh/use workflows still run), a declared provider with
@@ -55,7 +57,7 @@ const providerOf = (ref: string): string | null => {
  * unset is an *error*. Never inspects a resolved key value, only its presence.
  */
 export function evaluateConfigHealth(input: {
-  kiriConfig: KiriConfigLoadResult;
+  kiriConfig: ConfigSnapshot;
   env: Record<string, string | undefined>;
 }): ConfigHealth {
   const { kiriConfig, env } = input;
@@ -63,25 +65,25 @@ export function evaluateConfigHealth(input: {
 
   // Config file: only worth a line when something's off — a clean (or absent)
   // file is implied by the provider checks below.
-  if (kiriConfig.failure) {
+  if (kiriConfig.diagnostics.failure) {
     checks.push({
       area: "config",
       level: "error",
       title: "kiri.yaml failed to load",
-      detail: kiriConfig.failure.reason,
+      detail: kiriConfig.diagnostics.failure.reason,
     });
-  } else if (kiriConfig.warning) {
+  } else if (kiriConfig.diagnostics.warning) {
     checks.push({
       area: "config",
       level: "degraded",
       title: "Duplicate config file",
-      detail: kiriConfig.warning,
+      detail: kiriConfig.diagnostics.warning,
     });
   }
 
   // Providers. A failed config load already explains the empty registry, so
   // skip the provider summary in that case rather than emit a redundant line.
-  if (!kiriConfig.failure) {
+  if (!kiriConfig.diagnostics.failure) {
     const providers = [...kiriConfig.providers.values()];
     if (providers.length === 0) {
       checks.push({
@@ -118,7 +120,7 @@ export function evaluateConfigHealth(input: {
   // MCP servers: silent when none are configured (an opt-in capability), an ok
   // summary when present, and a per-server error when a declared env ref is
   // unset. A failed config load already explains the empty maps, so skip it.
-  if (!kiriConfig.failure) {
+  if (!kiriConfig.diagnostics.failure) {
     const servers = [...kiriConfig.mcp.values()];
     if (servers.length > 0) {
       checks.push({
@@ -128,7 +130,7 @@ export function evaluateConfigHealth(input: {
         detail: servers.map((s) => s.name).join(", "),
       });
     }
-    for (const { name, missing } of kiriConfig.mcpUnresolved) {
+    for (const { name, missing } of kiriConfig.diagnostics.mcpUnresolved) {
       const vars = missing.join(", ");
       const verb = missing.length === 1 ? "is" : "are";
       checks.push({
@@ -147,7 +149,7 @@ export function evaluateConfigHealth(input: {
   // longer offers) live in evaluateModelListingHealth instead: they need the
   // live listing, and this evaluation stays pure. A failed config load
   // already explains the empty maps, so skip it.
-  if (!kiriConfig.failure) {
+  if (!kiriConfig.diagnostics.failure) {
     const refs = modelReferences(kiriConfig.models);
     if (refs.length > 0) {
       checks.push({
@@ -196,7 +198,7 @@ export function evaluateConfigHealth(input: {
  * cached) provider listings.
  */
 export async function evaluateModelListingHealth(
-  kiriConfig: KiriConfigLoadResult,
+  kiriConfig: ConfigSnapshot,
   llmClients: LlmClients,
 ): Promise<ConfigCheck[]> {
   // The listing carries text and image models only; transcription models sit
@@ -233,7 +235,7 @@ export async function evaluateModelListingHealth(
  * Reads Codex once per report; does not contact a backend or expose credentials.
  */
 export async function evaluateProviderAuthHealth(
-  kiriConfig: KiriConfigLoadResult,
+  kiriConfig: ConfigSnapshot,
   env: Record<string, string | undefined>,
 ): Promise<ConfigCheck[]> {
   const providers = [...kiriConfig.providers.values()].filter(
