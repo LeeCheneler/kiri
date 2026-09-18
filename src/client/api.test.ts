@@ -288,7 +288,7 @@ describe("api client", () => {
     }
   });
 
-  it("truncates a session's transcript from a message and resolves on 204", async () => {
+  it("truncates a session's transcript from a message and returns its revision", async () => {
     const seen: { method: string; header: string | null; id: string; messageId: string }[] = [];
     server.use(
       http.delete("*/api/sessions/:id/messages/:messageId", ({ request, params }) => {
@@ -298,12 +298,12 @@ describe("api client", () => {
           id: String(params.id),
           messageId: String(params.messageId),
         });
-        return new HttpResponse(null, { status: 204 });
+        return HttpResponse.json({ transcriptRevision: 3 });
       }),
     );
 
     const result = await truncateSessionMessages("s1", "m2");
-    expect(result).toBeUndefined();
+    expect(result).toEqual({ transcriptRevision: 3 });
     expect(seen).toEqual([{ method: "DELETE", header: "kiri-ui", id: "s1", messageId: "m2" }]);
   });
 

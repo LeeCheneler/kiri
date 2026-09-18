@@ -329,7 +329,7 @@ describe("runTurn", () => {
         { role: "user", parts: [{ type: "text", text: "Discard this" }] },
         { id: "u-after" },
       );
-      expect(deleteMessagesFrom(db, "s1", `u-${boundary}`)).toBe(true);
+      expect(deleteMessagesFrom(db, "s1", `u-${boundary}`)).toBeGreaterThan(0);
       const capture: { prompt?: unknown } = {};
       await (
         await runTurn(
@@ -2698,7 +2698,9 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("running");
-      expect(streamRegistry.messagesBeforeTurn("s1")?.map((m) => m.role)).toEqual(["user"]);
+      expect(streamRegistry.snapshotBeforeTurn("s1")?.messages.map((m) => m.role)).toEqual([
+        "user",
+      ]);
       fail();
       await started.done;
 
@@ -2715,7 +2717,7 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("failed");
-      expect(streamRegistry.messagesBeforeTurn("s1")).toBeNull();
+      expect(streamRegistry.snapshotBeforeTurn("s1")).toBeNull();
 
       const capture: { prompt?: unknown } = {};
       const resumed = await runTurn(

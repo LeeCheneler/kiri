@@ -229,6 +229,8 @@ export const sessions = sqliteTable(
      * a single terminal state.
      */
     status: text("status").$type<SessionStatus>().notNull(),
+    /** Monotonic version of the persisted transcript, advanced with each mutation. */
+    transcriptRevision: integer("transcript_revision").notNull().default(0),
     /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
     model: text("model").notNull(),
     /**

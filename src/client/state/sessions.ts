@@ -1,6 +1,7 @@
 import {
   type UseInfiniteQueryResult,
   type UseQueryResult,
+  isCancelledError,
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -55,12 +56,44 @@ export function useModels(): UseQueryResult<ModelsResult> {
  * is conditional on where the app is.
  */
 export function useSession(id: string | undefined): UseQueryResult<SessionDetail> {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: sessionKey(id ?? ""),
     // Never runs against the fallback key: the query is disabled without an id.
-    queryFn: () => fetchSession(id ?? ""),
+    queryFn: async ({ signal }) => {
+      const next = await fetchSession(id ?? "", signal);
+      const current = queryClient.getQueryData<SessionDetail>(sessionKey(id ?? ""));
+      return current && current.transcriptRevision > next.transcriptRevision ? current : next;
+    },
     enabled: id !== undefined,
   });
+}
+
+/** Start a fresh detail read after local work settles, cancelling older reads. */
+export function useRefreshSessionDetail(id: string): () => Promise<SessionDetail> {
+  const queryClient = useQueryClient();
+  return useCallback(async () => {
+    await queryClient.cancelQueries({ queryKey: sessionKey(id) });
+    let detail: SessionDetail | undefined;
+    while (detail === undefined) {
+      try {
+        detail = await queryClient.fetchQuery({
+          queryKey: sessionKey(id),
+          staleTime: 0,
+          queryFn: async ({ signal }) => {
+            const next = await fetchSession(id, signal);
+            const current = queryClient.getQueryData<SessionDetail>(sessionKey(id));
+            return current && current.transcriptRevision > next.transcriptRevision ? current : next;
+          },
+        });
+      } catch (error) {
+        // Lifecycle invalidation can replace this read with a newer one. Join
+        // that read so the conversation still releases its local protection.
+        if (!isCancelledError(error)) throw error;
+      }
+    }
+    return detail;
+  }, [id, queryClient]);
 }
 
 /**
@@ -109,13 +142,21 @@ export function useUpdateSession(id: string): {
  * same breath stops the seeded history from re-expanding the dropped turns
  * before the next refetch lands. A message absent from the cache is a no-op.
  */
-export function useTruncateSessionDetail(id: string): (messageId: string) => void {
+export function useTruncateSessionDetail(
+  id: string,
+): (messageId: string, transcriptRevision: number) => void {
   const queryClient = useQueryClient();
   return useCallback(
-    (messageId: string) => {
+    (messageId: string, transcriptRevision: number) => {
       queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) => {
         const index = prev ? prev.messages.findIndex((m) => m.id === messageId) : -1;
-        return prev && index !== -1 ? { ...prev, messages: prev.messages.slice(0, index) } : prev;
+        return prev && index !== -1 && prev.transcriptRevision <= transcriptRevision
+          ? {
+              ...prev,
+              transcriptRevision,
+              messages: prev.messages.slice(0, index),
+            }
+          : prev;
       });
     },
     [queryClient, id],

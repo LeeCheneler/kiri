@@ -23,6 +23,7 @@ const delegatePart = (overrides: Record<string, unknown> = {}): ToolPart =>
   }) as ToolPart;
 
 const child = (status: Session["status"]): Session => ({
+  transcriptRevision: 0,
   id: "child-1",
   status,
   projectId: null,
@@ -54,7 +55,7 @@ const withChildren = (children: Session[]) =>
 const withChildDetail = (status: Session["status"], messages: unknown[]) =>
   server.use(
     http.get("*/api/sessions/child-1", () =>
-      HttpResponse.json({ session: child(status), messages }),
+      HttpResponse.json({ session: child(status), messages, transcriptRevision: 0 }),
     ),
   );
 
@@ -190,7 +191,7 @@ describe("<ChildSession>", () => {
     expect(screen.getByRole("status").textContent).toBe("Compacting conversation…");
 
     compaction.finish();
-    await waitFor(() => expect(screen.queryByText("Compacting conversation…")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("Compacting conversation…").length).toBe(0));
   });
 
   it("renders a worker's in-flight shell command as the usual collapsible block", async () => {

@@ -66,6 +66,7 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
     useSessionConversation({
       session: detail.session,
       initialMessages,
+      transcriptRevision: detail.transcriptRevision,
     });
   return (
     <div className="space-y-3">

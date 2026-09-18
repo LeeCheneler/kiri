@@ -405,6 +405,7 @@ async function streamCore(
   cancelRegistry?.setChild(session.id, { kill: () => controller.abort() });
 
   const rows = getSessionMessages(db, session.id);
+  const transcriptRevision = getSession(db, session.id)?.transcriptRevision ?? 0;
   const history = rows.map(toUiMessage);
   const last = history.at(-1);
   const hasPendingApprovals =
@@ -450,7 +451,7 @@ async function streamCore(
   // The turn captures into it as it drains, and `onFinish` closes it in step with
   // persistence — so a client that loads the just-settled turn from storage gets a
   // 204 on resume and never replays it into a duplicate.
-  const sink = streamRegistry?.open(session.id, rows);
+  const sink = streamRegistry?.open(session.id, rows, transcriptRevision);
 
   // Assigned synchronously by `execute` below (the SDK invokes it as the stream
   // is created); `onFinish` reads the settled usage off it. Left unassigned only

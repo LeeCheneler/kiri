@@ -23,21 +23,17 @@ import {
   truncateSessionMessages,
   withdrawQueuedMessage,
 } from "../../api.ts";
-import { usePatchSessionInbox, useTruncateSessionDetail } from "../../state/sessions.ts";
+import {
+  usePatchSessionInbox,
+  useRefreshSessionDetail,
+  useTruncateSessionDetail,
+} from "../../state/sessions.ts";
 import { compactionStatusOf } from "./compaction-status.ts";
 import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./live-console.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
 // Tool-call states that mean a call is still running.
 const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
-
-// Total parts across a transcript. A turn that finished elsewhere can grow an
-// existing message in place rather than add a new one — an approval resume
-// extends the paused assistant message, and a delegated child's single
-// assistant turn gains a part per inner tool call — so the fold-in below
-// compares parts, not just the message count.
-const totalParts = (messages: UIMessage[]): number =>
-  messages.reduce((sum, message) => sum + message.parts.length, 0);
 
 const sessionTurnMessage = (message: UIMessage | undefined): UIMessage | undefined => {
   if (message?.role !== "assistant") return message;
@@ -59,8 +55,7 @@ export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] 
 // in the transcript; this marks it cancelled instead. Other parts pass through.
 // The server persists the cancelled turn the same way (a call still streaming
 // its input is dropped there rather than marked — the model never finished
-// issuing it — but it stays marked here: shrinking the local transcript would
-// let the fold-in below re-expand it from the stale snapshot).
+// issuing it — but it stays marked here until the committed snapshot arrives).
 function cancelInFlightTools(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) =>
     message.role === "assistant"
@@ -134,6 +129,8 @@ export function useSessionConversation(opts: {
   session: { id: string; status: string };
   /** The persisted transcript to seed once; `useChat` owns the live state after mount. */
   initialMessages: UIMessage[];
+  /** Revision belonging to initialMessages, including a stream replay baseline. */
+  transcriptRevision: number;
   /**
    * The session's undelivered inbox, from the same detail payload as `session`
    * — status and backlog always describe the same moment, which is what makes
@@ -142,7 +139,27 @@ export function useSessionConversation(opts: {
    */
   pendingInbox?: SessionInboxItem[];
 }): SessionConversation {
-  const { session, initialMessages, pendingInbox = [] } = opts;
+  const { session, initialMessages, transcriptRevision, pendingInbox = [] } = opts;
+  const sync = useRef({
+    id: session.id,
+    revision: transcriptRevision,
+    generation: 0,
+    protected: false,
+  });
+  if (sync.current.id !== session.id) {
+    sync.current = {
+      id: session.id,
+      revision: transcriptRevision,
+      generation: 0,
+      protected: false,
+    };
+  }
+  const transcript = sync.current;
+  const refreshDetail = useRefreshSessionDetail(session.id);
+  const protectTranscript = useCallback(() => {
+    transcript.generation += 1;
+    transcript.protected = true;
+  }, [transcript]);
 
   const transport = useMemo(() => {
     const { url, headers } = sessionTurnEndpoint(session.id);
@@ -152,11 +169,14 @@ export function useSessionConversation(opts: {
       // Send only the new message; the server loads the prior turns. Approval
       // resumes need only the verdict-bearing parts — retransmitting earlier
       // tool outputs from the paused turn can exceed the API body limit.
-      prepareSendMessagesRequest: prepareSessionTurnRequest,
+      prepareSendMessagesRequest: (request) => {
+        protectTranscript();
+        return prepareSessionTurnRequest(request);
+      },
       // Resume reconnects to the GET stream endpoint, not the POST turn `api`.
       prepareReconnectToStreamRequest: () => ({ api: sessionStreamEndpoint(session.id) }),
     });
-  }, [session.id]);
+  }, [session.id, protectTranscript]);
 
   // Live tool consoles for the in-flight turn. One store per mounted engine,
   // cleared on session entry (below) and again when a turn settles, so a
@@ -166,17 +186,20 @@ export function useSessionConversation(opts: {
 
   const {
     messages,
-    sendMessage,
+    sendMessage: sendChatMessage,
     status,
     stop,
     error,
     setMessages,
     addToolApprovalResponse,
     resumeStream,
-  } = useChat({
+  } = useChat<UIMessage>({
     id: session.id,
     messages: initialMessages,
     transport,
+    onFinish: () => {
+      void refreshTranscript();
+    },
     // Cap transcript re-renders to ~16/s. A fast provider otherwise delivers
     // deltas quicker than a grown transcript can re-render, and the backlog
     // pins the main thread until the tab freezes; 60 ms still reads as live
@@ -196,6 +219,35 @@ export function useSessionConversation(opts: {
     // straight back so the turn resumes without another user action.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
+
+  // A read begun after streaming ended can release local protection. Cached
+  // reads begun during the turn may describe only its replay baseline.
+  const refreshTranscript = useCallback(async (): Promise<void> => {
+    const generation = transcript.generation;
+    let detail: Awaited<ReturnType<typeof refreshDetail>>;
+    try {
+      detail = await refreshDetail();
+    } catch {
+      // fetchQuery exposes the failure through useSession. Keep local work
+      // until a later successful refresh rather than applying an older cache.
+      return;
+    }
+    if (sync.current !== transcript || generation !== transcript.generation) return;
+    transcript.protected = false;
+    if (detail.transcriptRevision <= transcript.revision) return;
+    transcript.revision = detail.transcriptRevision;
+    // Cancellation can finish the browser stream before the server settles.
+    // Its active replay baseline must not erase the locally rendered tail.
+    if (detail.session.status !== "running") setMessages(detail.messages);
+  }, [refreshDetail, setMessages, transcript]);
+
+  const sendMessage = useCallback<SessionConversation["sendMessage"]>(
+    (...args) => {
+      protectTranscript();
+      return sendChatMessage(...args);
+    },
+    [protectTranscript, sendChatMessage],
+  );
 
   // Reconnect to an in-flight turn's stream once per session, so a page refresh
   // (or a second tab) rejoins the live response — tokens and tool-call state —
@@ -218,6 +270,7 @@ export function useSessionConversation(opts: {
   // — including one started elsewhere, or left running when we navigated away:
   // the session row reports `running` while `useChat` sits idle here.
   const streaming = status === "submitted" || status === "streaming";
+  if (streaming) transcript.protected = true;
   const busy = streaming || session.status === "running";
 
   // Transient progress is turn-scoped: once this view stops streaming, drop it —
@@ -296,70 +349,58 @@ export function useSessionConversation(opts: {
     })();
   }, [settled, pendingInbox, session.id, sendMessage, inboxCache]);
 
-  // A turn can finish while this view is unmounted (we navigated away) or be
-  // driven from elsewhere: it persists without `useChat` — which ignores
-  // re-seeds after mount — ever seeing it. When we're not the one streaming and
-  // the stored transcript has pulled ahead, fold it in so the finished turn
-  // shows up here. "Pulled ahead" is more messages or more parts: an approval
-  // answered elsewhere extends the paused assistant message in place, so a
-  // message-count check alone would never re-sync it.
-  // A local delete leaves `initialMessages` one commit behind: useChat's store
-  // notifies synchronously while the query cache batches its notification into
-  // a microtask, so the fold-in below would resurrect the dropped turns from
-  // the stale snapshot. Remember the cut message and skip folding in any
-  // snapshot that still carries it; the ref clears once a fresh one arrives.
-  const truncatedAt = useRef<string | null>(null);
-
+  // Revisions detect replacements and deletions as well as appended content.
+  // Never advance the accepted revision while local work owns the transcript.
   useEffect(() => {
-    if (streaming) return;
-    if (truncatedAt.current !== null) {
-      const id = truncatedAt.current;
-      if (initialMessages.some((message) => message.id === id)) return;
-      truncatedAt.current = null;
-    }
-    if (
-      initialMessages.length > messages.length ||
-      totalParts(initialMessages) > totalParts(messages)
-    )
-      setMessages(initialMessages);
-  }, [streaming, initialMessages, messages, setMessages]);
+    if (streaming || transcript.protected || transcriptRevision <= transcript.revision) return;
+    transcript.revision = transcriptRevision;
+    setMessages(initialMessages);
+  }, [streaming, transcript, transcriptRevision, initialMessages, setMessages]);
 
   // Resend an edited user message, re-running the conversation from it. Truncate
   // the stored transcript back to the message first (so the turn's server-side
-  // append lands at the right index), then drop the local messages from that
-  // point and send the edited turn in the same tick — `sendMessage` flips
-  // `streaming` before the fold-in effect could re-expand them from a now-stale
-  // refetch. A failed truncate aborts the resend, leaving the transcript intact.
+  // append lands at the right index). A newer snapshot or local action may
+  // overtake the request; only mirror the cut if it is still current.
   const resubmit = useCallback(
     async (messageId: string, parts: UIMessage["parts"]) => {
       if (busy) return;
       const index = messages.findIndex((message) => message.id === messageId);
       if (index === -1) return;
-      await truncateSessionMessages(session.id, messageId);
-      setMessages(messages.slice(0, index));
+      const generation = transcript.generation;
+      const { transcriptRevision: revision } = await truncateSessionMessages(session.id, messageId);
+      if (sync.current !== transcript || generation !== transcript.generation) return;
+      if (revision >= transcript.revision) {
+        transcript.revision = revision;
+        setMessages(messages.slice(0, index));
+      }
       void sendMessage({ parts });
     },
-    [busy, messages, session.id, setMessages, sendMessage],
+    [busy, messages, session.id, setMessages, sendMessage, transcript],
   );
 
   // Delete a message without resending: truncate the stored transcript from it,
   // mirror the cut into the cached session detail, then drop the local messages
-  // from that point. Unlike resubmit, nothing flips `streaming` here, so the
-  // cached (longer) transcript must shrink before the fold-in effect above
-  // could re-expand the dropped turns from it. A failed truncate aborts,
-  // leaving the transcript intact.
+  // from that point. The committed revision prevents an older read from
+  // restoring deleted messages. A failed truncate leaves the transcript intact.
   const truncateDetail = useTruncateSessionDetail(session.id);
   const deleteMessage = useCallback(
     async (messageId: string) => {
       if (busy) return;
       const index = messages.findIndex((message) => message.id === messageId);
       if (index === -1) return;
-      await truncateSessionMessages(session.id, messageId);
-      truncatedAt.current = messageId;
-      truncateDetail(messageId);
+      const generation = transcript.generation;
+      const { transcriptRevision: revision } = await truncateSessionMessages(session.id, messageId);
+      truncateDetail(messageId, revision);
+      if (
+        sync.current !== transcript ||
+        generation !== transcript.generation ||
+        revision < transcript.revision
+      )
+        return;
+      transcript.revision = revision;
       setMessages(messages.slice(0, index));
     },
-    [busy, messages, session.id, truncateDetail, setMessages],
+    [busy, messages, session.id, truncateDetail, setMessages, transcript],
   );
 
   // Resolve a pending tool approval. Allow runs it once; Always allow also sets
@@ -373,19 +414,23 @@ export function useSessionConversation(opts: {
       // write just means we ask again next time — the safe default — and must not
       // block allowing the call now.
       if (decision === "always") void setToolPermission(getToolName(part), "allow").catch(() => {});
+      protectTranscript();
       void addToolApprovalResponse({ id: part.approval.id, approved: decision !== "deny" });
     },
-    [addToolApprovalResponse],
+    [addToolApprovalResponse, protectTranscript],
   );
 
   const cancel = useCallback(() => {
+    protectTranscript();
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
-    void cancelSession(session.id).catch(() => {});
+    void cancelSession(session.id)
+      .catch(() => {})
+      .then(refreshTranscript);
     // Stopping mid-call leaves the tool part on "working"; mark it cancelled so
     // the transcript reflects the stop rather than spinning forever.
     setMessages(cancelInFlightTools);
-  }, [stop, session.id, setMessages]);
+  }, [stop, session.id, setMessages, protectTranscript, refreshTranscript]);
 
   return {
     messages,

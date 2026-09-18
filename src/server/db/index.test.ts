@@ -36,6 +36,28 @@ describe("db", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("adds revision zero to existing transcripts and preserves it on repeated migration", () => {
+    migrate(db);
+    // Recreate the immediately preceding schema with an existing conversation.
+    db.$client.run("ALTER TABLE sessions DROP COLUMN transcript_revision");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0041_add_transcript_revision'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    const parts = JSON.stringify([{ type: "text", text: "retained" }]);
+    db.$client
+      .prepare(
+        'INSERT INTO messages (id, session_id, "index", role, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run("m1", "old", 0, "user", parts, 1);
+    migrate(db);
+    expect(db.select().from(sessions).get()?.transcriptRevision).toBe(0);
+    expect(db.select().from(messages).get()?.parts).toEqual([{ type: "text", text: "retained" }]);
+    db.update(sessions).set({ transcriptRevision: 7 }).run();
+    migrate(db);
+    expect(db.select().from(sessions).get()?.transcriptRevision).toBe(7);
+  });
+
   it("inserts a run + run_step and reads them back", () => {
     migrate(db);
 
@@ -1119,6 +1141,7 @@ describe("db", () => {
         "started_at",
         "status",
         "title",
+        "transcript_revision",
       ].sort(),
     );
 

@@ -34,9 +34,9 @@ export interface StreamRegistry {
    * near-instant reconnect finds the entry rather than a gap. Replaces any
    * existing entry for the session.
    */
-  open(sessionId: string, messages?: Message[]): StreamSink;
+  open(sessionId: string, messages?: Message[], transcriptRevision?: number): StreamSink;
   /** Transcript before the active stream began, so replay does not duplicate checkpointed parts. */
-  messagesBeforeTurn(sessionId: string): Message[] | null;
+  snapshotBeforeTurn(sessionId: string): { messages: Message[]; transcriptRevision: number } | null;
   /**
    * A readable of the session's live turn for a reconnecting client — the frames
    * buffered so far followed by live ones — or `null` when no turn is streaming
@@ -48,7 +48,7 @@ export interface StreamRegistry {
 }
 
 interface Entry {
-  messages: Message[];
+  snapshot: { messages: Message[]; transcriptRevision: number };
   buffer: string[];
   subs: Set<ReadableStreamDefaultController<Uint8Array>>;
 }
@@ -61,8 +61,12 @@ export function createStreamRegistry(): StreamRegistry {
   const entries = new Map<string, Entry>();
 
   return {
-    open(sessionId, messages = []) {
-      const entry: Entry = { messages: structuredClone(messages), buffer: [], subs: new Set() };
+    open(sessionId, messages = [], transcriptRevision = 0) {
+      const entry: Entry = {
+        snapshot: { messages: structuredClone(messages), transcriptRevision },
+        buffer: [],
+        subs: new Set(),
+      };
       entries.set(sessionId, entry);
       return {
         push(chunk) {
@@ -79,8 +83,8 @@ export function createStreamRegistry(): StreamRegistry {
       };
     },
 
-    messagesBeforeTurn(sessionId) {
-      return entries.get(sessionId)?.messages ?? null;
+    snapshotBeforeTurn(sessionId) {
+      return entries.get(sessionId)?.snapshot ?? null;
     },
 
     subscribe(sessionId) {

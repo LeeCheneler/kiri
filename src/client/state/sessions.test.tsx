@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
@@ -10,6 +10,7 @@ import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "./query-client.ts";
 import {
   useModels,
+  useRefreshSessionDetail,
   useSession,
   useSessionsFeed,
   useSessionsLive,
@@ -28,12 +29,13 @@ const sessionRow = (id: string, overrides: Record<string, unknown> = {}) => ({
 
 const renderProbe = (ui: ReactNode) => {
   const { factory, sources } = captureEventSources();
+  const queryClient = createQueryClient();
   const result = render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <LiveEventsProvider factory={factory}>{ui}</LiveEventsProvider>
     </QueryClientProvider>,
   );
-  return { ...result, sources };
+  return { ...result, sources, queryClient };
 };
 
 const ModelsProbe = () => {
@@ -56,7 +58,7 @@ const TruncateProbe = ({ id, messageId }: { id: string; messageId: string }) => 
   return (
     <div>
       <p>{data ? data.messages.map((m) => m.id).join(",") || "empty" : "loading"}</p>
-      <button type="button" onClick={() => truncate(messageId)}>
+      <button type="button" onClick={() => truncate(messageId, 1)}>
         truncate
       </button>
     </div>
@@ -77,6 +79,7 @@ const serveCountingSession = () => {
     http.get("*/api/sessions/:id", () => {
       calls++;
       return HttpResponse.json({
+        transcriptRevision: 0,
         session: sessionRow("s1", { model: `m-${calls}` }),
         messages: [],
       });
@@ -96,6 +99,100 @@ const serveCountingFeed = () => {
 };
 
 describe("sessions state", () => {
+  it("joins a newer lifecycle read when it replaces the post-stream refresh", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/:id", async () => {
+        const revision = ++reads;
+        if (revision === 2) await blocked;
+        return HttpResponse.json({
+          transcriptRevision: revision,
+          session: sessionRow("s1"),
+          messages: [],
+        });
+      }),
+    );
+    const queryClient = createQueryClient();
+    const { result } = renderHook(
+      () => {
+        const session = useSession("s1");
+        const refresh = useRefreshSessionDetail("s1");
+        return { session, refresh };
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+    await waitFor(() => expect(result.current.session.data?.transcriptRevision).toBe(1));
+    const refreshing = result.current.refresh();
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+      expect((await refreshing).transcriptRevision).toBe(3);
+      release();
+    });
+  });
+
+  it("keeps a committed truncation when an older detail read arrives afterwards", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/:id", async () => {
+        reads += 1;
+        if (reads > 1) await blocked;
+        return HttpResponse.json({
+          transcriptRevision: 0,
+          session: sessionRow("s1"),
+          messages: [
+            { id: "m1", role: "user", parts: [] },
+            { id: "m2", role: "assistant", parts: [] },
+          ],
+        });
+      }),
+    );
+    const { queryClient } = renderProbe(<TruncateProbe id="s1" messageId="m2" />);
+    await screen.findByText("m1,m2");
+    const reading = queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+    await waitFor(() => expect(reads).toBe(2));
+    act(() => screen.getByRole("button", { name: "truncate" }).click());
+    await screen.findByText("m1");
+    await act(async () => {
+      release();
+      await reading;
+    });
+    expect(screen.queryByText("m1,m2") === null).toBe(true);
+    expect(queryClient.getQueryData(["session", "s1"])).toMatchObject({ transcriptRevision: 1 });
+  });
+
+  it("ignores a truncation response older than the cached snapshot", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({
+          transcriptRevision: 2,
+          session: sessionRow("s1"),
+          messages: [
+            { id: "m1", role: "user", parts: [] },
+            { id: "m2", role: "assistant", parts: [] },
+          ],
+        }),
+      ),
+    );
+    const { queryClient } = renderProbe(<TruncateProbe id="s1" messageId="m2" />);
+    await screen.findByText("m1,m2");
+    act(() => screen.getByRole("button", { name: "truncate" }).click());
+    expect(queryClient.getQueryData(["session", "s1"])).toMatchObject({ transcriptRevision: 2 });
+    expect(screen.queryByText("m1,m2") !== null).toBe(true);
+  });
+
   it("fetches the available models", async () => {
     server.use(
       http.get("*/api/models", () =>
@@ -163,6 +260,7 @@ describe("sessions state", () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json({
+          transcriptRevision: 0,
           session: sessionRow("s1"),
           messages: [
             { id: "m1", role: "user", parts: [] },
@@ -185,6 +283,7 @@ describe("sessions state", () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json({
+          transcriptRevision: 0,
           session: sessionRow("s1"),
           messages: [{ id: "m1", role: "user", parts: [] }],
         }),

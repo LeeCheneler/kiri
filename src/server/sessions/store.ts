@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
@@ -7,7 +7,7 @@ import type { SessionStatus } from "../events/index.ts";
 
 /** A persisted session row. */
 export type Session = typeof sessions.$inferSelect;
-/** A persisted message row. `parts` is an AI SDK `UIMessage` parts array (typed `unknown` by drizzle's JSON column). */
+/** A persisted message row. `parts` is an AI SDK `UIMessage` parts array. */
 export type Message = typeof messages.$inferSelect;
 
 /** A message to append, ahead of being assigned its row id, index, and timestamp. */
@@ -361,6 +361,18 @@ export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
     .all();
 }
 
+// Runs inside the message mutation's transaction, including any outer checkpoint.
+function advanceTranscriptRevision(db: KiriDb, sessionId: string): number {
+  const row = db
+    .update(sessions)
+    .set({ transcriptRevision: sql`${sessions.transcriptRevision} + 1` })
+    .where(eq(sessions.id, sessionId))
+    .returning({ revision: sessions.transcriptRevision })
+    .get();
+  if (!row) throw new Error(`session "${sessionId}" not found`);
+  return row.revision;
+}
+
 /**
  * Append `message` to a session at the next index. Messages are only ever
  * appended, so the current count is the next index. Returns the persisted row.
@@ -371,24 +383,27 @@ export function appendMessage(
   message: NewMessage,
   opts: { id?: string; createdAt?: Date } = {},
 ): Message {
-  const index = db
-    .select({ index: messages.index })
-    .from(messages)
-    .where(eq(messages.sessionId, sessionId))
-    .all().length;
-  const id = opts.id ?? crypto.randomUUID();
-  db.insert(messages)
-    .values({
-      id,
-      sessionId,
-      index,
-      role: message.role,
-      parts: message.parts,
-      contextTokens: message.contextTokens ?? null,
-      createdAt: opts.createdAt ?? new Date(),
-    })
-    .run();
-  return db.select().from(messages).where(eq(messages.id, id)).get() as Message;
+  return db.transaction(() => {
+    const index = db
+      .select({ index: messages.index })
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .all().length;
+    const id = opts.id ?? crypto.randomUUID();
+    db.insert(messages)
+      .values({
+        id,
+        sessionId,
+        index,
+        role: message.role,
+        parts: message.parts,
+        contextTokens: message.contextTokens ?? null,
+        createdAt: opts.createdAt ?? new Date(),
+      })
+      .run();
+    advanceTranscriptRevision(db, sessionId);
+    return db.select().from(messages).where(eq(messages.id, id)).get() as Message;
+  });
 }
 
 /**
@@ -404,13 +419,18 @@ export function updateMessage(
   messageId: string,
   update: { parts: UIMessage["parts"]; contextTokens?: number },
 ): void {
-  db.update(messages)
-    .set({
-      parts: update.parts,
-      ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
-    })
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
-    .run();
+  db.transaction(() => {
+    const result = db
+      .update(messages)
+      .set({
+        parts: update.parts,
+        ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
+      })
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+      .returning({ id: messages.id })
+      .get();
+    if (result !== undefined) advanceTranscriptRevision(db, sessionId);
+  });
 }
 
 /**
@@ -418,20 +438,26 @@ export function updateMessage(
  * Rolls a transcript back to an earlier point — e.g. editing and resending a
  * user message, which discards that message and the turns that followed.
  * Trailing rows are removed wholesale rather than gapped, so the append-at-count
- * invariant in `appendMessage` still holds. Returns whether the message existed;
+ * invariant in `appendMessage` still holds. Returns the committed revision;
  * truncating from an absent message changes nothing.
  */
-export function deleteMessagesFrom(db: KiriDb, sessionId: string, messageId: string): boolean {
-  const target = db
-    .select({ index: messages.index })
-    .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
-    .get();
-  if (!target) return false;
-  db.delete(messages)
-    .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
-    .run();
-  return true;
+export function deleteMessagesFrom(
+  db: KiriDb,
+  sessionId: string,
+  messageId: string,
+): number | undefined {
+  return db.transaction(() => {
+    const target = db
+      .select({ index: messages.index })
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+      .get();
+    if (!target) return undefined;
+    db.delete(messages)
+      .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
+      .run();
+    return advanceTranscriptRevision(db, sessionId);
+  });
 }
 
 /**

@@ -15,6 +15,8 @@ export type SessionEffort = (typeof EFFORT_LEVELS)[number];
 /** A session row as returned by the sessions API. */
 export interface Session {
   id: string;
+  /** Current stored revision; SessionDetail carries the revision of its returned messages. */
+  transcriptRevision: number;
   status: SessionStatus;
   /** `provider:model` id the session's turns run against. */
   model: string;
@@ -90,6 +92,8 @@ export interface SessionInboxItem {
 
 /** A session with its ordered messages and undelivered inbox, as returned by `GET /api/sessions/:id`. */
 export interface SessionDetail {
+  /** Revision of messages, which may be the baseline of an active replay stream. */
+  transcriptRevision: number;
   session: Session;
   messages: SessionMessage[];
   inbox: SessionInboxItem[];
@@ -142,3 +146,8 @@ export type QueueSessionMessageRequest = { text: string };
 export type SessionTurnRequest = {
   message: { id?: string; role?: "user" | "assistant"; parts: unknown[] };
 };
+
+/** Committed revision after truncating a transcript. */
+export interface TranscriptMutationResult {
+  transcriptRevision: number;
+}

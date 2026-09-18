@@ -9,6 +9,7 @@ import type {
   SessionResult,
   SessionsPage,
   SuggestedRepliesResult,
+  TranscriptMutationResult,
   TranscriptionResult,
 } from "../../shared/api/sessions.ts";
 import type * as requests from "../../shared/api/sessions.ts";
@@ -36,8 +37,8 @@ export const fetchSessionsPage = async (opts: PageQuery = {}): Promise<SessionsP
 };
 
 /** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
-export const fetchSession = async (id: string): Promise<SessionDetail> =>
-  json<SessionDetail>(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`));
+export const fetchSession = async (id: string, signal?: AbortSignal): Promise<SessionDetail> =>
+  json<SessionDetail>(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, { signal }));
 
 /**
  * Fetch the child sessions a session's delegate calls have spawned, oldest
@@ -206,17 +207,19 @@ export const deleteSession = async (id: string): Promise<void> => {
  * Truncate a session's transcript from `messageId` onward — the server deletes
  * that message and every turn after it, then rebuilds the running token totals.
  * Backs edit-and-resend: roll the conversation back to the edited message before
- * re-running from it. Resolves on 204; throws `ApiError` on non-2xx — 404 (the
+ * re-running from it. Returns the committed revision; throws `ApiError` on non-2xx — 404 (the
  * session or message is unknown), 409 (a turn is in flight; cancel it first).
  */
-export const truncateSessionMessages = async (id: string, messageId: string): Promise<void> => {
-  await assertOk(
+export const truncateSessionMessages = async (
+  id: string,
+  messageId: string,
+): Promise<TranscriptMutationResult> =>
+  json<TranscriptMutationResult>(
     await apiFetch(
       `/api/sessions/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}`,
       { method: "DELETE" },
     ),
   );
-};
 
 /**
  * Queue a message for a session whose turn is in flight; the turn delivers it

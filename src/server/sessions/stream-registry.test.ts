@@ -40,8 +40,9 @@ describe("createStreamRegistry", () => {
       },
     ];
     const reg = createStreamRegistry();
-    expect(reg.messagesBeforeTurn("s1")).toBeNull();
-    const sink = reg.open("s1", baseline);
+    expect(reg.snapshotBeforeTurn("s1")).toBeNull();
+    const sink = reg.open("s1", baseline, 7);
+    expect(reg.snapshotBeforeTurn("s1")?.transcriptRevision).toBe(7);
     baseline[0].parts = [
       {
         type: "tool-echo",
@@ -51,14 +52,14 @@ describe("createStreamRegistry", () => {
         output: "hi",
       },
     ];
-    expect(reg.messagesBeforeTurn("s1")?.[0]?.parts).toContainEqual(
+    expect(reg.snapshotBeforeTurn("s1")?.messages[0]?.parts).toContainEqual(
       expect.objectContaining({
         state: "approval-responded",
         approval: { id: "approval-1", approved: true },
       }),
     );
     sink.close();
-    expect(reg.messagesBeforeTurn("s1")).toBeNull();
+    expect(reg.snapshotBeforeTurn("s1")).toBeNull();
   });
 
   it("has reflects a session's stream from open through close", () => {

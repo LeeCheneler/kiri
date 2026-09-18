@@ -12,6 +12,7 @@ import { SessionChildren } from "./session-children.tsx";
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 
 const child = (overrides: Partial<ChildSessionEntry> = {}): ChildSessionEntry => ({
+  transcriptRevision: 0,
   id: "child-1",
   status: "running",
   projectId: null,

@@ -939,16 +939,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const parentId = session.parentSessionId;
+      const snapshot = streamRegistry.snapshotBeforeTurn(id) ?? {
+        messages: getSessionMessages(db, id),
+        transcriptRevision: session.transcriptRevision,
+      };
       return c.json({
         session: serializeSession(withHealedCwd(session)),
+        transcriptRevision: snapshot.transcriptRevision,
         // Replaying a live stream starts from its original transcript. Durable
         // checkpoints already contain some of those frames and would duplicate
         // text/steps if used as the client's starting point.
-        messages: withoutContextCalibration(
-          (streamRegistry.messagesBeforeTurn(id) ?? getSessionMessages(db, id)).map(
-            serializeMessage,
-          ),
-        ),
+        messages: withoutContextCalibration(snapshot.messages.map(serializeMessage)),
         // The undelivered backlog rides the detail so queued messages stay
         // visible across reloads and other views — the inbox table, not any
         // client's local state, is the queue's source of truth.
@@ -1360,7 +1361,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           409,
         );
       }
-      if (!deleteMessagesFrom(db, id, messageId)) {
+      const transcriptRevision = deleteMessagesFrom(db, id, messageId);
+      if (transcriptRevision === undefined) {
         return c.json(
           {
             error: `message "${messageId}" not found in session "${id}"`,
@@ -1372,7 +1374,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // delete — unlike an edit-and-resend — has no follow-up turn to announce
       // one, so publish the change here.
       bus?.publish({ type: "session.updated", id, status: session.status });
-      return c.body(null, 204);
+      return c.json({ transcriptRevision } satisfies sessionsApi.TranscriptMutationResult);
     },
   );
 

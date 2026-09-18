@@ -21,6 +21,7 @@ const sessionDetail = (
   overrides: Record<string, unknown> = {},
   inbox: unknown[] = [],
 ) => ({
+  transcriptRevision: 0,
   session: {
     id: "s1",
     status: "idle",
@@ -618,7 +619,7 @@ describe("<SessionChat>", () => {
     // Ending the turn (here by cancelling) drops the ephemeral console; the
     // panel reads the stored outcome instead.
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByText(/2 pass/)).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText(/2 pass/).length).toBe(0));
   });
 
   it("retains a queued draft whose UTF-8 JSON exceeds the inbox limit", async () => {
@@ -786,7 +787,9 @@ describe("<SessionChat>", () => {
     // race (204) and the message is promoted to its own turn.
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
+        HttpResponse.json(
+          sessionDetail([], {}, withdrawn === 0 ? [inboxItem("q1", "also check the docs")] : []),
+        ),
       ),
       // Like the real server: the first withdraw deletes the row, a repeat 404s.
       http.delete("*/api/sessions/:id/inbox/:itemId", () => {
@@ -843,7 +846,11 @@ describe("<SessionChat>", () => {
         ],
       },
     ];
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(delivered))));
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({ ...sessionDetail(delivered), transcriptRevision: 1 }),
+      ),
+    );
     await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
 
     // The chip resolves into the woven interjection; the message text stays.
@@ -1048,7 +1055,7 @@ describe("<SessionChat>", () => {
       ),
       http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
         truncatedId = String(params.messageId);
-        return new HttpResponse(null, { status: 204 });
+        return HttpResponse.json({ transcriptRevision: 1 });
       }),
       http.post("*/api/sessions/:id/messages", async ({ request }) => {
         const body = (await request.json()) as {
@@ -1089,7 +1096,7 @@ describe("<SessionChat>", () => {
       ),
       http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
         truncatedId = String(params.messageId);
-        return new HttpResponse(null, { status: 204 });
+        return HttpResponse.json({ transcriptRevision: 1 });
       }),
     );
     renderChat();
@@ -1312,10 +1319,13 @@ describe("<SessionChat>", () => {
 
     // The turn finishes elsewhere; the row settles with the assistant reply. A
     // live event would invalidate the cached session — drive that refetch here.
-    detail = sessionDetail(
-      [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-      { status: "idle" },
-    );
+    detail = {
+      ...sessionDetail(
+        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+        { status: "idle" },
+      ),
+      transcriptRevision: detail.transcriptRevision + 1,
+    };
     await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
 
     expect(await screen.findByText("An answer")).toBeDefined();
@@ -1324,8 +1334,7 @@ describe("<SessionChat>", () => {
 
   it("folds in a turn that grew an existing message's parts while away", async () => {
     // An approval resumed elsewhere extends the paused assistant message in
-    // place — same message count, more parts — so the fold-in must compare
-    // parts, not just messages.
+    // place. The revision advances even though the message count stays the same.
     let detail = sessionDetail(
       [message("m1", "user", "Question"), message("m2", "assistant", "Working on it.")],
       { status: "running" },
@@ -1335,19 +1344,22 @@ describe("<SessionChat>", () => {
 
     await screen.findByText("Working on it.");
 
-    detail = sessionDetail(
-      [
-        message("m1", "user", "Question"),
-        {
-          ...message("m2", "assistant", "Working on it."),
-          parts: [
-            { type: "text", text: "Working on it." },
-            { type: "text", text: "Now finished." },
-          ],
-        },
-      ],
-      { status: "idle" },
-    );
+    detail = {
+      ...sessionDetail(
+        [
+          message("m1", "user", "Question"),
+          {
+            ...message("m2", "assistant", "Working on it."),
+            parts: [
+              { type: "text", text: "Working on it." },
+              { type: "text", text: "Now finished." },
+            ],
+          },
+        ],
+        { status: "idle" },
+      ),
+      transcriptRevision: detail.transcriptRevision + 1,
+    };
     await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
 
     expect(await screen.findByText("Now finished.")).toBeDefined();
@@ -1615,10 +1627,13 @@ describe("<SessionChat>", () => {
 
       // The turn settles off-screen and folds in. Because the user scrolled up,
       // the new message must not yank the page back to the foot.
-      detail = sessionDetail(
-        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
 
@@ -1643,10 +1658,13 @@ describe("<SessionChat>", () => {
       scroll.setFoot(5200);
       scroll.scrollTo(5200);
 
-      detail = sessionDetail(
-        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
 
@@ -1670,24 +1688,30 @@ describe("<SessionChat>", () => {
       // page *above* the offset we last saw. That drop is our own scroll, not the
       // user's, and must not un-pin.
       scroll.setFoot(4800);
-      detail = sessionDetail(
-        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
       window.dispatchEvent(new Event("scroll"));
       scroll.scrollCalls.length = 0;
 
       // Still pinned, so the next message is followed too.
-      detail = sessionDetail(
-        [
-          message("m1", "user", "Question"),
-          message("m2", "assistant", "An answer"),
-          message("m3", "user", "Another"),
-        ],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [
+            message("m1", "user", "Question"),
+            message("m2", "assistant", "An answer"),
+            message("m3", "user", "Another"),
+          ],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("Another");
 

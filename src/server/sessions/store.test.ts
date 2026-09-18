@@ -45,6 +45,52 @@ describe("sessions store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("advances revisions for equal-size replacements and truncation, leaving no-ops alone", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(0);
+    const row = appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "old" }] });
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(1);
+    updateMessage(db, "s1", row.id, { parts: [{ type: "text", text: "new" }] });
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(2);
+    updateMessage(db, "s1", "absent", { parts: [] });
+    expect(deleteMessagesFrom(db, "s1", "absent")).toBeUndefined();
+    updateSessionTitle(db, "s1", "Renamed");
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(2);
+    expect(deleteMessagesFrom(db, "s1", row.id)).toBe(3);
+    expect(getSessionMessages(db, "s1")).toEqual([]);
+  });
+
+  for (const mutation of ["append", "update", "truncate"] as const) {
+    it(`rolls back ${mutation} when its revision cannot be saved`, () => {
+      createSession(db, MODEL, { id: "s1" });
+      const row = appendMessage(db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "saved" }],
+      });
+      db.$client.run(`CREATE TRIGGER reject_revision BEFORE UPDATE OF transcript_revision ON sessions
+        BEGIN SELECT RAISE(IGNORE); END;`);
+      expect(() => {
+        if (mutation === "append") appendMessage(db, "s1", { role: "assistant", parts: [] });
+        else if (mutation === "update") updateMessage(db, "s1", row.id, { parts: [] });
+        else deleteMessagesFrom(db, "s1", row.id);
+      }).toThrow();
+      expect(getSessionMessages(db, "s1")).toEqual([row]);
+      expect(getSession(db, "s1")?.transcriptRevision).toBe(1);
+    });
+  }
+
+  it("rolls back revisions together with a surrounding checkpoint transaction", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(() =>
+      db.transaction(() => {
+        appendMessage(db, "s1", { role: "assistant", parts: [] });
+        throw new Error("inbox acknowledgement failed");
+      }),
+    ).toThrow("inbox acknowledgement failed");
+    expect(getSessionMessages(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(0);
+  });
+
   it("creates an idle top-level session against the model by default", () => {
     const session = createSession(db, MODEL, { id: "s1" });
 
@@ -496,7 +542,7 @@ describe("sessions store", () => {
     createSession(db, MODEL, { id: "s2" });
     appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Keep me" }] });
 
-    expect(deleteMessagesFrom(db, "s1", second.id)).toBe(true);
+    expect(deleteMessagesFrom(db, "s1", second.id)).toBe(5);
 
     const rows = getSessionMessages(db, "s1");
     expect(rows.map((r) => r.index)).toEqual([0, 1]);
@@ -513,7 +559,7 @@ describe("sessions store", () => {
       contextTokens: 8,
     });
 
-    expect(deleteMessagesFrom(db, "s1", first.id)).toBe(true);
+    expect(deleteMessagesFrom(db, "s1", first.id)).toBe(3);
 
     expect(getSessionMessages(db, "s1")).toHaveLength(0);
   });
@@ -522,7 +568,7 @@ describe("sessions store", () => {
     createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
 
-    expect(deleteMessagesFrom(db, "s1", "ghost")).toBe(false);
+    expect(deleteMessagesFrom(db, "s1", "ghost")).toBeUndefined();
 
     expect(getSessionMessages(db, "s1")).toHaveLength(1);
   });

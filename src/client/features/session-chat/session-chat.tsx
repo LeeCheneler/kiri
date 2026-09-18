@@ -203,7 +203,12 @@ function ChatView({
     deleteMessage,
     cancel,
     onToolDecision,
-  } = useSessionConversation({ session, initialMessages, pendingInbox: detail.inbox });
+  } = useSessionConversation({
+    session,
+    initialMessages,
+    transcriptRevision: detail.transcriptRevision,
+    pendingInbox: detail.inbox,
+  });
   // The undelivered backlog, straight off the same detail payload the session's
   // status rides — chips render from the server's queue, not local state, so
   // they survive reloads and show in every view of the session. A delivery the

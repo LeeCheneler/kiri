@@ -946,7 +946,7 @@ describe("sessions routes", () => {
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Do the work" }] });
       const baseline = getSessionMessages(env.db, "s1");
-      const sink = streamRegistry.open("s1", baseline);
+      const sink = streamRegistry.open("s1", baseline, 1);
       appendMessage(env.db, "s1", {
         role: "assistant",
         parts: [{ type: "text", text: "Progress" }],
@@ -955,10 +955,13 @@ describe("sessions routes", () => {
       const live = await (await app.request("/api/sessions/s1")).json();
       expect(live.messages.map((m: { role: string }) => m.role)).toEqual(["user"]);
       expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
+      expect(live.transcriptRevision).toBe(1);
+      expect(live.session.transcriptRevision).toBe(2);
 
       sink.close();
       const settled = await (await app.request("/api/sessions/s1")).json();
       expect(settled.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+      expect(settled.transcriptRevision).toBe(2);
       expect(settled.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
     });
 
@@ -3396,7 +3399,7 @@ describe("sessions routes", () => {
   });
 
   describe("DELETE /api/sessions/:id/messages/:messageId", () => {
-    it("truncates the transcript from the message, 204s and publishes session.updated", async () => {
+    it("truncates the transcript from the message, returns its revision and publishes session.updated", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();
       bus.subscribe((e) => events.push(e));
@@ -3415,7 +3418,8 @@ describe("sessions routes", () => {
         headers: CLIENT_HEADERS,
       });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ transcriptRevision: 5 });
       // The edited message and the turn after it are gone; the prior turn stays.
       expect(getSessionMessages(env.db, "s1").map((m) => m.index)).toEqual([0, 1]);
       // A truncate has no follow-up turn to announce it, so the route publishes.

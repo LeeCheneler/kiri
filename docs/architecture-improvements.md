@@ -38,7 +38,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Hand-mirrored types create repeated edits without proving that client and server agree. Sharing database row types or relying on assertions would preserve the underlying mismatch.
 
-- [ ] **07 — Reconcile transcripts using explicit revisions**
+- [x] **07 — Reconcile transcripts using explicit revisions**
 
   **What:** Advance a monotonic transcript revision atomically with mutations and carry it through reads and relevant responses. Replace message/part-count freshness checks with revision-aware reconciliation. Protect local streaming work from late snapshots and cover same-size updates, deletions from another tab, and approval continuations.
 
