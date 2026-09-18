@@ -23,9 +23,4 @@ export {
   describeModel,
   toModelInfo,
 } from "./model-description.ts";
-export {
-  type ListedModel,
-  type LlmModelOutput,
-  type LlmModelsFailure,
-  listLlmModels,
-} from "./models.ts";
+export type { ListedModel, LlmModelOutput } from "./models.ts";

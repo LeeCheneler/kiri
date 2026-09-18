@@ -9,11 +9,12 @@ import {
   type TranscriptionModel,
   generateText,
 } from "ai";
+import { type ModelCatalogue, createModelCatalogue } from "./catalogue.ts";
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { endpointFor } from "./endpoint.ts";
 import { type LlmModelsResult, describeModel } from "./model-description.ts";
-import { type ListedModelsResult, listLlmModels } from "./models.ts";
+import type { ListedModel } from "./models.ts";
 import { createOpenRouterModel } from "./openrouter-model.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
@@ -36,10 +37,6 @@ export type LlmImageModel = ImageModel;
  * `resolveTranscriptionModel` and handed to the AI SDK's `transcribe`.
  */
 export type LlmTranscriptionModel = TranscriptionModel;
-
-// Reuse model metadata within one provider configuration for a few minutes.
-// A registry replacement starts a fresh cache regardless of this TTL.
-const MODEL_LISTING_TTL_MS = 5 * 60_000;
 
 /** Token counts from a completed generation; a field is undefined when the provider omits it. */
 export interface LlmUsage {
@@ -91,7 +88,9 @@ export interface LlmClients {
   /**
    * Describe the models every configured provider currently offers, namespaced
    * as `provider:model` ids ready to hand back to `resolveModel`. A provider that
-   * is down or unauthorised is collected as a failure, never fatal. Lives here
+   * is down or unauthorised is collected as a failure, never fatal. Each call
+   * discovers afresh and refreshes the cache execution reads, so a turn runs on
+   * the facts the picker just showed. Lives here
    * so callers list models off the same object they resolve them through,
    * without touching the registry or AI SDK directly.
    */
@@ -99,11 +98,12 @@ export interface LlmClients {
   /**
    * The context window (max input tokens) for a `provider:model` id, or
    * undefined when the model isn't listed or its provider doesn't report one.
-   * Reads the same provider listings as `listModels`, cached briefly so a
-   * per-turn caller doesn't refetch every provider each turn. Registry replacement
-   * starts a fresh cache; in-flight lookups retain their starting configuration.
-   * A provider whose listing fails contributes no models, so its windows read as unknown
-   * rather than failing the lookup.
+   * Reads the model's own provider's listing — no other provider is asked —
+   * cached briefly and refreshed by `listModels`, with discovery bounded so a
+   * hung endpoint can't hold a turn. Registry replacement starts a fresh cache;
+   * in-flight lookups retain their starting configuration. A provider whose
+   * listing fails contributes no models, so its windows read as unknown rather
+   * than failing the lookup.
    */
   contextWindowFor(id: string): Promise<number | undefined>;
   /**
@@ -129,29 +129,31 @@ export function createLlmClients(
   interface MetadataSnapshot {
     revision: number;
     registry: LlmProviderRegistry;
-    listing?: { at: number; promise: Promise<ListedModelsResult> };
+    catalogue: ModelCatalogue;
   }
   let metadata: MetadataSnapshot | undefined;
   const metadataSnapshot = (): MetadataSnapshot => {
     const revision = registry.revision();
     if (metadata === undefined || metadata.revision !== revision) {
-      // Keep old lookups and already-built models on their original endpoints.
+      // Keep old lookups and already-built models on their original endpoints,
+      // and start the new configuration on an empty catalogue.
       const snapshot = createLlmProviderRegistry();
       snapshot.replace(
         new Map(registry.listProviders().map((provider) => [provider.name, provider])),
       );
-      metadata = { revision, registry: snapshot };
+      metadata = { revision, registry: snapshot, catalogue: createModelCatalogue(env) };
     }
     return metadata;
   };
-  const cachedListing = (snapshot: MetadataSnapshot): Promise<ListedModelsResult> => {
-    if (
-      snapshot.listing === undefined ||
-      Date.now() - snapshot.listing.at >= MODEL_LISTING_TTL_MS
-    ) {
-      snapshot.listing = { at: Date.now(), promise: listLlmModels(snapshot.registry, env) };
-    }
-    return snapshot.listing.promise;
+  // What the model's own provider lists for it — no other provider is asked.
+  const listedModel = async (
+    snapshot: MetadataSnapshot,
+    id: string,
+  ): Promise<ListedModel | undefined> => {
+    const provider = snapshot.registry.getProvider(splitModelId(id).providerName);
+    if (provider === undefined) return undefined;
+    const { models } = await snapshot.catalogue.listing(provider);
+    return models.find((model) => model.id === id);
   };
 
   const clients: LlmClients = {
@@ -168,24 +170,31 @@ export function createLlmClients(
       });
     },
     async listModels() {
-      const { registry: providers } = metadataSnapshot();
-      const { models, failures } = await listLlmModels(providers, env);
-      return {
-        models: models.map((listed) => {
-          const { provider, modelId } = resolveProvider(providers, listed.id);
-          return describeModel(provider, modelId, listed);
-        }),
-        failures,
-      };
+      const { registry: providers, catalogue } = metadataSnapshot();
+      const settled = await Promise.all(
+        providers.listProviders().map(async (provider) => ({
+          provider,
+          listing: await catalogue.refresh(provider),
+        })),
+      );
+      const result: LlmModelsResult = { models: [], failures: [] };
+      for (const { provider, listing } of settled) {
+        if (listing.reason !== undefined) {
+          result.failures.push({ provider: provider.name, reason: listing.reason });
+        }
+        for (const listed of listing.models) {
+          const modelId = listed.id.slice(provider.name.length + 1);
+          result.models.push(describeModel(provider, modelId, listed));
+        }
+      }
+      return result;
     },
     async contextWindowFor(id) {
-      const { models } = await cachedListing(metadataSnapshot());
-      return models.find((model) => model.id === id)?.contextWindow;
+      return (await listedModel(metadataSnapshot(), id))?.contextWindow;
     },
     async reasoningOptionsFor(id, effort) {
       const snapshot = metadataSnapshot();
-      const { models } = await cachedListing(snapshot);
-      const model = models.find((model) => model.id === id);
+      const model = await listedModel(snapshot, id);
       if (model?.reasoning !== true) return undefined;
       const { provider, modelId } = resolveProvider(snapshot.registry, id);
       return effortProviderOptions(provider, modelId, effort, model.reasoningLevels);
@@ -193,10 +202,12 @@ export function createLlmClients(
     resolveModel(id) {
       const snapshot = metadataSnapshot();
       const { provider, modelId } = resolveProvider(snapshot.registry, id);
-      return buildModel(provider, modelId, env, async () => {
-        const { models } = await cachedListing(snapshot);
-        return models.find((model) => model.id === id)?.nativeDocuments;
-      });
+      return buildModel(
+        provider,
+        modelId,
+        env,
+        async () => (await listedModel(snapshot, id))?.nativeDocuments,
+      );
     },
     resolveImageModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);
@@ -210,14 +221,20 @@ export function createLlmClients(
   return clients;
 }
 
+// The two halves of a `provider:model` id; the model half is empty without a separator.
+function splitModelId(id: string): { providerName: string; modelId: string } {
+  const separator = id.indexOf(":");
+  return separator === -1
+    ? { providerName: id, modelId: "" }
+    : { providerName: id.slice(0, separator), modelId: id.slice(separator + 1) };
+}
+
 /** Split a `provider:model` id and look its provider up in the registry, throwing on either failure. */
 function resolveProvider(
   registry: LlmProviderRegistry,
   id: string,
 ): { provider: LlmProvider; modelId: string } {
-  const separator = id.indexOf(":");
-  const providerName = separator === -1 ? id : id.slice(0, separator);
-  const modelId = separator === -1 ? "" : id.slice(separator + 1);
+  const { providerName, modelId } = splitModelId(id);
   if (!providerName || !modelId) {
     throw new Error(`invalid llm model id "${id}" — expected "provider:model" form`);
   }

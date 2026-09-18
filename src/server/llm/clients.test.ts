@@ -302,6 +302,56 @@ describe("llm clients", () => {
     expect(result.failures).toEqual([]);
   });
 
+  it("collects a provider's listing failure without failing the others", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "ok", context_length: 100 }] }),
+      ),
+      http.get(
+        "https://api.openai.com/v1/models",
+        () => new HttpResponse(null, { status: 500, statusText: "Internal Server Error" }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(openai, local), { OPENAI_API_KEY: "sk-test" });
+
+    const result = await clients.listModels();
+
+    expect(result.models.map((model) => model.id)).toEqual(["local:ok"]);
+    expect(result.failures).toEqual([{ provider: "openai", reason: "500 Internal Server Error" }]);
+  });
+
+  it("lists nothing when no providers are configured", async () => {
+    expect(await createLlmClients(registryWith(), {}).listModels()).toEqual({
+      models: [],
+      failures: [],
+    });
+  });
+
+  it("answers for a model without waiting on an unrelated provider's listing", async () => {
+    const release = Promise.withResolvers<void>();
+    server.use(
+      http.get("http://localhost:1234/v1/models", async () => {
+        await release.promise;
+        return HttpResponse.json({ data: [] });
+      }),
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "claude-opus-4-8", max_input_tokens: 100 }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(local, anthropic), {
+      ANTHROPIC_API_KEY: "sk-test",
+    });
+    const hung = clients.contextWindowFor("local:model");
+
+    expect(await clients.contextWindowFor("anthropic:claude-opus-4-8")).toBe(100);
+    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-8", "high")).toEqual({
+      anthropic: { effort: "high" },
+    });
+
+    release.resolve();
+    expect(await hung).toBeUndefined();
+  });
+
   it("maps effort to anthropic's effort parameter on a modern claude model", async () => {
     server.use(
       http.get("https://api.anthropic.com/v1/models", () =>
@@ -486,7 +536,8 @@ describe("llm clients", () => {
     expect(await clients.contextWindowFor("local:model")).toBe(200);
     expect(await clients.reasoningOptionsFor("local:model", "high")).toBeUndefined();
     expect(calls).toEqual({ old: 1, next: 1 });
-    // The picker still bypasses the metadata cache on every listing request.
+    // The picker discovers afresh on every listing request, and execution
+    // then reads what it was shown rather than discovering again.
     expect((await clients.listModels()).models[0]?.model.contextWindow).toBe(200);
     await clients.listModels();
     expect(calls).toEqual({ old: 1, next: 3 });
