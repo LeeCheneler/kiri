@@ -142,8 +142,8 @@ const withTrailingNewline = (content: string): string =>
  * relative one resolves against the session's working directory, and is
  * rejected with the allowed set named when the session has none. Every path is resolved to its real form (defeating
  * `../` traversal and symlink escapes) and must sit inside one of
- * `getAllowedDirectories()` — read live per call, so a `kiri.yaml` edit
- * applies on the next call. Hidden (dot-prefixed) paths are reachable like any
+ * `getAllowedDirectories()`. A session turn fixes that set when it starts, so
+ * a `kiri.yaml` edit applies on the next turn. Hidden (dot-prefixed) paths are reachable like any
  * other, bar a narrow denylist that stays outside the tool surface entirely:
  * `.git` internals (thousands of object files that would drown every broad
  * find), secret-bearing files (`.env*`), and kiri's own `.kiri` state

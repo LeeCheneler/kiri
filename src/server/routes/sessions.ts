@@ -25,6 +25,7 @@ import {
   messagePartsError,
 } from "../../shared/message-limits.ts";
 import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
+import type { ConfigService, ConfigSnapshot } from "../config/service.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
@@ -138,28 +139,14 @@ export interface SessionsRoutesDeps {
   /** Live provider names for the workflow authoring tools' validation gate; forwarded to `workflowTools`. */
   getProviderNames?: () => ReadonlySet<string>;
   /**
-   * Live sandbox for the first-party filesystem tools: the absolute
-   * directories declared under `filesystem.allowed_directories` in
-   * `kiri.yaml`, read per turn so a config edit applies on the next one.
-   * Empty (or omitted) withholds the filesystem tools entirely — declaring
-   * the sandbox is what enables them.
+   * The workspace's effective `kiri.yaml`: the filesystem sandbox and default
+   * working directory, and the models config (shortcuts ride the model listing
+   * so the pickers can pin them; delegates size the workers the delegate tool
+   * spawns). A turn takes one snapshot, so the tools it is offered and the
+   * guidance describing them agree; everything else reads it at the point of
+   * use, so a config edit applies to the next turn, session, or call.
    */
-  getAllowedDirectories?: () => readonly string[];
-  /**
-   * Live default working directory for new sessions: the absolute directory
-   * resolved from `filesystem.default_working_directory` in `kiri.yaml` (or
-   * the first allowed directory), read at each session create. Omitted — or
-   * pointing at a directory that doesn't exist on disk — leaves new sessions
-   * without a working directory.
-   */
-  getDefaultWorkingDirectory?: () => string | undefined;
-  /**
-   * Live models config from `kiri.yaml`'s `models:` section, read per use so
-   * a config edit applies at once. Shortcuts ride the model listing (so the
-   * pickers can pin them); delegates size the workers the delegate tool
-   * spawns. Empty (or omitted) means none are configured.
-   */
-  getModelsConfig?: () => ModelsConfig;
+  configService: ConfigService;
   /**
    * The auto shell permission's learning loop: decisions and user verdicts
    * feed the judgement log, and distilled precedent feeds back into the
@@ -282,6 +269,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const {
     db,
     config,
+    configService,
     registry,
     llmClients,
     bus,
@@ -292,20 +280,24 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   } = deps;
   const app = new Hono();
 
-  // The filesystem tools' sandbox for a turn, read fresh so a kiri.yaml edit
-  // applies on the next turn; one read serves the whole turn, so the offered
-  // tools and the guidance enumerate the same set. Filtered to directories
-  // that exist: a declared entry that isn't on disk can't be browsed, and
-  // offering tools (or advertising a root) that every call would then reject
-  // reads as broken — with nothing usable, the tools are withheld outright.
-  const sandboxDirectories = (): readonly string[] =>
-    (deps.getAllowedDirectories?.() ?? []).filter((dir) => existsSync(dir));
+  // A snapshot's filesystem sandbox, filtered to directories that exist: a
+  // declared entry that isn't on disk can't be browsed, and offering tools (or
+  // advertising a root) that every call would then reject reads as broken —
+  // with nothing usable, the tools are withheld outright.
+  const sandboxOf = (snapshot: ConfigSnapshot): readonly string[] =>
+    snapshot.filesystem.allowedDirectories.filter((dir) => existsSync(dir));
+
+  // The sandbox as configured now, for checks made outside a turn's own
+  // snapshot.
+  const sandboxDirectories = (): readonly string[] => sandboxOf(configService.current());
+
+  const modelsConfig = (): ModelsConfig => configService.current().models;
 
   // Where a new session starts working, on the same live-read, must-exist
   // posture: a configured default that isn't on disk yields a session with no
   // working directory rather than one pointing somewhere unusable.
   const defaultWorkingDirectory = (): string | undefined => {
-    const dir = deps.getDefaultWorkingDirectory?.();
+    const dir = configService.current().filesystem.defaultWorkingDirectory;
     return dir !== undefined && existsSync(dir) ? dir : undefined;
   };
 
@@ -371,7 +363,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     deps.commandLearning ??
     createCommandLearning({
       llmClients,
-      getModel: () => deps.getModelsConfig?.().utility,
+      getModel: () => modelsConfig().utility,
       logFile: config.commandJudgementsFile(),
       guidanceFile: config.commandGuidanceFile(),
     });
@@ -386,7 +378,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     // The SDK validates the call against the tool's input schema before any
     // approval gating, so `command` is present and string-typed here.
     const { command, cwd } = input as { command: string; cwd?: string };
-    const model = deps.getModelsConfig?.().utility;
+    const model = modelsConfig().utility;
     if (model === undefined) return true;
     const screened = screenCommand(command);
     const decision =
@@ -497,10 +489,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // tools run without a live feed.
   const builtinToolsFor = (
     sessionId: string,
+    sandbox: readonly string[],
     writer?: UIMessageStreamWriter,
     instructionContext?: InstructionContext,
   ): ToolSet => {
-    const sandbox = sandboxDirectories();
     return {
       ...skillTools(config),
       ...knowledgeTools({ db, registry }, getSession(db, sessionId)?.projectId ?? null),
@@ -591,6 +583,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // what runs unprompted.
   const activeTools = (
     sessionId: string,
+    snapshot: ConfigSnapshot,
     writer?: UIMessageStreamWriter,
     instructionContext?: InstructionContext,
   ): ToolSet => {
@@ -601,12 +594,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (offered !== null) tools[name] = offered;
     }
     const builtin: ToolSet = {
-      ...builtinToolsFor(sessionId, writer, instructionContext),
+      ...builtinToolsFor(sessionId, sandboxOf(snapshot), writer, instructionContext),
       // A worker can't spawn workers: the delegation tools (delegate and
       // message_worker) are offered only to a session with no parent, and
       // message_parent only to one with a parent to message. Delegate
       // models, when configured, make the worker's model a required role
-      // choice, read live so a kiri.yaml edit applies on the next turn.
+      // choice, taken from the turn's snapshot so a kiri.yaml edit applies on
+      // the next turn.
       ...(isChild
         ? messageParentTool({ db, childSessionId: sessionId, bus })
         : delegateTool({
@@ -614,7 +608,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             parentSessionId: sessionId,
             childTurnDeps: (childSessionId) => turnDepsFor(childSessionId),
             bus,
-            delegates: deps.getModelsConfig?.().delegates,
+            delegates: snapshot.models.delegates,
           })),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
@@ -640,8 +634,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     // guidance matches what the model is actually offered; the set the model
     // runs with is rebuilt against the turn's stream writer when the stream
     // starts. Both constructions gate identically, so the names always match.
-    const toolNames = Object.keys(activeTools(sessionId));
-    const sandbox = sandboxDirectories();
+    // One snapshot for the whole turn: the tools offered, the sandbox the
+    // prompt enumerates, and the delegate roles it names all describe the
+    // same config, whatever is edited while the turn runs.
+    const snapshot = configService.current();
+    const toolNames = Object.keys(activeTools(sessionId, snapshot));
+    const sandbox = sandboxOf(snapshot);
     const instructionContext = createInstructionContext(() => ({
       config,
       project: projectContextFor(sessionId),
@@ -659,13 +657,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         config,
         toolNames,
         sandbox,
-        configuredDelegateRoles(deps.getModelsConfig?.().delegates),
+        configuredDelegateRoles(snapshot.models.delegates),
         listSkills(config),
         listMemories(db),
         () => projectContextFor(sessionId),
         instructionContext,
       ),
-      tools: ({ writer }) => activeTools(sessionId, writer, instructionContext),
+      tools: ({ writer }) => activeTools(sessionId, snapshot, writer, instructionContext),
     };
   };
 
@@ -695,9 +693,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         }),
       ),
       failures,
-      shortcuts: deps.getModelsConfig?.().shortcuts ?? {},
-      utility: deps.getModelsConfig?.().utility,
-      transcription: deps.getModelsConfig?.().transcription,
+      shortcuts: modelsConfig().shortcuts,
+      utility: modelsConfig().utility,
+      transcription: modelsConfig().transcription,
     } satisfies modelsApi.ModelsResult);
   });
 
@@ -712,7 +710,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         c.json({ error: "request body too large" } satisfies errorsApi.ApiErrorBody, 413),
     }),
     async (c) => {
-      const transcriptionModel = deps.getModelsConfig?.().transcription;
+      const transcriptionModel = modelsConfig().transcription;
       if (transcriptionModel === undefined) {
         return c.json(
           { error: "no transcription model configured" } satisfies errorsApi.ApiErrorBody,
@@ -1021,7 +1019,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const none = { replies: [] as string[] };
-      const model = deps.getModelsConfig?.().utility;
+      const model = modelsConfig().utility;
       if (model === undefined) return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       if (session.parentSessionId !== null || session.status !== "idle")
         return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
@@ -1297,7 +1295,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           llmClients,
           sessionId: id,
           userText,
-          model: deps.getModelsConfig?.().utility ?? session.model,
+          model: modelsConfig().utility ?? session.model,
           publish: (event) => bus?.publish(event),
         });
       }

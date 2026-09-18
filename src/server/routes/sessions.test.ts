@@ -19,6 +19,7 @@ import {
   MESSAGE_SIZE_ERROR,
 } from "../../shared/message-limits.ts";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
+import { type ConfigService, type ConfigSnapshot, createConfigService } from "../config/service.ts";
 import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
@@ -206,18 +207,42 @@ describe("sessions routes", () => {
       cancelRegistry?: CancelRegistry;
       mcpRegistry?: McpRegistry;
       streamRegistry?: StreamRegistry;
-      getModelsConfig?: () => ModelsConfig;
-      getDefaultWorkingDirectory?: () => string | undefined;
+      /** Served in place of the workspace's `models:` section. */
+      models?: ModelsConfig;
+      /** Served in place of the workspace's default working directory. */
+      defaultWorkingDirectory?: string;
       commandLearning?: CommandLearning;
     } = {},
-  ) =>
-    createApp({
+  ) => {
+    const { models, defaultWorkingDirectory, ...deps } = extra;
+    return createApp({
       db: env.db,
       registry: env.registry,
       config: env.config,
       llmClients: clients,
-      ...extra,
+      configService: configServiceWith({ models, defaultWorkingDirectory }),
+      ...deps,
     });
+  };
+
+  // The workspace's real config service — so a test's kiri.yaml still supplies
+  // the sandbox — with the given settings served over whatever the file says.
+  const configServiceWith = (overrides: {
+    models?: ModelsConfig;
+    defaultWorkingDirectory?: string;
+  }): ConfigService => {
+    const service = createConfigService(env.config, {});
+    const overlay = (snapshot: ConfigSnapshot): ConfigSnapshot => ({
+      ...snapshot,
+      models: overrides.models ?? snapshot.models,
+      filesystem: {
+        ...snapshot.filesystem,
+        defaultWorkingDirectory:
+          overrides.defaultWorkingDirectory ?? snapshot.filesystem.defaultWorkingDirectory,
+      },
+    });
+    return { current: () => overlay(service.current()), reload: () => overlay(service.reload()) };
+  };
 
   // A registry whose tools() returns a fixed set; the route only reads tools().
   const fakeMcp = (tools: ToolSet): McpRegistry => ({
@@ -458,7 +483,7 @@ describe("sessions routes", () => {
         text: { sonnet: "a:mid", haiku: "a:small" },
       };
       const app = makeApp(fakeClients(), {
-        getModelsConfig: () => ({ shortcuts, delegates: {} }),
+        models: { shortcuts, delegates: {} },
       });
 
       const res = await app.request("/api/models");
@@ -471,7 +496,7 @@ describe("sessions routes", () => {
 
     it("carries the configured utility model alongside the listing", async () => {
       const app = makeApp(fakeClients(), {
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+        models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },
       });
 
       const res = await app.request("/api/models");
@@ -482,11 +507,11 @@ describe("sessions routes", () => {
 
     it("carries the configured transcription model alongside the listing", async () => {
       const app = makeApp(fakeClients(), {
-        getModelsConfig: () => ({
+        models: {
           shortcuts: {},
           delegates: {},
           transcription: "openrouter:openai/whisper-1",
-        }),
+        },
       });
 
       const res = await app.request("/api/models");
@@ -500,7 +525,7 @@ describe("sessions routes", () => {
 
   describe("POST /api/transcribe", () => {
     const TRANSCRIPTION = "openrouter:openai/whisper-1";
-    const withTranscription = () => () => ({
+    const withTranscription = () => ({
       shortcuts: {},
       delegates: {},
       transcription: TRANSCRIPTION,
@@ -551,12 +576,12 @@ describe("sessions routes", () => {
     it("returns the trimmed transcript without rewriting it through the utility model", async () => {
       const { clients, transcribeCalls, generateCalls } = transcribingClients();
       const app = makeApp(clients, {
-        getModelsConfig: () => ({
+        models: {
           shortcuts: {},
           delegates: {},
           transcription: TRANSCRIPTION,
           utility: "local:tiny",
-        }),
+        },
       });
 
       const res = await postAudio(app, TINY_WAV);
@@ -570,7 +595,7 @@ describe("sessions routes", () => {
     it("400s without transcribing when no transcription model is configured", async () => {
       const { clients, transcribeCalls } = transcribingClients();
       const app = makeApp(clients, {
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+        models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },
       });
 
       const res = await postAudio(app, TINY_WAV);
@@ -582,7 +607,7 @@ describe("sessions routes", () => {
 
     it("400s on a form without an audio file, or with an empty one", async () => {
       const app = makeApp(transcribingClients().clients, {
-        getModelsConfig: withTranscription(),
+        models: withTranscription(),
       });
 
       const empty = await postAudio(app, new Uint8Array());
@@ -602,7 +627,7 @@ describe("sessions routes", () => {
 
     it("accepts a recording larger than the app-wide body limit", async () => {
       const { clients, transcribeCalls } = transcribingClients();
-      const app = makeApp(clients, { getModelsConfig: withTranscription() });
+      const app = makeApp(clients, { models: withTranscription() });
       // Well past the 256 KiB cap every other API body gets.
       const big = new Uint8Array(512 * 1024);
       big.set(TINY_WAV);
@@ -615,7 +640,7 @@ describe("sessions routes", () => {
 
     it("413s a recording over the audio cap", async () => {
       const app = makeApp(transcribingClients().clients, {
-        getModelsConfig: withTranscription(),
+        models: withTranscription(),
       });
 
       const res = await postAudio(app, new Uint8Array(25 * 1024 * 1024 + 1024));
@@ -691,7 +716,7 @@ describe("sessions routes", () => {
     });
 
     it("starts the session working from the configured default directory", async () => {
-      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+      const app = makeApp(fakeClients(), { defaultWorkingDirectory: env.cwd });
 
       const res = await app.request("/api/sessions", {
         method: "POST",
@@ -706,12 +731,8 @@ describe("sessions routes", () => {
     });
 
     it("starts the session without a working directory when the default is unset or not on disk", async () => {
-      for (const getDefaultWorkingDirectory of [
-        undefined,
-        () => undefined,
-        () => join(env.cwd, "gone"),
-      ]) {
-        const app = makeApp(fakeClients(), { getDefaultWorkingDirectory });
+      for (const defaultWorkingDirectory of [undefined, join(env.cwd, "gone")]) {
+        const app = makeApp(fakeClients(), { defaultWorkingDirectory });
 
         const res = await app.request("/api/sessions", {
           method: "POST",
@@ -1300,7 +1321,7 @@ describe("sessions routes", () => {
       app.request(`/api/sessions/${id}/suggested-replies`);
 
     it("404s for an unknown session", async () => {
-      const app = makeApp(fakeClients(), { getModelsConfig: withUtility });
+      const app = makeApp(fakeClients(), { models: withUtility() });
 
       const res = await getReplies(app, "nope");
 
@@ -1309,7 +1330,7 @@ describe("sessions routes", () => {
 
     it("generates replies for a settled assistant turn with the utility model", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       seedSettledTurn("s1", "Shall I go ahead with the rename?");
 
       const res = await getReplies(app, "s1");
@@ -1335,7 +1356,7 @@ describe("sessions routes", () => {
 
     it("returns no replies for a delegated child session", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "parent" });
       createSession(env.db, MODEL, {
         id: "child",
@@ -1356,7 +1377,7 @@ describe("sessions routes", () => {
 
     it("returns no replies while a turn is in flight", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       seedSettledTurn("s1");
       setSessionStatus(env.db, "s1", "running");
 
@@ -1368,7 +1389,7 @@ describe("sessions routes", () => {
 
     it("returns no replies when the last message is not an assistant reply", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "empty" });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Hello?" }] });
@@ -1380,7 +1401,7 @@ describe("sessions routes", () => {
 
     it("returns no replies while a tool approval is pending", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Create it" }] });
       appendMessage(env.db, "s1", {
@@ -1405,7 +1426,7 @@ describe("sessions routes", () => {
 
     it("returns no replies for an assistant message with no text", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Run it" }] });
       appendMessage(env.db, "s1", {
@@ -1432,7 +1453,7 @@ describe("sessions routes", () => {
       clients.generateText = async () => {
         throw new Error("provider down");
       };
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       seedSettledTurn("s1");
 
       const res = await getReplies(app, "s1");
@@ -1956,7 +1977,7 @@ describe("sessions routes", () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(clients, {
         bus,
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+        models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },
       });
       createSession(env.db, MODEL, { id: "s1" });
 
@@ -2593,7 +2614,7 @@ describe("sessions routes", () => {
       bus.subscribe((e) => events.push(e));
       const app = makeApp(fakeClients({ model }), {
         bus,
-        getDefaultWorkingDirectory: () => env.cwd,
+        defaultWorkingDirectory: env.cwd,
       });
       createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
 
@@ -2654,7 +2675,7 @@ describe("sessions routes", () => {
 
     it("heals a session without a working directory from the live default", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
-      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+      const app = makeApp(fakeClients(), { defaultWorkingDirectory: env.cwd });
       createSession(env.db, MODEL, { id: "s1" });
 
       // Loading the session detail stamps the default onto the row.
@@ -2676,7 +2697,7 @@ describe("sessions routes", () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model }), {
         bus,
-        getDefaultWorkingDirectory: () => env.cwd,
+        defaultWorkingDirectory: env.cwd,
       });
       createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
 
@@ -2724,7 +2745,7 @@ describe("sessions routes", () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model }), {
         bus,
-        getDefaultWorkingDirectory: () => join(env.cwd, "inner"),
+        defaultWorkingDirectory: join(env.cwd, "inner"),
       });
       // A directory that exists but now sits outside the narrowed sandbox.
       createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
@@ -2960,7 +2981,7 @@ describe("sessions routes", () => {
     });
 
     describe("run_command auto permission", () => {
-      const UTILITY_MODELS = () => ({ shortcuts: {}, delegates: {}, utility: "fake:utility" });
+      const UTILITY_MODELS = { shortcuts: {}, delegates: {}, utility: "fake:utility" };
 
       // Tracks judge calls and answers with a scripted reply.
       const scriptedJudge = (reply: string) => {
@@ -2993,7 +3014,7 @@ describe("sessions routes", () => {
       const startAutoTurn = async (opts: {
         input: string;
         judgeReply?: string;
-        modelsConfig?: () => ModelsConfig;
+        modelsConfig?: ModelsConfig;
         learning?: ReturnType<typeof fakeLearning>;
         /** Run the turn on a delegated child session instead of a top-level one. */
         child?: boolean;
@@ -3010,7 +3031,7 @@ describe("sessions routes", () => {
           }),
           {
             bus,
-            getModelsConfig: opts.modelsConfig ?? UTILITY_MODELS,
+            models: opts.modelsConfig ?? UTILITY_MODELS,
             commandLearning: learning.learning,
           },
         );
@@ -3221,7 +3242,7 @@ describe("sessions routes", () => {
           fakeClients({
             model: toolCallModel("run_command", JSON.stringify({ command: "pwd" })),
           }),
-          { bus, getModelsConfig: UTILITY_MODELS },
+          { bus, models: UTILITY_MODELS },
         );
         createSession(env.db, MODEL, { id: "s1", title: "auto shell" });
         const settled = waitForSettled("s1");
@@ -3242,7 +3263,7 @@ describe("sessions routes", () => {
         // permissions page states auto falls back to ask, so it must.
         const { judge } = await startAutoTurn({
           input: JSON.stringify({ command: "pwd" }),
-          modelsConfig: () => ({ shortcuts: {}, delegates: {} }),
+          modelsConfig: { shortcuts: {}, delegates: {} },
         });
 
         const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);

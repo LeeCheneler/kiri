@@ -4,7 +4,6 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import type { ApiErrorBody } from "../shared/api/errors.ts";
 import { API_BODY_LIMIT_BYTES } from "../shared/message-limits.ts";
-import type { ModelsConfig } from "./config/schema.ts";
 import { type ConfigService, createConfigService } from "./config/service.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
@@ -128,27 +127,6 @@ export interface AppDeps {
    * unknown-provider, matching a workspace with no providers configured.
    */
   getProviderNames?: () => ReadonlySet<string>;
-  /**
-   * Live sandbox for the session filesystem tools. Defaults to reading
-   * `filesystem.allowed_directories` from `kiri.yaml` on each turn — the
-   * same fresh-from-disk posture as `kiri.md` — so an edit applies on the
-   * next turn. Empty ⇒ the filesystem tools are withheld.
-   */
-  getAllowedDirectories?: () => readonly string[];
-  /**
-   * Live default working directory for new sessions. Defaults to reading
-   * `filesystem.default_working_directory` (falling back to the first
-   * allowed directory) from `kiri.yaml` at each session create, the same
-   * fresh-from-disk posture as the sandbox. Absent ⇒ new sessions start
-   * without a working directory.
-   */
-  getDefaultWorkingDirectory?: () => string | undefined;
-  /**
-   * Live models config for the session surface. Defaults to reading the
-   * `models:` section from `kiri.yaml` on each use, the same fresh-from-disk
-   * posture as the sandboxes. Empty ⇒ no shortcuts or delegates configured.
-   */
-  getModelsConfig?: () => ModelsConfig;
 }
 
 const ALLOWED_ORIGINS = [
@@ -280,13 +258,7 @@ export function createApp(deps: AppDeps): Hono {
         streamRegistry: deps.streamRegistry,
         commandLearning: deps.commandLearning,
         getProviderNames: deps.getProviderNames,
-        getAllowedDirectories:
-          deps.getAllowedDirectories ??
-          (() => configService.current().filesystem.allowedDirectories),
-        getDefaultWorkingDirectory:
-          deps.getDefaultWorkingDirectory ??
-          (() => configService.current().filesystem.defaultWorkingDirectory),
-        getModelsConfig: deps.getModelsConfig ?? (() => configService.current().models),
+        configService,
       }),
     );
   }
