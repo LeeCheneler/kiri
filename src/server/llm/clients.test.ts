@@ -163,6 +163,14 @@ describe("llm clients", () => {
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 13, totalTokens: 20 });
   });
 
+  it("resolves an openai-codex provider to the Codex subscription model", () => {
+    const codex: LlmProvider = { name: "chatgpt", type: "openai-codex" };
+    const model = createLlmClients(registryWith(codex), {}).resolveModel("chatgpt:gpt-5.2");
+
+    // The provider id is what routes a one-off call down the Codex text path.
+    expect(typeof model === "string" ? model : model.provider).toBe("openai-codex");
+  });
+
   it("resolves an openai image model against the images endpoint with the key", async () => {
     let headers: Headers | undefined;
     server.use(

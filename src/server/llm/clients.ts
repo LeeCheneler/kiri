@@ -247,23 +247,31 @@ function buildModel(
       // request shape with openai-compatible endpoints and is the portable
       // lowest common denominator for plain text completion.
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).chat(modelId);
-    case "openai-compatible": {
-      // The schema requires `base_url` for this type, so it is always present.
-      // `includeUsage` opts into `stream_options: { include_usage: true }` so
-      // streamed turns (sessions) report token usage — unlike the `openai`
-      // provider, this one omits it by default, which otherwise leaves every
-      // streamed session turn with zero token counts.
-      const model = createOpenAICompatible({
-        name: provider.name,
-        baseURL: provider.baseUrl as string,
-        apiKey,
-        includeUsage: true,
-      })(modelId);
-      return isOpenRouterUrl(provider.baseUrl)
-        ? createOpenRouterModel(model, provider.name, nativeDocuments)
-        : model;
-    }
+    case "openai-compatible":
+      return buildCompatibleModel(provider, modelId, apiKey, nativeDocuments);
   }
+}
+
+// The schema requires `base_url` for an openai-compatible provider, so it is
+// always present. `includeUsage` opts into `stream_options: { include_usage:
+// true }` so streamed turns (sessions) report token usage — unlike the `openai`
+// provider, this one omits it by default, which otherwise leaves every
+// streamed session turn with zero token counts.
+function buildCompatibleModel(
+  provider: LlmProvider,
+  modelId: string,
+  apiKey: string | undefined,
+  nativeDocuments: () => Promise<boolean | undefined>,
+): LlmModel {
+  const model = createOpenAICompatible({
+    name: provider.name,
+    baseURL: provider.baseUrl as string,
+    apiKey,
+    includeUsage: true,
+  })(modelId);
+  return isOpenRouterUrl(provider.baseUrl)
+    ? createOpenRouterModel(model, provider.name, nativeDocuments)
+    : model;
 }
 
 /** Construct an AI SDK image model for a resolved provider, reading its API key from `env` now. */
