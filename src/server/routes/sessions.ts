@@ -15,7 +15,7 @@ import {
   MESSAGE_SIZE_ERROR,
   messagePartsError,
 } from "../../shared/message-limits.ts";
-import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
+import type { ModelsConfig } from "../config/schema.ts";
 import type { ConfigService } from "../config/service.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -29,18 +29,14 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { withoutContextCalibration } from "../sessions/context-calibration.ts";
 import {
   type CommandLearning,
-  type RunTurnDeps,
   SESSION_TITLE_MAX_LENGTH,
-  type Session,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermissionStore,
   buildSessionListEntries,
   createCommandLearning,
-  createInstructionContext,
   createSession,
   createStreamRegistry,
-  createSystemPromptBuilder,
   deleteInboxItems,
   deleteMessagesFrom,
   deleteSession,
@@ -52,25 +48,17 @@ import {
   getSessionLabels,
   getSessionLastActivity,
   getSessionMessages,
-  listMemories,
-  listProjectMemories,
-  listSkills,
   mountDelegationMessaging,
   pendingInboxItems,
   resumeTurn,
   runTurn,
-  summariseTaskList,
   transcribeDraft,
   updateSessionSettings,
   workflowTools,
 } from "../sessions/index.ts";
+import { createTurnPreparation } from "../sessions/turn-preparation.ts";
 import { createTurnTools } from "../sessions/turn-tools.ts";
-import {
-  defaultWorkingDirectory,
-  healMissingCwd,
-  prepareWorkingDirectory,
-  sandboxOf,
-} from "../sessions/working-directory.ts";
+import { defaultWorkingDirectory, healMissingCwd } from "../sessions/working-directory.ts";
 import type { Registry } from "../workflows/index.ts";
 import {
   serializeInboxItem,
@@ -276,80 +264,28 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     toolPermissions,
     getProviderNames,
     commandLearning,
-    childTurnDeps: (childSessionId) => turnDepsFor(childSessionId),
+    childTurnDeps: (childSessionId) => preparation.turnDepsFor(childSessionId),
   });
 
-  // The prompt-layer context for a session's project: its name, the corpus
-  // index the prompt map lists — each slug titled by its body's first heading,
-  // falling back to the display name — the project's memory index, and its
-  // standing instructions. Null for projectless sessions.
-  const projectContextFor = (sessionId: string) => {
-    const projectId = getSession(db, sessionId)?.projectId ?? null;
-    const project = projectId !== null ? getProject(db, projectId) : undefined;
-    if (!project) return null;
-    return {
-      name: project.name,
-      articles: listProjectArticles(db, project.id).map((article) => ({
-        slug: article.slug,
-        heading: article.heading ?? article.name,
-      })),
-      memories: listProjectMemories(db, project.id),
-      instructions: project.instructions,
-      tasks: summariseTaskList(db, project.id),
-    };
-  };
-
-  // The turn dependencies a session runs against — the live, approval-gated
-  // catalogue over the per-lineage system prompt (the builder picks the
-  // worker layer for a child). One construction serves every driver — the
-  // turn endpoint, a delegate spawn, and a message-driven wake — so a child
-  // holds the same tools however its turn starts, and a pause on an ask waits
-  // for the user identically from each. Shares this surface's stream registry
-  // and cancel registry, so a reconnecting client can rejoin a live stream
-  // and a cancel reaches its turn. The turn endpoint wraps this with its
-  // one-off stale-cwd notice when a heal happened.
-  const turnDepsFor = (sessionId: string): RunTurnDeps => {
-    // Resolve the tool names for the system prompt so the prompt's tool
-    // guidance matches what the model is actually offered; the set the model
-    // runs with is rebuilt against the turn's stream writer when the stream
-    // starts. Both constructions gate identically, so the names always match.
-    // One snapshot for the whole turn: the tools offered, the sandbox the
-    // prompt enumerates, and the delegate roles it names all describe the
-    // same config, whatever is edited while the turn runs.
-    const snapshot = configService.current();
-    const toolNames = Object.keys(turnTools.activeTools(sessionId, snapshot));
-    const sandbox = sandboxOf(snapshot);
-    const instructionContext = createInstructionContext(() => ({
-      config,
-      project: projectContextFor(sessionId),
-      workingDirectory: getSession(db, sessionId)?.cwd ?? null,
-      allowedDirectories: sandbox,
-    }));
-    return {
-      db,
-      llmClients,
-      bus,
-      cancelRegistry,
-      streamRegistry,
-      instructionContext,
-      buildSystemPrompt: createSystemPromptBuilder(
-        config,
-        toolNames,
-        sandbox,
-        configuredDelegateRoles(snapshot.models.delegates),
-        listSkills(config),
-        listMemories(db),
-        () => projectContextFor(sessionId),
-        instructionContext,
-      ),
-      tools: ({ writer }) => turnTools.activeTools(sessionId, snapshot, writer, instructionContext),
-    };
-  };
+  // Every driver of a turn — the turn endpoint, a delegate spawn, and a
+  // message-driven wake — prepares it the same way. Shares this surface's
+  // stream registry and cancel registry, so a reconnecting client can rejoin
+  // a live stream and a cancel reaches its turn.
+  const preparation = createTurnPreparation({
+    db,
+    config,
+    configService,
+    llmClients,
+    bus,
+    cancelRegistry,
+    streamRegistry,
+    turnTools,
+  });
 
   // The delegation messaging loop: a message queued to a session that is out
   // of a turn wakes it, and a child whose turn fails notices its parent.
   // Lives for the app's lifetime, like the surface's routes themselves.
-  if (bus) mountDelegationMessaging({ db, bus, turnDepsFor });
+  if (bus) mountDelegationMessaging({ db, bus, turnDepsFor: preparation.turnDepsFor });
 
   // The listing carries the configured model shortcuts alongside the models,
   // so the pickers can pin them and new sessions can start on the first one,
@@ -846,7 +782,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         const error = messagePartsError(message.parts);
         if (error) return c.json({ error } satisfies errorsApi.ApiErrorBody, 400);
       }
-      let session = getSession(db, id);
+      const session = getSession(db, id);
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Reject only a concurrent turn (one already in flight). A session is
@@ -860,31 +796,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           409,
         );
       }
-      const prepared = prepareWorkingDirectory({ db, bus }, configService.current(), session);
-      session = prepared.session;
-      const cwdNotice = prepared.notice;
-
       const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);
       const last = priorMessages.at(-1);
       const pending =
         last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
-
-      // A healed working directory rides this turn's prompt as a one-off
-      // notice; from the next turn the standard working-directory line is
-      // accurate on its own.
-      const base = turnDepsFor(id);
-      const turnDeps: RunTurnDeps =
-        cwdNotice === undefined
-          ? base
-          : {
-              ...base,
-              buildSystemPrompt: (s: Session) => {
-                const prompt = base.buildSystemPrompt?.(s);
-                // A later move supersedes the directory named by the repair.
-                return s.cwd === session.cwd ? `${prompt}\n\n${cwdNotice}` : prompt;
-              },
-            };
 
       // The turn checkpoints and finalises its own persistence, so the route
       // just hands back the streamed response. The turn is drained
@@ -917,8 +833,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             });
           }
         }
-        const { response } = await resumeTurn(turnDeps, {
-          session,
+        const prepared = preparation.prepareTurn(session);
+        const { response } = await resumeTurn(prepared.turnDeps, {
+          session: prepared.session,
           approvals: extractApprovals(parts),
         });
         return response;
@@ -957,7 +874,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
 
       const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };
-      const { response } = await runTurn(turnDeps, { session, userMessage });
+      const prepared = preparation.prepareTurn(session);
+      const { response } = await runTurn(prepared.turnDeps, {
+        session: prepared.session,
+        userMessage,
+      });
       return response;
     },
   );
