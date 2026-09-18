@@ -9,7 +9,7 @@ import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
-import type { PendingDocument, PendingImage, PendingTextFile } from "./attachments.ts";
+import { stagedAttachmentsFrom } from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
 import { AttachedDocument, PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
@@ -115,14 +115,7 @@ function UserMessage({
             value={draft}
             onChange={setDraft}
             busy={busy}
-            initialImages={images.map((part) => ({ id: part.url, part }) satisfies PendingImage)}
-            initialDocuments={documents.map(
-              (part) => ({ id: part.url, part }) satisfies PendingDocument,
-            )}
-            initialTextFiles={files.map(
-              (file, index) =>
-                ({ id: `${message.id}-file-${index}`, ...file }) satisfies PendingTextFile,
-            )}
+            initialAttachments={stagedAttachmentsFrom(message)}
             onSubmit={(parts) => onResubmit(message.id, parts)}
             onCancel={() => setEditing(false)}
             submitLabel="resend"

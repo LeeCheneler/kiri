@@ -5,7 +5,7 @@ import type { UIMessage } from "ai";
 import { type ReactNode, useState } from "react";
 import { wrapAttachedFile } from "../../../shared/attached-file.ts";
 import { MESSAGE_SIZE_ERROR } from "../../../shared/message-limits.ts";
-import type { PendingDocument, PendingImage, PendingTextFile } from "./attachments.ts";
+import type { StagedAttachment } from "./attachments.ts";
 import { MessageComposer } from "./message-composer.tsx";
 
 // A stateful host so the controlled textarea behaves as it does in the app.
@@ -19,9 +19,7 @@ function Harness({
   acceptsDocuments,
   controls,
   error,
-  initialImages,
-  initialDocuments,
-  initialTextFiles,
+  initialAttachments,
 }: {
   onSubmit: (parts: UIMessage["parts"]) => void;
   onCancel?: () => void;
@@ -32,9 +30,7 @@ function Harness({
   acceptsDocuments?: readonly string[];
   controls?: ReactNode;
   error?: string;
-  initialImages?: PendingImage[];
-  initialDocuments?: PendingDocument[];
-  initialTextFiles?: PendingTextFile[];
+  initialAttachments?: StagedAttachment[];
 }) {
   const [value, setValue] = useState("");
   return (
@@ -51,9 +47,7 @@ function Harness({
       acceptsDocuments={acceptsDocuments}
       controls={controls}
       error={error}
-      initialImages={initialImages}
-      initialDocuments={initialDocuments}
-      initialTextFiles={initialTextFiles}
+      initialAttachments={initialAttachments}
     />
   );
 }
@@ -86,9 +80,10 @@ describe("<MessageComposer>", () => {
       <Harness
         onSubmit={onSubmit}
         submitLabel="send"
-        initialImages={[
+        initialAttachments={[
           {
             id: "image",
+            kind: "image",
             part: {
               type: "file",
               mediaType: "image/png",
@@ -96,10 +91,9 @@ describe("<MessageComposer>", () => {
               url: `data:image/png;base64,${"AAAA".repeat(2 * 1024 * 1024)}`,
             },
           },
-        ]}
-        initialDocuments={[
           {
             id: "document",
+            kind: "document",
             part: {
               type: "file",
               mediaType: PDF,
@@ -107,8 +101,8 @@ describe("<MessageComposer>", () => {
               url: `data:${PDF};base64,${"AAAA".repeat(6 * 1024 * 1024 + 1)}`,
             },
           },
+          { id: "text", kind: "text", filename: "notes.md", content: "Notes" },
         ]}
-        initialTextFiles={[{ id: "text", filename: "notes.md", content: "Notes" }]}
       />,
     );
     fireEvent.change(textbox(), { target: { value: "Review these" } });
@@ -130,8 +124,8 @@ describe("<MessageComposer>", () => {
     render(
       <Harness
         onSubmit={onSubmit}
-        initialTextFiles={[
-          { id: "text", filename: "notes.md", content: "é".repeat(128 * 1024 + 1) },
+        initialAttachments={[
+          { id: "text", kind: "text", filename: "notes.md", content: "é".repeat(128 * 1024 + 1) },
         ]}
       />,
     );
@@ -388,25 +382,22 @@ describe("<MessageComposer>", () => {
 
   it("starts with the seeded images and submits them ahead of the text", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
-    const seeded: PendingImage[] = [
-      {
-        id: "seed-1",
-        part: {
-          type: "file",
-          mediaType: "image/png",
-          filename: "seed.png",
-          url: "data:image/png;base64,AA",
-        },
-      },
-    ];
-    render(<Harness onSubmit={onSubmit} initialImages={seeded} />);
+    const part = {
+      type: "file" as const,
+      mediaType: "image/png",
+      filename: "seed.png",
+      url: "data:image/png;base64,AA",
+    };
+    render(
+      <Harness onSubmit={onSubmit} initialAttachments={[{ id: "seed-1", kind: "image", part }]} />,
+    );
 
     // The seeded image previews straight away.
     expect(screen.getByAltText("seed.png")).toBeDefined();
     await userEvent.type(textbox(), "describe it{Enter}");
 
     const parts = onSubmit.mock.calls[0]?.[0] ?? [];
-    expect(parts[0]).toEqual(seeded[0].part);
+    expect(parts[0]).toEqual(part);
     expect(parts.at(-1)).toEqual({ type: "text", text: "describe it" });
   });
 
@@ -462,10 +453,10 @@ describe("<MessageComposer>", () => {
 
   it("starts with seeded text files and submits them ahead of the text", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
-    const seeded: PendingTextFile[] = [
-      { id: "seed-1", filename: "seed.md", content: "seeded body" },
+    const seeded: StagedAttachment[] = [
+      { id: "seed-1", kind: "text", filename: "seed.md", content: "seeded body" },
     ];
-    render(<Harness onSubmit={onSubmit} initialTextFiles={seeded} />);
+    render(<Harness onSubmit={onSubmit} initialAttachments={seeded} />);
 
     expect(screen.getByText("seed.md")).toBeDefined();
     await userEvent.type(textbox(), "use it{Enter}");
@@ -475,7 +466,7 @@ describe("<MessageComposer>", () => {
     expect(parts.at(-1)).toEqual({ type: "text", text: "use it" });
   });
 
-  it("stages a picked document as a tile and submits it after images, before text files", async () => {
+  it("stages a picked document as a tile and submits attachments in the order picked", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
     const { container } = render(<Harness onSubmit={onSubmit} acceptsDocuments={[PDF]} />);
 
@@ -489,8 +480,8 @@ describe("<MessageComposer>", () => {
 
     const parts = onSubmit.mock.calls[0]?.[0] ?? [];
     expect(parts.map((part) => part.type)).toEqual(["file", "file", "text", "text"]);
-    expect(parts[0]).toMatchObject({ mediaType: "image/png" });
-    expect(parts[1]).toMatchObject({ mediaType: PDF, filename: "brief.pdf" });
+    expect(parts[0]).toMatchObject({ mediaType: PDF, filename: "brief.pdf" });
+    expect(parts[1]).toMatchObject({ mediaType: "image/png" });
     expect(parts[2]).toEqual({ type: "text", text: wrapAttachedFile("notes.md", "hello") });
     expect(parts[3]).toEqual({ type: "text", text: "read these" });
   });
@@ -526,17 +517,42 @@ describe("<MessageComposer>", () => {
 
   it("starts with seeded documents and submits them ahead of the text", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
-    const seeded: PendingDocument[] = [
-      { id: "seed-1", part: { type: "file", mediaType: PDF, url: `data:${PDF};base64,AA` } },
-    ];
-    render(<Harness onSubmit={onSubmit} initialDocuments={seeded} />);
+    const part = { type: "file" as const, mediaType: PDF, url: `data:${PDF};base64,AA` };
+    render(
+      <Harness
+        onSubmit={onSubmit}
+        initialAttachments={[{ id: "seed-1", kind: "document", part }]}
+      />,
+    );
 
     // A seeded part with no filename still gets a labelled tile.
     expect(screen.getByRole("button", { name: "Remove Attached document" })).toBeDefined();
     await userEvent.type(textbox(), "summarise it{Enter}");
 
     const parts = onSubmit.mock.calls[0]?.[0] ?? [];
-    expect(parts).toEqual([seeded[0].part, { type: "text", text: "summarise it" }]);
+    expect(parts).toEqual([part, { type: "text", text: "summarise it" }]);
+  });
+
+  it("reports every refusal in a mixed pick together, and stages the rest", async () => {
+    const { container } = composer(mock((_parts: UIMessage["parts"]) => {}));
+
+    await userEvent.upload(
+      fileInput(container),
+      [
+        pngFile("big.png", new Uint8Array(10 * 1024 * 1024 + 1)),
+        pdfFile("brief.pdf"),
+        txtFile("notes.md"),
+      ],
+      { applyAccept: false },
+    );
+
+    // The text file reading successfully must not clear its siblings' errors.
+    expect(await screen.findByText("notes.md")).toBeDefined();
+    const alerts = screen.getAllByRole("alert").map((alert) => alert.textContent);
+    expect(alerts).toEqual([
+      "Images must be 10 MiB or smaller.",
+      "This model can't read .pdf files. Switch model to attach it.",
+    ]);
   });
 
   it("shows a control's error on its own row, alongside an attachment error", async () => {
