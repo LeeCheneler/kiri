@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import type { KiriDb } from "../db/index.ts";
 import { pendingInboxItems } from "./inbox.ts";
 import type { Session } from "./store.ts";
+import type { TurnLease, TurnLifecycle } from "./turn-lifecycle.ts";
 import {
   type PreparedTurn,
   type StartedTurn,
@@ -30,36 +31,51 @@ export interface StartTurn {
 
 export interface TurnStarterDeps {
   db: KiriDb;
+  /** Leases the session to the turn being started. */
+  lifecycle: TurnLifecycle;
   /** Makes the session ready to run (see `TurnPreparation.prepareTurn`). */
   prepareTurn: (session: Session) => PreparedTurn;
 }
 
 /**
- * Create the one path by which a turn starts, whoever drives it: prepare the
- * session, then run the turn its start describes against the prepared session.
- * The caller has checked the session is out of a turn. Rejects when the turn
- * cannot start, with its cancellation registration released.
+ * Create the one path by which a turn starts, whoever drives it: lease the
+ * session to the new execution, prepare it, then run the turn its start
+ * describes under that lease. Throws `TurnInFlightError` when the session
+ * already has a turn executing.
+ *
+ * A start that fails gives the session back. A user's message or verdicts
+ * reject to the caller that sent them, leaving a session that never began
+ * untouched. Nobody is waiting on a wake, so its failure is recorded on the
+ * session as a settled `failed` turn — which is what tells a worker's parent.
  */
 export function createTurnStarter(deps: TurnStarterDeps): StartTurn {
-  const { db, prepareTurn } = deps;
+  const { db, lifecycle, prepareTurn } = deps;
 
-  const run = ({ session, turnDeps }: PreparedTurn, start: TurnStart) => {
+  const run = ({ session, turnDeps }: PreparedTurn, start: TurnStart, lease: TurnLease) => {
     if (start.kind === "message") {
-      return runTurn(turnDeps, { session, userMessage: start.userMessage });
+      return runTurn(turnDeps, { session, lease, userMessage: start.userMessage });
     }
     if (start.kind === "approvals") {
-      return resumeTurn(turnDeps, { session, approvals: start.approvals });
+      return resumeTurn(turnDeps, { session, lease, approvals: start.approvals });
     }
-    return runWakeTurn(turnDeps, { session });
+    return runWakeTurn(turnDeps, { session, lease });
   };
 
   const startTurn = async (session: Session, start: TurnStart): Promise<StartedTurn | null> => {
     if (start.kind === "wake" && pendingInboxItems(db, session.id).length === 0) return null;
-    const prepared = prepareTurn(session);
+    const lease = lifecycle.acquire(session.id);
     try {
-      return await run(prepared, start);
+      return await run(prepareTurn(session), start, lease);
     } catch (cause) {
-      prepared.turnDeps.cancelRegistry?.release(session.id);
+      if (start.kind === "wake") {
+        lease.settle({
+          status: "failed",
+          error: { message: cause instanceof Error ? cause.message : String(cause) },
+          messageId: null,
+        });
+      } else {
+        lease.fail(cause);
+      }
       throw cause;
     }
   };

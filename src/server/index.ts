@@ -8,7 +8,12 @@ import { type ConfigService, createConfigService } from "./config/service.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
-import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
+import {
+  type EventBus,
+  createEventBus,
+  mountEventsRoute,
+  mountRecommendationReflector,
+} from "./events/index.ts";
 import type { LlmClients } from "./llm/index.ts";
 import { createLogger } from "./log.ts";
 import type { McpCredentialStore } from "./mcp/oauth-store.ts";
@@ -245,13 +250,15 @@ export function createApp(deps: AppDeps): Hono {
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
+    // A turn's wakes and worker notices travel over the bus, so the session
+    // surface always has one, shared with the app's when that is supplied.
+    const sessionBus = bus ?? createEventBus();
     app.route(
       "/api",
       sessionsRoutes({
         db,
         llmClients,
-        bus,
-        cancelRegistry,
+        bus: sessionBus,
         configService,
         runtime: createSessionRuntime({
           db,
@@ -259,7 +266,7 @@ export function createApp(deps: AppDeps): Hono {
           configService,
           registry,
           llmClients,
-          bus,
+          bus: sessionBus,
           cancelRegistry,
           mcpRegistry,
           toolPermissions,

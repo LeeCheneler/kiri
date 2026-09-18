@@ -13,9 +13,8 @@ import {
 } from "ai";
 import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
-import type { EventBus, SessionStatus } from "../events/index.ts";
+import type { EventBus } from "../events/index.ts";
 import { type LlmClients, effortProviderOptions } from "../llm/index.ts";
-import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { compactContext } from "./compact-context.ts";
 import {
   type ContextCalibration,
@@ -45,11 +44,11 @@ import {
   getSession,
   getSessionLabels,
   getSessionMessages,
-  setSessionStatus,
   updateMessage,
 } from "./store.ts";
-import type { StreamRegistry, StreamSink } from "./stream-registry.ts";
+import type { StreamSink } from "./stream-registry.ts";
 import { toonEncodeToolResults } from "./toon-tool-results.ts";
+import type { TurnLease, TurnSettlement } from "./turn-lifecycle.ts";
 import { stripWriteToolDiffs } from "./write-tool-diffs.ts";
 
 export interface RunTurnDeps {
@@ -58,16 +57,8 @@ export interface RunTurnDeps {
   db: KiriDb;
   /** Resolves the session's `provider:model` into a callable model. */
   llmClients: LlmClients;
-  /** When supplied, session lifecycle events are published as the turn progresses. */
-  bus?: EventBus;
-  /** When supplied, the turn is registered so it can be cancelled mid-stream. */
-  cancelRegistry?: CancelRegistry;
-  /**
-   * When supplied, the turn's stream is captured here so a client that reconnects
-   * mid-turn (a reload, a second tab) can rejoin the live response. Omit for a
-   * turn with no resumable stream.
-   */
-  streamRegistry?: StreamRegistry;
+  /** Carries the transcript and inbox changes the turn makes; its lease publishes the status changes. */
+  bus: EventBus;
   /**
    * Resolves the system prompt before each model step and the final handoff,
    * using the current working directory and the turn's original model/effort.
@@ -129,8 +120,10 @@ const UNKNOWN_TOOL_RESULT =
 type InboxChunk = Parameters<UIMessageStreamWriter["write"]>[0];
 
 export interface RunTurnArgs {
-  /** The target session; must not have a turn in flight (the caller rejects a concurrent turn). */
+  /** The target session, held by `lease`. */
   session: Session;
+  /** This execution's hold on the session: its cancellation signal, its resumable stream, and its status writes. */
+  lease: TurnLease;
   /** The incoming user message, persisted before the assistant response streams. */
   userMessage: UIMessage;
 }
@@ -146,8 +139,10 @@ export interface ToolApprovalDecision {
 }
 
 export interface ResumeTurnArgs {
-  /** The session paused awaiting tool approval; its last message is the assistant turn to resume. */
+  /** The session paused awaiting tool approval, held by `lease`; its last message is the assistant turn to resume. */
   session: Session;
+  /** This execution's hold on the session (see `RunTurnArgs.lease`). */
+  lease: TurnLease;
   /** Verdicts for the pending tool-approval requests on that assistant message. */
   approvals: ToolApprovalDecision[];
 }
@@ -186,20 +181,19 @@ const errorMessage = (cause: unknown): string => {
   }
 };
 
-// Read a turn's SSE stream to completion, mirroring each frame into `sink` when
-// one is given. Draining server-side guarantees the turn reaches `onFinish` —
-// and so persists and settles — even when no client is reading the response (the
-// user navigated away, reloaded, or dropped the connection). A turn is only ever
-// cancelled by an explicit request through the `CancelRegistry`, never by a lost
-// consumer. The sink captures the frames for a client that reconnects mid-turn;
-// the turn's `onFinish` closes it — in step with persistence — not the stream's
-// end. Any failure is recorded via the stream's own error handling, so it's
+// Read a turn's SSE stream to completion, mirroring each frame into `sink`.
+// Draining server-side guarantees the turn reaches `onFinish` — and so persists
+// and settles — even when no client is reading the response (the user navigated
+// away, reloaded, or dropped the connection). A turn is only ever cancelled by
+// an explicit request through its lease, never by a lost consumer. The sink
+// captures the frames for a client that reconnects mid-turn; the lease closes
+// it as the turn settles — in step with persistence — not at the stream's end. Any failure is recorded via the stream's own error handling, so it's
 // swallowed here; the pump just has to not raise.
-async function pumpStream(stream: ReadableStream<string>, sink?: StreamSink): Promise<void> {
+async function pumpStream(stream: ReadableStream<string>, sink: StreamSink): Promise<void> {
   const reader = stream.getReader();
   try {
     for (let next = await reader.read(); !next.done; next = await reader.read()) {
-      sink?.push(next.value);
+      sink.push(next.value);
     }
   } catch {
     // settled through the stream's error path
@@ -213,7 +207,7 @@ async function pumpStream(stream: ReadableStream<string>, sink?: StreamSink): Pr
 // backlog in arrival order. Rows are deleted only after their messages are
 // appended — a crash between the two redelivers rather than loses. Returns
 // how many items drained.
-function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string): number {
+function drainBacklog(db: KiriDb, bus: EventBus, sessionId: string): number {
   const backlog = pendingInboxItems(db, sessionId);
   for (const item of backlog) {
     appendMessage(db, sessionId, {
@@ -225,7 +219,7 @@ function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string):
     db,
     backlog.map((item) => item.id),
   );
-  if (backlog.length > 0) bus?.publish({ type: "session.inbox.delivered", sessionId });
+  if (backlog.length > 0) bus.publish({ type: "session.inbox.delivered", sessionId });
   return backlog.length;
 }
 
@@ -235,8 +229,8 @@ function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string):
  * output on interruption. Returns the AI SDK's streamed response for the route to hand
  * straight to the client, and a `done` promise that settles after persistence.
  *
- * Cancellation rides the shared registry: a cancel aborts the in-flight stream
- * (there is no child process), which lands the turn as `cancelled`. A provider
+ * Cancellation rides the lease: a cancel aborts its signal and with it the
+ * in-flight stream, which lands the turn as `cancelled`. A provider
  * error lands it as `failed`. Either way the session leaves `running`. A dropped
  * client connection does *not* cancel: the stream is drained server-side, so the
  * turn runs to completion and persists whether or not anyone is reading it.
@@ -247,7 +241,7 @@ function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string):
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
   const { db, llmClients, bus } = deps;
-  const { session, userMessage } = args;
+  const { session, userMessage, lease } = args;
 
   // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
@@ -260,13 +254,10 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   // edit-and-resend truncates the transcript by this id, which only works if the
   // stored row carries the id the client holds rather than a fresh one.
   appendMessage(db, session.id, { role: "user", parts: userMessage.parts }, { id: userMessage.id });
-  bus?.publish({ type: "session.message.added", sessionId: session.id });
-  // Clear any prior terminal markers: a session resumed after a failed or
-  // cancelled turn starts the new turn clean.
-  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
-  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+  bus.publish({ type: "session.message.added", sessionId: session.id });
+  lease.begin();
 
-  return streamCore(deps, session, model, incomingMessageCount);
+  return streamCore(deps, session, lease, model, incomingMessageCount);
 }
 
 /**
@@ -275,28 +266,25 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
  * user-role message (framed at send time by its source) and the model's turn
  * opens on those, with no fresh user message. Clears any prior terminal
  * markers, so a failed session woken by a worker's report starts clean.
- * Returns null without touching the session when nothing is queued — the wake
- * raced an earlier drain. The caller checks the session is out of a turn; the
- * preamble here runs synchronously to the `running` write, so two wakes on
- * one tick can't both start a turn.
+ * The caller has checked something is queued. The preamble here runs
+ * synchronously to the `running` write, so a second wake on the same tick
+ * finds the backlog already drained.
  */
 export async function runWakeTurn(
   deps: RunTurnDeps,
-  args: { session: Session },
-): Promise<StartedTurn | null> {
+  args: Pick<RunTurnArgs, "session" | "lease">,
+): Promise<StartedTurn> {
   const { db, llmClients, bus } = deps;
-  const { session } = args;
+  const { session, lease } = args;
 
   // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
 
   const incomingMessageCount = drainBacklog(db, bus, session.id);
-  if (incomingMessageCount === 0) return null;
-  bus?.publish({ type: "session.message.added", sessionId: session.id });
-  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
-  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+  bus.publish({ type: "session.message.added", sessionId: session.id });
+  lease.begin();
 
-  return streamCore(deps, session, model, incomingMessageCount);
+  return streamCore(deps, session, lease, model, incomingMessageCount);
 }
 
 /**
@@ -311,8 +299,8 @@ export async function runWakeTurn(
  * if no verdict matches a pending request — the route maps either to a 4xx.
  */
 export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus } = deps;
-  const { session, approvals } = args;
+  const { db, llmClients } = deps;
+  const { session, approvals, lease } = args;
 
   const model = llmClients.resolveModel(session.model);
 
@@ -325,10 +313,9 @@ export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promi
     throw new Error(`session "${session.id}" has no pending tool approval matching the response`);
   }
   updateMessage(db, session.id, last.id, { parts });
-  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
-  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+  lease.begin();
 
-  return streamCore(deps, session, model);
+  return streamCore(deps, session, lease, model);
 }
 
 // Reason handed to the model when a tool call is denied, so it understands the
@@ -391,25 +378,17 @@ function persistAssistantMessage(
 async function streamCore(
   deps: RunTurnDeps,
   session: Session,
+  lease: TurnLease,
   model: ReturnType<LlmClients["resolveModel"]>,
   incomingMessageCount = 0,
 ): Promise<StartedTurn> {
-  const {
-    db,
-    llmClients,
-    bus,
-    cancelRegistry,
-    streamRegistry,
-    buildSystemPrompt,
-    tools,
-    instructionContext,
-  } = deps;
+  const { db, llmClients, bus, buildSystemPrompt, tools, instructionContext } = deps;
 
-  // A cancel aborts the controller; the registry treats it like any child
-  // process, so a cancel that arrives before the stream starts still fires.
-  const controller = new AbortController();
-  cancelRegistry?.register(session.id);
-  cancelRegistry?.setChild(session.id, { kill: () => controller.abort() });
+  // The lease's signal carries a cancel, including one that arrived before
+  // the stream starts. A failed checkpoint stops the turn the same way
+  // without being a cancel.
+  const checkpointAbort = new AbortController();
+  const signal = AbortSignal.any([lease.signal, checkpointAbort.signal]);
 
   const rows = getSessionMessages(db, session.id);
   const transcriptRevision = getSession(db, session.id)?.transcriptRevision ?? 0;
@@ -431,9 +410,7 @@ async function streamCore(
   };
   // A cancel cuts the wait on discovery short; the stream then opens on an
   // aborted signal and the turn lands as cancelled.
-  const description = await llmClients.describeModel(session.model, {
-    signal: controller.signal,
-  });
+  const description = await llmClients.describeModel(session.model, { signal });
   const contextWindow = description.model.contextWindow;
 
   // The session's effort as this turn's provider reasoning parameters —
@@ -453,17 +430,11 @@ async function streamCore(
   const deliveries: InboxDelivery[] = [];
   const deliveredIds = new Set<string>();
 
-  // Assigned synchronously by the executor below, before any await can run.
-  let settle!: () => void;
-  const done = new Promise<void>((resolve) => {
-    settle = resolve;
-  });
-
   // Open the resumable-stream sink up front so a near-instant reconnect finds it.
   // The turn captures into it as it drains, and `onFinish` closes it in step with
   // persistence — so a client that loads the just-settled turn from storage gets a
   // 204 on resume and never replays it into a duplicate.
-  const sink = streamRegistry?.open(session.id, rows, transcriptRevision);
+  const sink = lease.openStream(rows, transcriptRevision);
 
   // Assigned synchronously by `execute` below (the SDK invokes it as the stream
   // is created); `onFinish` reads the settled usage off it. Left unassigned only
@@ -515,7 +486,7 @@ async function streamCore(
     checkpointed = true;
     for (const id of inboxIds) acknowledgedIds.add(id);
     if (inboxIds.length > 0)
-      bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
+      bus.publish({ type: "session.inbox.delivered", sessionId: session.id });
   };
 
   const stream = createUIMessageStream<UIMessage>({
@@ -649,7 +620,7 @@ async function streamCore(
               await new Promise<void>((resolve) => {
                 checkpointReady = resolve;
               });
-            controller.signal.throwIfAborted();
+            signal.throwIfAborted();
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt
             // so rules from a directory we left do not linger.
@@ -700,7 +671,7 @@ async function streamCore(
                     calibration.optionsHash === prepared.snapshot.optionsHash
                       ? calibration
                       : undefined,
-                  abortSignal: controller.signal,
+                  abortSignal: signal,
                 });
               } finally {
                 writer.write({
@@ -760,7 +731,7 @@ async function streamCore(
               writer.write(checkpoint);
               writer.write({ type: "finish-step" });
               await summarySaved;
-              controller.signal.throwIfAborted();
+              signal.throwIfAborted();
               checkpointMessages = summarized;
               compactedThrough = delivered.length;
               system = buildSystemPrompt?.({
@@ -794,7 +765,7 @@ async function streamCore(
             previousRequest = prepared.snapshot;
             return { system, messages: prepared.messages };
           },
-          abortSignal: controller.signal,
+          abortSignal: signal,
           onError: ({ error }) => {
             if (error !== contextLimitError) streamError ??= error;
           },
@@ -838,7 +809,7 @@ async function streamCore(
             if (resumedApprovals.size === 0) approvalsSaved?.();
           }
         }
-        if (controller.signal.aborted || streamError !== undefined) return;
+        if (signal.aborted || streamError !== undefined) return;
         if (!stepLimitReached && !contextLimitReached) {
           writer.write({ type: "finish", finishReason: await result.finishReason });
           return;
@@ -860,7 +831,7 @@ async function streamCore(
         });
         writer.write({ type: "finish-step" });
         await noticeSaved;
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
 
         let handoffMessages = contextHandoffMessages;
         if (!contextLimitReached) {
@@ -902,7 +873,7 @@ async function streamCore(
           // provider ignores the prompt and emits a tool call. No retry can
           // spend another call beyond this one reserved handoff.
           maxRetries: 0,
-          abortSignal: controller.signal,
+          abortSignal: signal,
           onError: ({ error }) => {
             streamError ??= error;
           },
@@ -925,7 +896,7 @@ async function streamCore(
         // Abort here so further actions cannot outrun failed persistence.
         checkpointFailed = true;
         streamError = cause;
-        controller.abort();
+        checkpointAbort.abort();
         throw cause;
       } finally {
         // Synthetic summary/approval boundaries save progress without consuming a work step.
@@ -938,12 +909,17 @@ async function streamCore(
       }
     },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
-      let finalStatus: Exclude<SessionStatus, "running"> | undefined;
       let messagePersisted = checkpointed;
-      try {
-        const aborted = !checkpointFailed && (isAborted || controller.signal.aborted);
+      // An empty failed turn must not point at an older reply. Approval
+      // continuations retain the same assistant row as their saved work.
+      const saved = () => ({
+        messageId: messagePersisted ? responseMessage.id : null,
+        incomplete: stepLimitReached || contextLimitReached,
+      });
+      // Persist what the turn produced and say where that leaves the session.
+      const finish = (): TurnSettlement => {
+        const aborted = !checkpointFailed && (isAborted || signal.aborted);
         if (aborted || streamError !== undefined) {
-          const status = aborted ? "cancelled" : "failed";
           // Both failure and cancellation retain completed work. An unfinished
           // call's outcome is unknown on failure; recording an error pairs the
           // call for the next model turn without authorising its replay.
@@ -957,20 +933,20 @@ async function streamCore(
             persistProgress({ ...responseMessage, parts: kept }, isContinuation);
             messagePersisted = true;
           }
-          setSessionStatus(db, session.id, status, {
-            finishedAt: new Date(),
-            error:
-              streamError === undefined
-                ? undefined
-                : {
+          return {
+            ...saved(),
+            status: aborted ? "cancelled" : "failed",
+            ...(streamError !== undefined
+              ? {
+                  error: {
                     message: errorMessage(streamError),
                     ...(!aborted && (contextLimitReached || stepLimitReached)
                       ? { code: contextLimitReached ? "context_limit" : "step_limit" }
                       : {}),
                   },
-          });
-          finalStatus = status;
-          return;
+                }
+              : {}),
+          };
         }
         // The context fill the gauge reads is the last model call's total
         // tokens — not the per-step sum, which over-counts a multi-step tool
@@ -979,71 +955,36 @@ async function streamCore(
         persistProgress(responseMessage, isContinuation, lastContextTokens);
         messagePersisted = true;
         if (contextLimitReached || stepLimitReached) {
-          setSessionStatus(db, session.id, "failed", {
-            finishedAt: new Date(),
+          return {
+            ...saved(),
+            status: "failed",
             error: {
               code: contextLimitReached ? "context_limit" : "step_limit",
               message: contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE,
             },
-          });
-          finalStatus = "failed";
-          return;
+          };
         }
         // A turn that stopped on tool-approval requests hasn't settled: the
         // session is blocked on the user's verdicts, and lists surface that
         // as `waiting` rather than the resting `idle`.
-        const settled = responseMessage.parts.some(
+        const paused = responseMessage.parts.some(
           (part) => isToolUIPart(part) && part.state === "approval-requested",
-        )
-          ? ("waiting" as const)
-          : ("idle" as const);
-        setSessionStatus(db, session.id, settled);
-        finalStatus = settled;
+        );
+        return { ...saved(), status: paused ? "waiting" : "idle" };
+      };
+
+      let settlement: TurnSettlement;
+      try {
+        settlement = finish();
       } catch (cause) {
         // Final persistence can fail after a successful step checkpoint. The
         // turn still stopped: record that failure before notifying its parent.
-        setSessionStatus(db, session.id, "failed", {
-          finishedAt: new Date(),
-          error: { message: errorMessage(cause) },
-        });
-        finalStatus = "failed";
+        lease.settle({ ...saved(), status: "failed", error: { message: errorMessage(cause) } });
         throw cause;
-      } finally {
-        // Close the resumable stream as the turn settles, in step with persisting
-        // the message above, so a client reconnecting now replays nothing.
-        sink?.close();
-        cancelRegistry?.release(session.id);
-        if (finalStatus !== undefined && finalStatus !== "waiting") {
-          bus?.publish({
-            type: "session.turn.settled",
-            id: session.id,
-            // An empty failed turn must not point at an older reply. Approval
-            // continuations retain the same assistant row as their saved work.
-            messageId: messagePersisted ? responseMessage.id : null,
-            outcome:
-              finalStatus === "idle"
-                ? "ended"
-                : finalStatus === "failed" && (stepLimitReached || contextLimitReached)
-                  ? "incomplete"
-                  : finalStatus,
-          });
-        }
-        // An idle event can synchronously wake another turn. Release this
-        // turn's resources first so cleanup cannot cancel its replacement.
-        if (messagePersisted)
-          bus?.publish({ type: "session.message.added", sessionId: session.id });
-        if (finalStatus !== undefined) {
-          bus?.publish({
-            type:
-              finalStatus === "failed" || finalStatus === "cancelled"
-                ? "session.finished"
-                : "session.updated",
-            id: session.id,
-            status: finalStatus,
-          });
-        }
-        settle();
       }
+      // The lease closes the resumable stream as it settles, in step with the
+      // message persisted above, so a client reconnecting now replays nothing.
+      lease.settle(settlement);
     },
   });
 
@@ -1053,12 +994,12 @@ async function streamCore(
     // persisting and settling — even if the client never reads the response — and
     // mirror its frames into the stream registry so a client that reconnects
     // mid-turn (a reload, a second tab) rejoins the live response. A turn is
-    // cancelled only by an explicit request (the `CancelRegistry`), never by a
-    // dropped connection.
+    // cancelled only by an explicit request (through its lease's signal), never
+    // by a dropped connection.
     consumeSseStream: ({ stream }) => {
       void pumpStream(stream, sink);
     },
   });
 
-  return { response, done };
+  return { response, done: lease.done };
 }

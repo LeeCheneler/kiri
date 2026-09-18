@@ -10,6 +10,7 @@ import { type CommandLearning, createCommandLearning } from "./command-learning.
 import { mountDelegationMessaging } from "./delegation-messaging.ts";
 import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
 import type { ToolPermissionStore } from "./tool-permissions.ts";
+import { createTurnLifecycle } from "./turn-lifecycle.ts";
 import { createTurnPreparation } from "./turn-preparation.ts";
 import { type StartTurn, createTurnStarter } from "./turn-start.ts";
 import { createTurnTools } from "./turn-tools.ts";
@@ -27,9 +28,9 @@ export interface SessionRuntimeDeps {
   /** Workflow registry backing the first-party workflow tools — read live, so a definition change is reflected on the next turn. */
   registry: Registry;
   llmClients: LlmClients;
-  /** With a bus, a message queued to a session out of a turn wakes it, and a worker's settled turn notices its parent. */
-  bus?: EventBus;
-  /** When supplied, a cancel reaches a prepared turn. */
+  /** Carries every session event. A message queued to a session out of a turn wakes it over this bus, and a worker's settled turn notices its parent. */
+  bus: EventBus;
+  /** Reaches the workflow runs a session's tools start; a turn itself is cancelled through `cancelTurn`. */
   cancelRegistry?: CancelRegistry;
   /**
    * Registry of in-flight turn streams a reconnecting client rejoins.
@@ -61,13 +62,15 @@ export interface SessionRuntime {
   commandLearning: CommandLearning;
   /** Start a session's turn (see `createTurnStarter`). */
   startTurn: StartTurn;
+  /** Abort the session's executing turn, which settles as `cancelled`. False when none is executing. */
+  cancelTurn(sessionId: string): boolean;
 }
 
 /**
- * Compose the session runtime: the tool assembly and turn preparation every
- * driver shares, over one stream registry and one learning loop. With a bus
- * it also mounts the delegation messaging loop, which lives as long as the
- * runtime does.
+ * Compose the session runtime: the turn lifecycle, tool assembly and turn
+ * preparation every driver shares, over one stream registry and one learning
+ * loop. It also mounts the delegation messaging loop, which lives as long as
+ * the runtime does.
  */
 export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
   const { db, config, configService, llmClients, bus, cancelRegistry } = deps;
@@ -103,14 +106,13 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     configService,
     llmClients,
     bus,
-    cancelRegistry,
-    streamRegistry,
     turnTools,
   });
 
-  const startTurn = createTurnStarter({ db, prepareTurn: preparation.prepareTurn });
+  const lifecycle = createTurnLifecycle({ db, bus, streamRegistry });
+  const startTurn = createTurnStarter({ db, lifecycle, prepareTurn: preparation.prepareTurn });
 
-  if (bus) mountDelegationMessaging({ db, bus, startTurn });
+  mountDelegationMessaging({ db, bus, startTurn });
 
-  return { streamRegistry, commandLearning, startTurn };
+  return { streamRegistry, commandLearning, startTurn, cancelTurn: lifecycle.cancel };
 }

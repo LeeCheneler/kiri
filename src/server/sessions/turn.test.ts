@@ -7,14 +7,18 @@ import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
-import { resumeTurn, runTurn, runWakeTurn } from "../../../tests/support/turn-runner.ts";
+import {
+  resumeTurn,
+  runTurn,
+  runWakeTurn,
+  turnCanceller,
+} from "../../../tests/support/turn-runner.ts";
 import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
-import { createCancelRegistry } from "../runner/cancel-registry.ts";
 import { savedContextCalibration } from "./context-calibration.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
@@ -351,7 +355,7 @@ describe("runTurn", () => {
     async (ending) => {
       let calls = 0;
       let executions = 0;
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
           calls += 1;
@@ -397,7 +401,7 @@ describe("runTurn", () => {
               ],
               options.abortSignal,
             );
-            queueMicrotask(() => cancelRegistry.requestCancel("s1"));
+            queueMicrotask(() => canceller.cancel("s1"));
             return { stream };
           }
           const parts: LanguageModelV3StreamPart[] = [];
@@ -428,7 +432,7 @@ describe("runTurn", () => {
           db,
           llmClients: clientsFor(model),
           bus: recordingBus(events),
-          cancelRegistry,
+          canceller,
           buildSystemPrompt: (current) => `Current directory: ${current.cwd}`,
           tools: {
             echo: tool({
@@ -544,7 +548,7 @@ describe("runTurn", () => {
     async (ending) => {
       let calls = 0;
       let executions = 0;
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       const model = new MockLanguageModelV3({
         doStream: async () => {
           calls += 1;
@@ -578,14 +582,14 @@ describe("runTurn", () => {
         {
           db,
           llmClients: clientsFor(model),
-          cancelRegistry,
+          canceller,
           tools: {
             echo: tool({
               inputSchema: z.object({ value: z.string() }),
               needsApproval: () => calls === 128 && ending === "approval",
               execute: ({ value }) => {
                 executions += 1;
-                if (calls === 128 && ending === "cancel") cancelRegistry.requestCancel("s1");
+                if (calls === 128 && ending === "cancel") canceller.cancel("s1");
                 return { echoed: value };
               },
             }),
@@ -648,7 +652,7 @@ describe("runTurn", () => {
   });
 
   it("cuts the wait on model discovery short when the turn is cancelled", async () => {
-    const cancelRegistry = createCancelRegistry();
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
     // Discovery that settles only once its caller's signal fires.
     const llmClients: LlmClients = {
@@ -658,12 +662,12 @@ describe("runTurn", () => {
           options?.signal?.addEventListener("abort", () => resolve(describedModel(id)), {
             once: true,
           });
-          queueMicrotask(() => cancelRegistry.requestCancel("s1"));
+          queueMicrotask(() => canceller.cancel("s1"));
         }),
     };
 
     const { response, done } = await runTurn(
-      { db, llmClients, cancelRegistry },
+      { db, llmClients, canceller },
       { session, userMessage: USER_MESSAGE },
     );
     await response.text();
@@ -1217,7 +1221,7 @@ describe("runTurn", () => {
     "preserves completed work when compaction ends with %s",
     async (ending) => {
       const session = createSession(db, MODEL, { id: "s1" });
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       let calls = 0;
       let actions = 0;
       let summaries = 0;
@@ -1249,7 +1253,7 @@ describe("runTurn", () => {
       const { response, done } = await runTurn(
         {
           db,
-          cancelRegistry,
+          canceller,
           llmClients: {
             ...clientsFor(model),
             describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
@@ -1257,7 +1261,7 @@ describe("runTurn", () => {
               summaries += 1;
               if (ending === "error") throw new Error("compaction provider unavailable");
               if (ending === "cancel") {
-                cancelRegistry.requestCancel("s1");
+                canceller.cancel("s1");
                 abortSignal?.throwIfAborted();
               }
               return {
@@ -1347,7 +1351,7 @@ describe("runTurn", () => {
     async (ending) => {
       let calls = 0;
       let actions = 0;
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       const events: KiriEvent[] = [];
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
@@ -1366,7 +1370,7 @@ describe("runTurn", () => {
           );
           if (ending === "error") throw new Error("handoff unavailable");
           if (ending === "cancel") {
-            cancelRegistry.requestCancel("s1");
+            canceller.cancel("s1");
             options.abortSignal?.throwIfAborted();
           }
           return {
@@ -1383,7 +1387,7 @@ describe("runTurn", () => {
       const { response, done } = await runTurn(
         {
           db,
-          cancelRegistry,
+          canceller,
           bus: recordingBus(events),
           llmClients: {
             ...clientsFor(model),
@@ -2063,19 +2067,19 @@ describe("runTurn", () => {
   });
 
   it("cancels an in-flight turn when the registry requests it", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(pendingModel()), bus: recordingBus(events), cancelRegistry },
+      { db, llmClients: clientsFor(pendingModel()), bus: recordingBus(events), canceller },
       { session, userMessage: USER_MESSAGE },
     );
     // The stream never closes on its own; the cancel aborts it, ending the turn.
     // Let the opening delta flow through first — as it has by the time a user
     // reaches for cancel.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -2101,17 +2105,17 @@ describe("runTurn", () => {
 
   it("holds the resumable stream while a turn is in flight and drops it when it settles", async () => {
     const streamRegistry = createStreamRegistry();
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(pendingModel()), streamRegistry, cancelRegistry },
+      { db, llmClients: clientsFor(pendingModel()), streamRegistry, canceller },
       { session, userMessage: USER_MESSAGE },
     );
     // The turn parks; its stream is registered so a reconnecting client can rejoin.
     expect(streamRegistry.has("s1")).toBe(true);
 
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -2175,7 +2179,7 @@ describe("runTurn", () => {
   });
 
   it("releases the old turn before an idle event starts another cancellable turn", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const streamRegistry = createStreamRegistry();
     const session = createSession(db, MODEL, { id: "s1" });
     let next: ReturnType<typeof runTurn> | undefined;
@@ -2185,24 +2189,24 @@ describe("runTurn", () => {
         if (event.type === "session.turn.settled") {
           expect(getSessionMessages(db, "s1").at(-1)?.id ?? null).toBe(event.messageId);
           expect(streamRegistry.has("s1")).toBe(false);
-          expect(cancelRegistry.requestCancel("s1")).toBe(false);
+          expect(canceller.cancel("s1")).toBe(false);
         }
         if (event.type !== "session.updated" || event.status !== "idle" || next) return;
         next = runTurn(
-          { db, llmClients: clientsFor(pendingModel()), cancelRegistry, streamRegistry },
+          { db, llmClients: clientsFor(pendingModel()), canceller, streamRegistry },
           { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
         );
       },
     };
     const first = await runTurn(
-      { db, llmClients: clientsFor(capturingModel({})), cancelRegistry, streamRegistry, bus },
+      { db, llmClients: clientsFor(capturingModel({})), canceller, streamRegistry, bus },
       { session, userMessage: USER_MESSAGE },
     );
     await first.done;
     const second = await next;
     expect(second).toBeDefined();
     expect(streamRegistry.has("s1")).toBe(true);
-    expect(cancelRegistry.requestCancel("s1")).toBe(true);
+    expect(canceller.cancel("s1")).toBe(true);
     await second?.done;
     expect(getSession(db, "s1")?.status).toBe("cancelled");
     expect(streamRegistry.has("s1")).toBe(false);
@@ -2846,7 +2850,7 @@ describe("failed turns keep their progress", () => {
       WHEN NEW.role = 'assistant'
       BEGIN SELECT RAISE(FAIL, 'checkpoint unavailable'); END;
     `);
-    const cancelRegistry = createCancelRegistry();
+    const canceller = turnCanceller();
     const streamRegistry = createStreamRegistry();
     const session = createSession(db, MODEL, { id: "s1" });
     const started = await runTurn(
@@ -2854,7 +2858,7 @@ describe("failed turns keep their progress", () => {
         db,
         llmClients: clientsFor(toolLoopModel()),
         tools: echoTools,
-        cancelRegistry,
+        canceller,
         streamRegistry,
       },
       { session, userMessage: USER_MESSAGE },
@@ -2863,7 +2867,7 @@ describe("failed turns keep their progress", () => {
     expect(getSession(db, "s1")?.status).toBe("failed");
     expect(JSON.stringify(getSession(db, "s1")?.error)).toContain("checkpoint unavailable");
     expect(streamRegistry.has("s1")).toBe(false);
-    expect(cancelRegistry.requestCancel("s1")).toBe(false);
+    expect(canceller.cancel("s1")).toBe(false);
   });
 });
 
@@ -2910,16 +2914,16 @@ describe("cancelled turns keep their progress", () => {
     ) as ToolPart & { errorText?: string };
 
   it("persists a tool call cancelled mid-execution as a cancelled result", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(slowCallModel()), cancelRegistry, tools: slowTools },
+      { db, llmClients: clientsFor(slowCallModel()), canceller, tools: slowTools },
       { session, userMessage: USER_MESSAGE },
     );
     // Give the loop a tick to issue the call and start the tool before cancelling.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -2939,15 +2943,15 @@ describe("cancelled turns keep their progress", () => {
   });
 
   it("sends the interrupted work back to the model on the next turn", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
 
     const first = await runTurn(
-      { db, llmClients: clientsFor(slowCallModel()), cancelRegistry, tools: slowTools },
+      { db, llmClients: clientsFor(slowCallModel()), canceller, tools: slowTools },
       { session, userMessage: USER_MESSAGE },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await first.response.text();
     await first.done;
 
@@ -2984,16 +2988,16 @@ describe("cancelled turns keep their progress", () => {
         stream: parkedStream([{ type: "text-start", id: "t1" }], abortSignal),
       }),
     }) as unknown as LlmModel;
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(silentModel), bus: recordingBus(events), cancelRegistry },
+      { db, llmClients: clientsFor(silentModel), bus: recordingBus(events), canceller },
       { session, userMessage: USER_MESSAGE },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -3010,12 +3014,12 @@ describe("cancelled turns keep their progress", () => {
     const gatedSlowTools = {
       slow: tool({ ...slowTools.slow, needsApproval: true }),
     };
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
     const clients = clientsFor(slowCallModel());
 
     const first = await runTurn(
-      { db, llmClients: clients, cancelRegistry, tools: gatedSlowTools },
+      { db, llmClients: clients, canceller, tools: gatedSlowTools },
       { session, userMessage: USER_MESSAGE },
     );
     await first.response.text();
@@ -3025,11 +3029,11 @@ describe("cancelled turns keep their progress", () => {
     expect(paused?.contextTokens).toBe(6);
 
     const second = await resumeTurn(
-      { db, llmClients: clients, cancelRegistry, tools: gatedSlowTools },
+      { db, llmClients: clients, canceller, tools: gatedSlowTools },
       { session, approvals: [{ toolCallId: "c1", approved: true }] },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await second.response.text();
     await second.done;
 
@@ -3314,7 +3318,7 @@ describe("session inbox in turns", () => {
         return { stream: parkedStream([], abortSignal) };
       },
     }) as unknown as LlmModel;
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
 
@@ -3323,13 +3327,13 @@ describe("session inbox in turns", () => {
         db,
         llmClients: clientsFor(cancelledSecondStep),
         bus: recordingBus(events),
-        cancelRegistry,
+        canceller,
         tools: enqueueingTools("s1"),
       },
       { session, userMessage: USER_MESSAGE },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 

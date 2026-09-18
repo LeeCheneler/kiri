@@ -5,12 +5,10 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import { getProject, listProjectArticles } from "../projects/store.ts";
-import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { createInstructionContext } from "./instruction-context.ts";
 import { listMemories, listProjectMemories } from "./memory-tools.ts";
 import { listSkills } from "./skills.ts";
 import { type Session, getSession } from "./store.ts";
-import type { StreamRegistry } from "./stream-registry.ts";
 import { createSystemPromptBuilder } from "./system-prompt.ts";
 import { summariseTaskList } from "./task-tools.ts";
 import type { TurnTools } from "./turn-tools.ts";
@@ -24,10 +22,7 @@ export interface TurnPreparationDeps {
   /** The effective `kiri.yaml`; each prepared turn takes one snapshot of it. */
   configService: ConfigService;
   llmClients: LlmClients;
-  bus?: EventBus;
-  cancelRegistry?: CancelRegistry;
-  /** Shared by every prepared turn, so a reconnecting client can rejoin a live stream however the turn started. */
-  streamRegistry: StreamRegistry;
+  bus: EventBus;
   turnTools: TurnTools;
 }
 
@@ -47,8 +42,7 @@ export interface TurnPreparation {
 
 /** Create the turn preparation a session surface shares between every driver of a turn. */
 export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparation {
-  const { db, config, configService, llmClients, bus, cancelRegistry, streamRegistry, turnTools } =
-    deps;
+  const { db, config, configService, llmClients, bus, turnTools } = deps;
 
   // The prompt-layer context for a session's project: its name, the corpus
   // index the prompt map lists — each slug titled by its body's first heading,
@@ -91,8 +85,6 @@ export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparatio
       db,
       llmClients,
       bus,
-      cancelRegistry,
-      streamRegistry,
       instructionContext,
       buildSystemPrompt: createSystemPromptBuilder(
         config,

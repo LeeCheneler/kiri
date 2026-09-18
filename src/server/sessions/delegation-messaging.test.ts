@@ -7,12 +7,11 @@ import { tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
-import { resumeTurn, runTurn } from "../../../tests/support/turn-runner.ts";
+import { resumeTurn, runTurn, turnStarter } from "../../../tests/support/turn-runner.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
-import { createCancelRegistry } from "../runner/cancel-registry.ts";
 import { messageParentTool } from "./delegate-tool.ts";
 import { mountDelegationMessaging } from "./delegation-messaging.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
@@ -24,7 +23,6 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
-import { createTurnStarter } from "./turn-start.ts";
 import type { RunTurnDeps } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -98,7 +96,7 @@ describe("mountDelegationMessaging", () => {
     const unsubscribe = mountDelegationMessaging({
       db,
       bus,
-      startTurn: createTurnStarter({ db, prepareTurn: (session) => ({ session, turnDeps }) }),
+      startTurn: turnStarter({ db, bus, prepareTurn: (session) => ({ session, turnDeps }) }),
     });
     return { bus, unsubscribe };
   };
@@ -124,8 +122,9 @@ describe("mountDelegationMessaging", () => {
       db,
       bus,
       // A preparation that repairs the working directory before the turn.
-      startTurn: createTurnStarter({
+      startTurn: turnStarter({
         db,
+        bus,
         prepareTurn: (session) => ({
           session: updateSessionCwd(db, session.id, dir),
           turnDeps: {
@@ -155,8 +154,9 @@ describe("mountDelegationMessaging", () => {
     mountDelegationMessaging({
       db,
       bus,
-      startTurn: createTurnStarter({
+      startTurn: turnStarter({
         db,
+        bus,
         prepareTurn: (session) => {
           prepared += 1;
           return { session, turnDeps: { db, bus, llmClients: clientsFor(capturingModel([])) } };
@@ -250,7 +250,7 @@ describe("mountDelegationMessaging", () => {
     mountDelegationMessaging({
       db,
       bus,
-      startTurn: createTurnStarter({ db, prepareTurn: (session) => ({ session, turnDeps }) }),
+      startTurn: turnStarter({ db, bus, prepareTurn: (session) => ({ session, turnDeps }) }),
     });
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
@@ -500,12 +500,12 @@ describe("mountDelegationMessaging", () => {
 
   it("notifies the parent if the worker cannot start a wake turn", async () => {
     const bus = createEventBus();
-    const cancelRegistry = createCancelRegistry();
     mountDelegationMessaging({
       db,
       bus,
-      startTurn: createTurnStarter({
+      startTurn: turnStarter({
         db,
+        bus,
         prepareTurn: (session) => ({
           session,
           turnDeps: {
@@ -517,7 +517,6 @@ describe("mountDelegationMessaging", () => {
                 throw "model removed";
               },
             },
-            cancelRegistry,
           },
         }),
       }),

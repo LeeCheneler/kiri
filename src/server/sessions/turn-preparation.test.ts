@@ -8,13 +8,12 @@ import type { ConfigService, ConfigSnapshot } from "../config/service.ts";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import { createEventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import { createRegistry } from "../workflows/index.ts";
 import { createSession, getSession, updateSessionCwd } from "./store.ts";
-import { createStreamRegistry } from "./stream-registry.ts";
 import { createToolPermissionStore } from "./tool-permissions.ts";
 import { createTurnPreparation } from "./turn-preparation.ts";
-import { createTurnStarter } from "./turn-start.ts";
 import { createTurnTools } from "./turn-tools.ts";
 import type { PreparedTurn } from "./turn.ts";
 
@@ -77,17 +76,16 @@ describe("turn preparation", () => {
         guidance: () => "",
         flush: async () => {},
       },
-      startTurn: createTurnStarter({
-        db,
-        prepareTurn: (session) => ({ session, turnDeps: { db, llmClients } }),
-      }),
+      startTurn: () => {
+        throw new Error("no turn starts in this test");
+      },
     });
     return createTurnPreparation({
       db,
       config,
       configService,
       llmClients,
-      streamRegistry: createStreamRegistry(),
+      bus: createEventBus(),
       turnTools,
     });
   };

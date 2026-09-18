@@ -151,7 +151,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     // detached: the worker never pins the parent's turn, and cancelling the
     // parent doesn't touch it. Every settled worker turn reaches the parent as
     // a runtime notice (delegation messaging), not through this
-    // call. `done` always resolves (the turn settles it in a finally), so
+    // call. `done` always resolves (the turn's lease never rejects it), so
     // the handle is deliberately dropped rather than awaited.
     const { done } = await startTurn(child, { kind: "message", userMessage });
     void done;

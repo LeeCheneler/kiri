@@ -18,7 +18,6 @@ import type { CommandJudgementEvent } from "./command-judgement-log.ts";
 import type { CommandLearning } from "./command-learning.ts";
 import { createSession } from "./store.ts";
 import { type ToolPermission, createToolPermissionStore } from "./tool-permissions.ts";
-import { createTurnStarter } from "./turn-start.ts";
 import { createTurnTools } from "./turn-tools.ts";
 
 const MODEL = "test:model";
@@ -105,10 +104,9 @@ describe("turn tools", () => {
         : {}),
       toolPermissions,
       commandLearning,
-      startTurn: createTurnStarter({
-        db,
-        prepareTurn: (session) => ({ session, turnDeps: { db, llmClients } }),
-      }),
+      startTurn: () => {
+        throw new Error("no turn starts in this test");
+      },
     });
     return {
       tools: (sessionId: string) => turnTools.activeTools(sessionId, snapshot),

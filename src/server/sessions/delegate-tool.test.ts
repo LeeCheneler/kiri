@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { describedModel } from "../../../tests/support/described-model.ts";
+import { turnStarter } from "../../../tests/support/turn-runner.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { projects } from "../db/schema.ts";
@@ -28,7 +29,6 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
-import { createTurnStarter } from "./turn-start.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -99,8 +99,9 @@ describe("delegate tool", () => {
     db,
     parentSessionId: "parent",
     bus,
-    startTurn: createTurnStarter({
+    startTurn: turnStarter({
       db,
+      bus,
       prepareTurn: (child) => {
         capture.childId = child.id;
         return { session: child, turnDeps: { db, llmClients: clientsFor(model), bus } };
@@ -158,8 +159,9 @@ describe("delegate tool", () => {
       parentSessionId: "parent",
       bus,
       // A preparation that repairs the working directory before the turn.
-      startTurn: createTurnStarter({
+      startTurn: turnStarter({
         db,
+        bus,
         prepareTurn: (child) => {
           capture.childId = child.id;
           return {
@@ -495,11 +497,12 @@ describe("message_worker tool", () => {
       db,
       parentSessionId: "parent",
       bus,
-      startTurn: createTurnStarter({
+      startTurn: turnStarter({
         db,
+        bus,
         prepareTurn: (session) => ({
           session,
-          turnDeps: { db, llmClients: clientsFor(reportingModel("unused")) },
+          turnDeps: { db, bus, llmClients: clientsFor(reportingModel("unused")) },
         }),
       }),
     });

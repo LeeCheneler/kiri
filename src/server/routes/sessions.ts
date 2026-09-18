@@ -23,7 +23,6 @@ import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients, toModelInfo } from "../llm/index.ts";
 import { createLogger } from "../log.ts";
 import { getProject, listProjectArticles } from "../projects/store.ts";
-import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { withoutContextCalibration } from "../sessions/context-calibration.ts";
 import {
   SESSION_TITLE_MAX_LENGTH,
@@ -66,11 +65,6 @@ export interface SessionsRoutesDeps {
    */
   llmClients: LlmClients;
   bus?: EventBus;
-  /**
-   * When supplied, an in-flight turn is reachable via
-   * `POST /api/sessions/:id/cancel`. Omit to leave the cancel route unmounted.
-   */
-  cancelRegistry?: CancelRegistry;
   /**
    * The workspace's effective `kiri.yaml`, read at the point of use: the
    * models config rides the model listing so the pickers can pin shortcuts,
@@ -172,11 +166,11 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
 /**
  * Build the Hono sub-app for the agentic session surface: model listing,
  * session create/list/get, the streaming turn endpoint, the session article
- * reads, and an optional cancel. Mounted under `/api` by `createApp`,
+ * reads, and turn cancellation. Mounted under `/api` by `createApp`,
  * alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, configService, llmClients, bus, cancelRegistry, runtime } = deps;
+  const { db, configService, llmClients, bus, runtime } = deps;
   const { streamRegistry, commandLearning } = runtime;
   const app = new Hono();
 
@@ -898,36 +892,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     },
   );
 
-  if (cancelRegistry) {
-    app.post(
-      "/sessions/:id/cancel",
-      zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
-      (c) => {
-        const { id } = c.req.valid("param");
-        const session = getSession(db, id);
-        if (!session)
-          return c.json(
-            { error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody,
-            404,
-          );
-        if (session.status !== "running") {
-          return c.json(
-            { error: `session "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
-            409,
-          );
-        }
-        // False only if the registry has no entry — the turn released it in the
-        // window between our read and this call. Treat as already-terminal.
-        if (!cancelRegistry.requestCancel(id)) {
-          return c.json(
-            { error: `session "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
-            409,
-          );
-        }
-        return c.json({ sessionId: id } satisfies sessionsApi.SessionCancelResult, 202);
-      },
-    );
-  }
+  app.post(
+    "/sessions/:id/cancel",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const session = getSession(db, id);
+      if (!session)
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
+      // False when no turn holds the session: it was never running, or it
+      // settled between the client's read and this call.
+      if (!runtime.cancelTurn(id)) {
+        return c.json(
+          { error: `session "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
+      }
+      return c.json({ sessionId: id } satisfies sessionsApi.SessionCancelResult, 202);
+    },
+  );
 
   return app;
 }

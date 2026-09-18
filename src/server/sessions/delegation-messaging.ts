@@ -3,7 +3,7 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
 import { enqueueInboxItem } from "./inbox.ts";
-import { type Session, getSession, getSessionMessages, setSessionStatus } from "./store.ts";
+import { type Session, getSession, getSessionMessages } from "./store.ts";
 import type { StartTurn } from "./turn-start.ts";
 
 const log = createLogger("sessions");
@@ -114,19 +114,8 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
       const started = await startTurn(session, { kind: "wake" });
       await started?.done;
     } catch (cause) {
-      // A startup failure has no stream to settle it (for example, the worker's
-      // model no longer resolves). It still owes the parent a failure notice.
-      setSessionStatus(db, sessionId, "failed", {
-        finishedAt: new Date(),
-        error: { message: cause instanceof Error ? cause.message : String(cause) },
-      });
-      bus.publish({
-        type: "session.turn.settled",
-        id: sessionId,
-        messageId: null,
-        outcome: "failed",
-      });
-      bus.publish({ type: "session.finished", id: sessionId, status: "failed" });
+      // The start has already settled the session as failed (for example, the
+      // worker's model no longer resolves), which notices its parent below.
       log.error(`wake turn for session ${sessionId} failed`, cause);
     }
   };

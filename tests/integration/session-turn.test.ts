@@ -15,7 +15,6 @@ import {
   createLlmClients,
   createLlmProviderRegistry,
 } from "../../src/server/llm/index.ts";
-import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
   articleTools,
   createInstructionContext,
@@ -26,14 +25,13 @@ import {
   getSessionMessages,
   imageTools,
   liveConsoleEmitter,
-  resumeTurn,
-  runTurn,
   shellTools,
   updateSessionCwd,
   updateSessionImageModel,
 } from "../../src/server/sessions/index.ts";
 import { describedModel } from "../../tests/support/described-model.ts";
 import { FAKE_IMAGE_B64, type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
+import { resumeTurn, runTurn, turnCanceller } from "../support/turn-runner.ts";
 
 /**
  * Integration coverage for session turns over the *real* streaming stack:
@@ -650,16 +648,16 @@ describe("session turn streaming", () => {
   });
 
   it("lands a cancelled turn as cancelled and leaves the session resumable", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 50 });
+    const canceller = turnCanceller();
     const session = createSession(db, "fake:slow");
 
     const { done } = await runTurn(
-      { db, llmClients, cancelRegistry },
+      { db, llmClients, canceller },
       { session, userMessage: userMessage("take your time") },
     );
     // The slow model holds the stream open (a lead pause then word-by-word), so
     // the cancel lands mid-flight.
-    expect(cancelRegistry.requestCancel(session.id)).toBe(true);
+    expect(canceller.cancel(session.id)).toBe(true);
     await done;
 
     const cancelled = getSession(db, session.id);
