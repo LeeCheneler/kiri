@@ -7,6 +7,7 @@ import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
+import { resumeTurn, runTurn, runWakeTurn } from "../../../tests/support/turn-runner.ts";
 import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
@@ -29,7 +30,6 @@ import {
   updateSessionModel,
 } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
-import { resumeTurn, runTurn, runWakeTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 

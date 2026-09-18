@@ -7,6 +7,7 @@ import { tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
+import { resumeTurn, runTurn } from "../../../tests/support/turn-runner.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
@@ -24,7 +25,7 @@ import {
   updateSessionCwd,
 } from "./store.ts";
 import { createTurnStarter } from "./turn-start.ts";
-import { type RunTurnDeps, resumeTurn, runTurn } from "./turn.ts";
+import type { RunTurnDeps } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
