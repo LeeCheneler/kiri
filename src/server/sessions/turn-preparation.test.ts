@@ -14,6 +14,7 @@ import { createSession, getSession, updateSessionCwd } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
 import { createToolPermissionStore } from "./tool-permissions.ts";
 import { createTurnPreparation } from "./turn-preparation.ts";
+import { createTurnStarter } from "./turn-start.ts";
 import { createTurnTools } from "./turn-tools.ts";
 import type { PreparedTurn } from "./turn.ts";
 
@@ -76,7 +77,10 @@ describe("turn preparation", () => {
         guidance: () => "",
         flush: async () => {},
       },
-      prepareTurn: (session) => ({ session, turnDeps: { db, llmClients } }),
+      startTurn: createTurnStarter({
+        db,
+        prepareTurn: (session) => ({ session, turnDeps: { db, llmClients } }),
+      }),
     });
     return createTurnPreparation({
       db,

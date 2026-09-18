@@ -9,14 +9,8 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type Effort } from "../llm/index.ts";
 import { enqueueInboxItem } from "./inbox.ts";
-import {
-  type Session,
-  createSession,
-  findChildByToolCall,
-  getSession,
-  getSessionChildren,
-} from "./store.ts";
-import { type PreparedTurn, runTurn } from "./turn.ts";
+import { createSession, findChildByToolCall, getSession, getSessionChildren } from "./store.ts";
+import type { StartTurn } from "./turn-start.ts";
 
 /** Name the model calls the delegation tool by; also its standing-permission key. */
 export const DELEGATE_TOOL_NAME = "delegate";
@@ -41,13 +35,13 @@ export interface DelegateToolDeps {
   /** The session whose turn offers this tool; children it spawns carry it as their parent. */
   parentSessionId: string;
   /**
-   * Prepares a spawned child for its turn, as any session is prepared: a
-   * usable working directory, and the same approval-gated catalogue (minus
-   * the child-withheld tools, with message_parent in place of the delegation
+   * Starts a spawned child's turn, prepared as any session is: a usable
+   * working directory, and the same approval-gated catalogue (minus the
+   * child-withheld tools, with message_parent in place of the delegation
    * tools) under the worker system prompt. An ask-gated call pauses the child
    * for the user like any session.
    */
-  prepareTurn: (child: Session) => PreparedTurn;
+  startTurn: StartTurn;
   bus?: EventBus;
   /**
    * The configured delegate models by role. With at least one role
@@ -91,7 +85,7 @@ const spawnedResult = (title: string, childSessionId: string): string =>
  * steer a worker, ask for progress, or answer its question by session id.
  */
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
-  const { db, parentSessionId, prepareTurn, bus, delegates } = deps;
+  const { db, parentSessionId, startTurn, bus, delegates } = deps;
   const description =
     "Delegate substantial, separable work when a focused worker improves quality, independent strands can run in parallel, or its separate context saves enough investigation detail to justify briefing and report review. Keep small investigations and tightly coupled reasoning local: a search followed by reading its result is fine; tool-call count alone does not require delegation. The worker runs in the background with the parent's model unless a configured model role is selected, and uses the same permission gates; only the user can approve a paused call. Returns its session id immediately. Progress, questions, results, and incomplete reports arrive as messages during your turn or wake you after it ends. When nothing else needs you, tell the user what is underway and end your turn. The worker cannot see this conversation: supply a complete brief and request findings tied to supporting sources/references, uncertainties, and incomplete work. Assess reports before synthesising; resolve missing or conflicting evidence through a targeted follow-up or source check, and selectively verify consequential or weakly supported claims without routinely repeating the investigation. Choose model and effort for the task only after deciding delegation is worthwhile.";
   const titleField = z
@@ -159,8 +153,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     // a runtime notice (delegation messaging), not through this
     // call. `done` always resolves (the turn settles it in a finally), so
     // the handle is deliberately dropped rather than awaited.
-    const prepared = prepareTurn(child);
-    const { done } = await runTurn(prepared.turnDeps, { session: prepared.session, userMessage });
+    const { done } = await startTurn(child, { kind: "message", userMessage });
     void done;
 
     return spawnedResult(title, child.id);

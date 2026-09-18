@@ -23,6 +23,7 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
+import { createTurnStarter } from "./turn-start.ts";
 import { type RunTurnDeps, resumeTurn, runTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -96,7 +97,7 @@ describe("mountDelegationMessaging", () => {
     const unsubscribe = mountDelegationMessaging({
       db,
       bus,
-      prepareTurn: (session) => ({ session, turnDeps }),
+      startTurn: createTurnStarter({ db, prepareTurn: (session) => ({ session, turnDeps }) }),
     });
     return { bus, unsubscribe };
   };
@@ -122,17 +123,20 @@ describe("mountDelegationMessaging", () => {
       db,
       bus,
       // A preparation that repairs the working directory before the turn.
-      prepareTurn: (session) => ({
-        session: updateSessionCwd(db, session.id, dir),
-        turnDeps: {
-          db,
-          bus,
-          llmClients: clientsFor(capturingModel([])),
-          buildSystemPrompt: (current) => {
-            prompted.push(current.cwd);
-            return "prompt";
+      startTurn: createTurnStarter({
+        db,
+        prepareTurn: (session) => ({
+          session: updateSessionCwd(db, session.id, dir),
+          turnDeps: {
+            db,
+            bus,
+            llmClients: clientsFor(capturingModel([])),
+            buildSystemPrompt: (current) => {
+              prompted.push(current.cwd);
+              return "prompt";
+            },
           },
-        },
+        }),
       }),
     });
     createSession(db, MODEL, { id: "parent", cwd: join(dir, "gone") });
@@ -150,10 +154,13 @@ describe("mountDelegationMessaging", () => {
     mountDelegationMessaging({
       db,
       bus,
-      prepareTurn: (session) => {
-        prepared += 1;
-        return { session, turnDeps: { db, bus, llmClients: clientsFor(capturingModel([])) } };
-      },
+      startTurn: createTurnStarter({
+        db,
+        prepareTurn: (session) => {
+          prepared += 1;
+          return { session, turnDeps: { db, bus, llmClients: clientsFor(capturingModel([])) } };
+        },
+      }),
     });
     createSession(db, MODEL, { id: "parent" });
 
@@ -239,7 +246,11 @@ describe("mountDelegationMessaging", () => {
       },
       bus,
     };
-    mountDelegationMessaging({ db, bus, prepareTurn: (session) => ({ session, turnDeps }) });
+    mountDelegationMessaging({
+      db,
+      bus,
+      startTurn: createTurnStarter({ db, prepareTurn: (session) => ({ session, turnDeps }) }),
+    });
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
@@ -492,19 +503,22 @@ describe("mountDelegationMessaging", () => {
     mountDelegationMessaging({
       db,
       bus,
-      prepareTurn: (session) => ({
-        session,
-        turnDeps: {
-          db,
-          bus,
-          llmClients: {
-            ...clientsFor(capturingModel([])),
-            resolveModel: () => {
-              throw "model removed";
+      startTurn: createTurnStarter({
+        db,
+        prepareTurn: (session) => ({
+          session,
+          turnDeps: {
+            db,
+            bus,
+            llmClients: {
+              ...clientsFor(capturingModel([])),
+              resolveModel: () => {
+                throw "model removed";
+              },
             },
+            cancelRegistry,
           },
-          cancelRegistry,
-        },
+        }),
       }),
     });
     createSession(db, MODEL, { id: "parent" });

@@ -23,10 +23,10 @@ import { memoryTools } from "./memory-tools.ts";
 import { projectTools } from "./project-tools.ts";
 import { shellTools } from "./shell-tools.ts";
 import { skillTools } from "./skill-tools.ts";
-import { type Session, getSession, updateSessionCwd } from "./store.ts";
+import { getSession, updateSessionCwd } from "./store.ts";
 import { taskTools } from "./task-tools.ts";
 import type { ToolPermission, ToolPermissionStore } from "./tool-permissions.ts";
-import type { PreparedTurn } from "./turn.ts";
+import type { StartTurn } from "./turn-start.ts";
 import { workflowTools } from "./workflow-tools.ts";
 import { sandboxOf } from "./working-directory.ts";
 
@@ -51,8 +51,8 @@ export interface TurnToolsDeps {
   getProviderNames?: () => ReadonlySet<string>;
   /** The auto shell permission's learning loop: every judgement is recorded, and distilled precedent feeds the judge. */
   commandLearning: CommandLearning;
-  /** Prepares a worker the delegate tool spawns for its turn, as any session is prepared. */
-  prepareTurn: (session: Session) => PreparedTurn;
+  /** Starts the turn of a worker the delegate tool spawns, as any session's turn starts. */
+  startTurn: StartTurn;
 }
 
 /** Assembles the permission-gated tools a session's turn is offered. */
@@ -101,7 +101,7 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
     toolPermissions,
     getProviderNames,
     commandLearning,
-    prepareTurn,
+    startTurn,
   } = deps;
 
   // Decide a run_command call under the "auto" permission: the deterministic
@@ -322,7 +322,7 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
         : delegateTool({
             db,
             parentSessionId: sessionId,
-            prepareTurn,
+            startTurn,
             bus,
             delegates: snapshot.models.delegates,
           })),

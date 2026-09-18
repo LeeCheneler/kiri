@@ -8,12 +8,11 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import type { Registry } from "../workflows/index.ts";
 import { type CommandLearning, createCommandLearning } from "./command-learning.ts";
 import { mountDelegationMessaging } from "./delegation-messaging.ts";
-import type { Session } from "./store.ts";
 import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
 import type { ToolPermissionStore } from "./tool-permissions.ts";
 import { createTurnPreparation } from "./turn-preparation.ts";
+import { type StartTurn, createTurnStarter } from "./turn-start.ts";
 import { createTurnTools } from "./turn-tools.ts";
-import type { PreparedTurn } from "./turn.ts";
 
 export interface SessionRuntimeDeps {
   db: KiriDb;
@@ -56,12 +55,12 @@ export interface SessionRuntimeDeps {
 
 /** What runs a session's turns, shared by every driver: HTTP, a worker spawn, a wake. */
 export interface SessionRuntime {
-  /** In-flight turn streams: a prepared turn fills it, a reconnecting client reads it. */
+  /** In-flight turn streams: a running turn fills it, a reconnecting client reads it. */
   streamRegistry: StreamRegistry;
   /** The auto shell permission's learning loop: judgements and user verdicts in, distilled precedent out. */
   commandLearning: CommandLearning;
-  /** Make a session ready to run a turn (see `TurnPreparation.prepareTurn`). */
-  prepareTurn(session: Session): PreparedTurn;
+  /** Start a session's turn (see `createTurnStarter`). */
+  startTurn: StartTurn;
 }
 
 /**
@@ -82,8 +81,8 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       guidanceFile: config.commandGuidanceFile(),
     });
 
-  // The tool assembly and the preparation need each other — the delegate tool
-  // prepares the workers it spawns — so the assembly reaches it lazily.
+  // The tool assembly and the turn start need each other — the delegate tool
+  // starts the workers it spawns — so the assembly reaches it lazily.
   const turnTools = createTurnTools({
     db,
     config,
@@ -96,7 +95,7 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     toolPermissions: deps.toolPermissions,
     getProviderNames: deps.getProviderNames,
     commandLearning,
-    prepareTurn: (session) => preparation.prepareTurn(session),
+    startTurn: ((session, start) => startTurn(session, start)) as StartTurn,
   });
   const preparation = createTurnPreparation({
     db,
@@ -109,7 +108,9 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     turnTools,
   });
 
-  if (bus) mountDelegationMessaging({ db, bus, prepareTurn: preparation.prepareTurn });
+  const startTurn = createTurnStarter({ db, prepareTurn: preparation.prepareTurn });
 
-  return { streamRegistry, commandLearning, prepareTurn: preparation.prepareTurn };
+  if (bus) mountDelegationMessaging({ db, bus, startTurn });
+
+  return { streamRegistry, commandLearning, startTurn };
 }

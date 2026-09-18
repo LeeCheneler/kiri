@@ -28,6 +28,7 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
+import { createTurnStarter } from "./turn-start.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -98,10 +99,13 @@ describe("delegate tool", () => {
     db,
     parentSessionId: "parent",
     bus,
-    prepareTurn: (child) => {
-      capture.childId = child.id;
-      return { session: child, turnDeps: { db, llmClients: clientsFor(model), bus } };
-    },
+    startTurn: createTurnStarter({
+      db,
+      prepareTurn: (child) => {
+        capture.childId = child.id;
+        return { session: child, turnDeps: { db, llmClients: clientsFor(model), bus } };
+      },
+    }),
   });
 
   // Waits for the spawned child's detached turn to settle, so no turn is
@@ -154,21 +158,24 @@ describe("delegate tool", () => {
       parentSessionId: "parent",
       bus,
       // A preparation that repairs the working directory before the turn.
-      prepareTurn: (child) => {
-        capture.childId = child.id;
-        return {
-          session: updateSessionCwd(db, child.id, dir),
-          turnDeps: {
-            db,
-            bus,
-            llmClients: clientsFor(reportingModel("done")),
-            buildSystemPrompt: (current) => {
-              prompted.push(current.cwd);
-              return "prompt";
+      startTurn: createTurnStarter({
+        db,
+        prepareTurn: (child) => {
+          capture.childId = child.id;
+          return {
+            session: updateSessionCwd(db, child.id, dir),
+            turnDeps: {
+              db,
+              bus,
+              llmClients: clientsFor(reportingModel("done")),
+              buildSystemPrompt: (current) => {
+                prompted.push(current.cwd);
+                return "prompt";
+              },
             },
-          },
-        };
-      },
+          };
+        },
+      }),
     };
 
     await invoke(deps, "look into it");
@@ -488,9 +495,12 @@ describe("message_worker tool", () => {
       db,
       parentSessionId: "parent",
       bus,
-      prepareTurn: (session) => ({
-        session,
-        turnDeps: { db, llmClients: clientsFor(reportingModel("unused")) },
+      startTurn: createTurnStarter({
+        db,
+        prepareTurn: (session) => ({
+          session,
+          turnDeps: { db, llmClients: clientsFor(reportingModel("unused")) },
+        }),
       }),
     });
     const sendTool = set[MESSAGE_WORKER_TOOL_NAME] as {

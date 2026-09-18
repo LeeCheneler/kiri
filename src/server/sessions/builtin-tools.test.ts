@@ -19,6 +19,7 @@ import { projectTools } from "./project-tools.ts";
 import { shellTools } from "./shell-tools.ts";
 import { skillTools } from "./skill-tools.ts";
 import { taskTools } from "./task-tools.ts";
+import { createTurnStarter } from "./turn-start.ts";
 import { workflowTools } from "./workflow-tools.ts";
 
 // The merged-set check only reads tool names; no client method ever runs.
@@ -71,7 +72,10 @@ describe("BUILTIN_TOOLS", () => {
       ...delegateTool({
         db,
         parentSessionId: "session-1",
-        prepareTurn: (session) => ({ session, turnDeps: { db, llmClients: stubClients } }),
+        startTurn: createTurnStarter({
+          db,
+          prepareTurn: (session) => ({ session, turnDeps: { db, llmClients: stubClients } }),
+        }),
       }),
       // Offered to child sessions where delegate/message_worker are not;
       // the registry carries all three, so merge both sides here.

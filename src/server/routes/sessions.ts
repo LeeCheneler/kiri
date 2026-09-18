@@ -42,8 +42,6 @@ import {
   getSessionLastActivity,
   getSessionMessages,
   pendingInboxItems,
-  resumeTurn,
-  runTurn,
   transcribeDraft,
   updateSessionSettings,
 } from "../sessions/index.ts";
@@ -730,9 +728,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             });
           }
         }
-        const prepared = runtime.prepareTurn(session);
-        const { response } = await resumeTurn(prepared.turnDeps, {
-          session: prepared.session,
+        const { response } = await runtime.startTurn(session, {
+          kind: "approvals",
           approvals: extractApprovals(parts),
         });
         return response;
@@ -771,11 +768,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
 
       const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };
-      const prepared = runtime.prepareTurn(session);
-      const { response } = await runTurn(prepared.turnDeps, {
-        session: prepared.session,
-        userMessage,
-      });
+      const { response } = await runtime.startTurn(session, { kind: "message", userMessage });
       return response;
     },
   );

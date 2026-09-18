@@ -2,9 +2,9 @@ import { type UIMessage, isToolUIPart } from "ai";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
-import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
+import { enqueueInboxItem } from "./inbox.ts";
 import { type Session, getSession, getSessionMessages, setSessionStatus } from "./store.ts";
-import { type PreparedTurn, type RunTurnDeps, runWakeTurn } from "./turn.ts";
+import type { StartTurn } from "./turn-start.ts";
 
 const log = createLogger("sessions");
 
@@ -12,12 +12,12 @@ export interface DelegationMessagingDeps {
   db: KiriDb;
   bus: EventBus;
   /**
-   * Prepares any session for a turn — a delegated child against the worker
-   * catalogue, a top-level session against the full one — so a wake can start
-   * a turn for whichever side of a delegation the message landed on, with the
-   * same working-directory repair a turn started by the user gets.
+   * Starts a turn for any session — a delegated child against the worker
+   * catalogue, a top-level session against the full one — so a wake runs
+   * whichever side of a delegation the message landed on, prepared as a turn
+   * started by the user is.
    */
-  prepareTurn: (session: Session) => PreparedTurn;
+  startTurn: StartTurn;
 }
 
 // The statuses a queued message wakes: out of a turn, with nothing else set
@@ -101,29 +101,21 @@ function settlementText(db: KiriDb, child: Session, event: TurnSettlement): stri
  * the session's own status through the turn machinery, and are logged here.
  */
 export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => void {
-  const { db, bus, prepareTurn } = deps;
+  const { db, bus, startTurn } = deps;
 
   const wake = async (sessionId: string) => {
     const session = getSession(db, sessionId);
     if (!session || !WAKEABLE.has(session.status)) return;
-    // `runWakeTurn` runs synchronously up to marking the session `running`
-    // (or returns null on an already-drained backlog), so a second queued
-    // event on the same tick finds it unwakeable rather than racing a
-    // concurrent turn.
-    // Nothing queued means no turn will run — the wake raced an earlier drain
-    // — so the session is left unprepared: a repair made now would be
-    // explained to no one.
-    if (pendingInboxItems(db, sessionId).length === 0) return;
-    let turnDeps: RunTurnDeps | undefined;
+    // A wake start runs synchronously up to marking the session `running`
+    // (or resolves null on an already-drained backlog — the wake raced an
+    // earlier drain), so a second queued event on the same tick finds it
+    // unwakeable rather than racing a concurrent turn.
     try {
-      const prepared = prepareTurn(session);
-      turnDeps = prepared.turnDeps;
-      const started = await runWakeTurn(turnDeps, { session: prepared.session });
+      const started = await startTurn(session, { kind: "wake" });
       await started?.done;
     } catch (cause) {
       // A startup failure has no stream to settle it (for example, the worker's
       // model no longer resolves). It still owes the parent a failure notice.
-      turnDeps?.cancelRegistry?.release(sessionId);
       setSessionStatus(db, sessionId, "failed", {
         finishedAt: new Date(),
         error: { message: cause instanceof Error ? cause.message : String(cause) },
