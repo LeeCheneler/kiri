@@ -180,7 +180,10 @@ Every session has an **effort level** — `low`, `medium` (the default),
 `high`, `xhigh`, or `max` — setting how hard the assistant works, using the
 provider's native reasoning controls where the model has them. Model and
 effort are independent levers: a large model can answer briskly at `low`, a
-small one can take its time at `high`.
+small one can take its time at `high`. Kiri sends reasoning settings only to a
+model known to take them — from its provider's listing, or, when the listing is
+unavailable or doesn't carry the model, from a well-known reasoning model
+family — and otherwise sends none.
 
 ## Tools from MCP servers
 
@@ -438,8 +441,9 @@ files, or other sources, without repeating completed actions. The full
 transcript stays visible, and each checkpoint expands to show its summary.
 Editing or deleting an earlier message removes subsequent checkpoints too.
 
-When a model's context window is unknown, Kiri uses a conservative **32,768-token
-working window** for these checks; this is not a claim about the provider's
+When a model's context window is unknown — its provider's listing doesn't
+report one, doesn't carry the model, or is unavailable — Kiri uses a
+conservative **32,768-token working window** for these checks; this is not a claim about the provider's
 actual limit. Switching models recalculates the budget on the next turn. A shared
 heuristic estimates visible text at roughly four ASCII characters per token,
 with a higher allowance for Unicode. It counts tool arguments, results, and

@@ -218,6 +218,15 @@ and tool calls already running retain their connections until they finish.
 Changing a provider refreshes its cached context limits, reasoning support, and
 document capabilities for new lookups. Models already resolved for a request
 keep their original endpoint and capabilities source.
+
+Kiri reads each model's limits and capabilities from its own provider's model
+listing, so a slow or unreachable provider never delays a session on another.
+A listing request is given ten seconds, reused for five minutes, and retried
+thirty seconds after a failure. When a listing is unavailable or doesn't carry
+a model, the model still runs: its context window is treated as unknown, and
+reasoning settings are sent only when its id belongs to a well-known reasoning
+family.
+
 Problems — an unset key variable, a reference to an undeclared
 provider, or expired Codex credentials — never block boot: they're flagged in the boot report and the
 in-app health banner. See [Troubleshooting](/docs/troubleshooting).

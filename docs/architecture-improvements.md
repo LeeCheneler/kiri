@@ -56,7 +56,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Related settings currently follow different timelines. A single owner makes valid edits, invalid edits, and runtime refresh behavior consistent without accidentally retaining filesystem access after a failed load.
 
-- [ ] **10 — Normalize model descriptions and isolate discovery**
+- [x] **10 — Normalize model descriptions and isolate discovery**
 
   **What:** Replace per-fact lookups with provider-scoped cached model descriptions. Bound discovery requests, support cancellation, and retain useful unknown-capability fallbacks. Distinguish model, transport/adapter, and parser support. Attach provider middleware at resolution rather than threading unrelated callbacks through the generic builder. Make endpoint-specific behavior explicit where needed, preserving custom endpoints.
 
