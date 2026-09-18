@@ -34,7 +34,7 @@ export function createCodexModel(
             include: ["reasoning.encrypted_content"],
             // The SDK's Responses mapping only lets PDFs through as file
             // parts; the backend also takes Office documents (see
-            // `documentInputFor`), so pass the rest through untouched.
+            // `endpointFor`), so pass the rest through untouched.
             passThroughUnsupportedFiles: true,
           },
         },

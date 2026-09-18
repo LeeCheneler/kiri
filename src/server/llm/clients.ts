@@ -11,7 +11,8 @@ import {
 } from "ai";
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
-import { type LlmModelsResult, isOpenRouterUrl, listLlmModels } from "./models.ts";
+import { endpointFor } from "./endpoint.ts";
+import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import { createOpenRouterModel } from "./openrouter-model.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
@@ -269,7 +270,7 @@ function buildCompatibleModel(
     apiKey,
     includeUsage: true,
   })(modelId);
-  return isOpenRouterUrl(provider.baseUrl)
+  return endpointFor(provider).kind === "openrouter"
     ? createOpenRouterModel(model, provider.name, nativeDocuments)
     : model;
 }

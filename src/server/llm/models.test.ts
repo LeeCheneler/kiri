@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import type { LlmProvider, LlmProviderRegistry } from "./index.ts";
-import { documentInputFor, listLlmModels } from "./models.ts";
+import { listLlmModels } from "./models.ts";
 import { createLlmProviderRegistry } from "./registry.ts";
 
 const registryWith = (...providers: LlmProvider[]): LlmProviderRegistry => {
@@ -938,35 +938,13 @@ describe("listLlmModels", () => {
   });
 });
 
-describe("documentInputFor", () => {
-  const codex: LlmProvider = { name: "chatgpt", type: "openai-codex" };
+describe("document input", () => {
   const openrouter: LlmProvider = {
     name: "openrouter",
     type: "openai-compatible",
     baseUrl: "https://openrouter.ai/api/v1",
     apiKeyEnv: "OPENROUTER_API_KEY",
   };
-
-  it("decides by provider transport, not by the model", () => {
-    expect(documentInputFor(codex)).toEqual([
-      "application/pdf",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      "application/vnd.ms-powerpoint",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "application/vnd.ms-excel",
-    ]);
-    expect(documentInputFor(openai)).toEqual(["application/pdf"]);
-    expect(documentInputFor(anthropic)).toEqual(["application/pdf"]);
-  });
-
-  it("takes PDFs on an openai-compatible provider only when it is OpenRouter", () => {
-    expect(documentInputFor(openrouter)).toEqual(["application/pdf"]);
-    expect(documentInputFor(local)).toEqual([]);
-    expect(documentInputFor({ ...local, baseUrl: "not a url" })).toEqual([]);
-    expect(documentInputFor({ ...local, baseUrl: undefined })).toEqual([]);
-  });
 
   it("reads native document support from an OpenRouter-shaped listing", async () => {
     server.use(

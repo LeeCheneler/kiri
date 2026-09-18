@@ -1,7 +1,7 @@
 // Document attachments ride the message as binary file parts, so unlike text
 // files (inlined as text) they only reach a model whose provider transport
 // maps the part. Which types a session can attach is decided server-side per
-// provider (see `documentInputFor`); this list is the vocabulary both sides
+// provider (see `endpointFor`); this list is the vocabulary both sides
 // share, keyed by extension because browsers report an empty or generic MIME
 // type for many Office files.
 
