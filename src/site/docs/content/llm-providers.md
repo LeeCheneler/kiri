@@ -211,8 +211,9 @@ same endpoint. Unset, push-to-talk stays off.
 
 ## Hot reload and health
 
-Edits to `kiri.yaml` apply live; an invalid edit keeps the last-known-good
-config. Overlapping MCP reconnects keep the latest requested configuration,
+Edits to `kiri.yaml` apply live; an invalid edit keeps the last good providers,
+MCP servers, and models — shortcuts, delegates, and the utility and
+transcription models — until the file is fixed. Overlapping MCP reconnects keep the latest requested configuration,
 and tool calls already running retain their connections until they finish.
 Changing a provider refreshes its cached context limits, reasoning support, and
 document capabilities for new lookups. Models already resolved for a request

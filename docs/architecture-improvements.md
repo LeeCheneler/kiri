@@ -50,7 +50,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Parallel image/document/text-file pipelines repeat lifecycle logic and make each new kind expensive. Separate asynchronous paths can also overwrite errors or submit before reading finishes.
 
-- [ ] **09 — Introduce one effective configuration snapshot**
+- [x] **09 — Introduce one effective configuration snapshot**
 
   **What:** Parse configuration through one service exposing an immutable revisioned snapshot and diagnostics. Replace independent per-section file reads and optional getters. Define which settings refresh per turn, step, or call. Preserve last-good connectivity and fail-closed filesystem behavior explicitly.
 

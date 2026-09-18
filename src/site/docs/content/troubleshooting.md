@@ -98,11 +98,14 @@ checkpoints remain, but they do not restart automatically.
 
 Most files are read fresh from disk — workflow edits, skills, `kiri.yaml`, and
 `kiri.md` all apply without a restart (a `kiri.yaml` edit re-validates workflows
-live, keeping the last-known-good config on an invalid edit). If a change isn't
-landing:
+live). If a change isn't landing:
 
 - Check the boot report / health banner for a parse error — an invalid
-  `kiri.yaml` keeps the previous config.
+  `kiri.yaml` keeps the previous providers, MCP servers, and models, and
+  withholds the file and shell tools until it is valid again. If a session
+  suddenly has no file access, this is the first thing to check.
+- A change to `filesystem:` applies from the **next turn**; a turn already
+  running keeps the sandbox it started with.
 - A `kiri.md`, project instructions, or `AGENTS.md` change applies before the
   **next model step**, including within a turn already in progress. A directory
   move refreshes the applicable instructions at the same boundary. An
