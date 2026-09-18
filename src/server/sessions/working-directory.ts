@@ -2,7 +2,6 @@ import { existsSync, realpathSync } from "node:fs";
 import { sep } from "node:path";
 import type { ConfigSnapshot } from "../config/service.ts";
 import type { KiriDb } from "../db/index.ts";
-import type { EventBus } from "../events/index.ts";
 import { type Session, updateSessionCwd } from "./store.ts";
 
 /**
@@ -85,21 +84,24 @@ export function healMissingCwd(db: KiriDb, snapshot: ConfigSnapshot, session: Se
  * one — gone from disk (a deleted worktree), or moved outside the sandbox by
  * a kiri.yaml edit — heals rather than failing the turn: the session falls
  * back to the configured default (or to none when no usable default exists),
- * the change is published, and the returned `notice` is what this turn's
- * prompt must say about the move. Nothing ever runs under the stale
- * directory, and no manual reset is needed. A session with no directory picks
- * up the default silently.
+ * and the returned `notice` is what this turn's prompt must say about the
+ * move. Nothing ever runs under the stale directory, and no manual reset is
+ * needed. A session with no directory picks up the default silently.
+ *
+ * Publishes nothing: the turn being prepared marks the session running next,
+ * and that update carries the change. An update of its own would show the
+ * session idle — which reads as a settled turn, waking its queued backlog
+ * into a turn that never hears the notice.
  */
 export function prepareWorkingDirectory(
-  deps: { db: KiriDb; bus?: EventBus },
+  db: KiriDb,
   snapshot: ConfigSnapshot,
   session: Session,
 ): { session: Session; notice?: string } {
-  const { db, bus } = deps;
   const stale = session.cwd === null ? null : staleCwdReason(session.cwd, sandboxOf(snapshot));
   const cleared = stale === null ? session : updateSessionCwd(db, session.id, null);
   const healed = healMissingCwd(db, snapshot, cleared);
-  if (stale === null) return { session: healed };
-  bus?.publish({ type: "session.updated", id: healed.id, status: healed.status });
-  return { session: healed, notice: cwdMoveNotice(stale, healed.cwd) };
+  return stale === null
+    ? { session: healed }
+    : { session: healed, notice: cwdMoveNotice(stale, healed.cwd) };
 }

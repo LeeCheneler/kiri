@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { ConfigSnapshot } from "../config/service.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { type KiriEvent, createEventBus } from "../events/index.ts";
 import { createSession, getSession } from "./store.ts";
 import {
   defaultWorkingDirectory,
@@ -90,35 +89,32 @@ describe("session working directory", () => {
   });
 
   describe("prepareWorkingDirectory", () => {
-    const prepare = (snapshot: ConfigSnapshot, cwd?: string) => {
-      const events: KiriEvent[] = [];
-      const bus = createEventBus();
-      bus.subscribe((event) => events.push(event));
-      const session = createSession(db, MODEL, { id: "s1", ...(cwd ? { cwd } : {}) });
-      return { ...prepareWorkingDirectory({ db, bus }, snapshot, session), events };
-    };
+    const prepare = (snapshot: ConfigSnapshot, cwd?: string) =>
+      prepareWorkingDirectory(
+        db,
+        snapshot,
+        createSession(db, MODEL, { id: "s1", ...(cwd ? { cwd } : {}) }),
+      );
 
     it("leaves a usable working directory untouched and says nothing", () => {
       const snapshot = snapshotWith({ allowedDirectories: [root], defaultWorkingDirectory: root });
       mkdirSync(join(root, "inner"));
 
-      const { session, notice, events } = prepare(snapshot, join(root, "inner"));
+      const { session, notice } = prepare(snapshot, join(root, "inner"));
 
       expect(session.cwd).toBe(join(root, "inner"));
       expect(notice).toBeUndefined();
-      expect(events).toEqual([]);
     });
 
-    it("moves a stale directory to the default, publishing and explaining the move", () => {
+    it("moves a stale directory to the default and explains the move", () => {
       const snapshot = snapshotWith({ allowedDirectories: [root], defaultWorkingDirectory: root });
 
-      const { session, notice, events } = prepare(snapshot, join(root, "gone"));
+      const { session, notice } = prepare(snapshot, join(root, "gone"));
 
       expect(session.cwd).toBe(root);
       expect(getSession(db, "s1")?.cwd).toBe(root);
       expect(notice).toContain(`"${join(root, "gone")}" no longer exists`);
       expect(notice).toContain(`moved to the configured default working directory, "${root}"`);
-      expect(events).toEqual([{ type: "session.updated", id: "s1", status: "idle" }]);
     });
 
     it("clears a stale directory outright when no usable default exists", () => {
@@ -150,11 +146,10 @@ describe("session working directory", () => {
     it("gives a session without a directory the default, silently", () => {
       const snapshot = snapshotWith({ allowedDirectories: [root], defaultWorkingDirectory: root });
 
-      const { session, notice, events } = prepare(snapshot);
+      const { session, notice } = prepare(snapshot);
 
       expect(session.cwd).toBe(root);
       expect(notice).toBeUndefined();
-      expect(events).toEqual([]);
     });
 
     it("leaves a session without a directory alone when no default exists", () => {

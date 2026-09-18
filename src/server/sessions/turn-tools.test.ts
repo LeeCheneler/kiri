@@ -104,7 +104,7 @@ describe("turn tools", () => {
         : {}),
       toolPermissions,
       commandLearning,
-      childTurnDeps: () => ({ db, llmClients }),
+      prepareTurn: (session) => ({ session, turnDeps: { db, llmClients } }),
     });
     return {
       tools: (sessionId: string) => turnTools.activeTools(sessionId, snapshot),

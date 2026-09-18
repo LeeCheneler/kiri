@@ -86,6 +86,13 @@ export interface RunTurnDeps {
   tools?: ToolSet | ((context: { writer: UIMessageStreamWriter }) => ToolSet);
 }
 
+/** A session made ready for a turn, with the dependencies that turn runs against. */
+export interface PreparedTurn {
+  /** The session as it stands after preparation — run the turn with this one. */
+  session: Session;
+  turnDeps: RunTurnDeps;
+}
+
 // Upper bound on model⇄tool round-trips in a single turn. With tools, a turn
 // loops — call a tool, feed the result back, maybe call again — and this cap
 // stops a misbehaving model from looping without end. Generous enough for

@@ -71,7 +71,7 @@ describe("BUILTIN_TOOLS", () => {
       ...delegateTool({
         db,
         parentSessionId: "session-1",
-        childTurnDeps: () => ({ db, llmClients: stubClients }),
+        prepareTurn: (session) => ({ session, turnDeps: { db, llmClients: stubClients } }),
       }),
       // Offered to child sessions where delegate/message_worker are not;
       // the registry carries all three, so merge both sides here.

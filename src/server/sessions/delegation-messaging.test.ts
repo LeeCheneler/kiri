@@ -21,6 +21,7 @@ import {
   getSession,
   getSessionMessages,
   setSessionStatus,
+  updateSessionCwd,
 } from "./store.ts";
 import { type RunTurnDeps, resumeTurn, runTurn } from "./turn.ts";
 
@@ -91,12 +92,12 @@ describe("mountDelegationMessaging", () => {
 
   const mount = (prompts: unknown[] = []) => {
     const bus = createEventBus();
-    const turnDepsFor = (): RunTurnDeps => ({
+    const turnDeps: RunTurnDeps = { db, llmClients: clientsFor(capturingModel(prompts)), bus };
+    const unsubscribe = mountDelegationMessaging({
       db,
-      llmClients: clientsFor(capturingModel(prompts)),
       bus,
+      prepareTurn: (session) => ({ session, turnDeps }),
     });
-    const unsubscribe = mountDelegationMessaging({ db, bus, turnDepsFor });
     return { bus, unsubscribe };
   };
 
@@ -112,6 +113,56 @@ describe("mountDelegationMessaging", () => {
     await until(() => getSession(db, "parent")?.status === "idle");
     expect(JSON.stringify(prompts[0])).toContain("the report");
     expect(pendingInboxItems(db, "parent")).toEqual([]);
+  });
+
+  it("runs the wake turn with the session and dependencies its preparation returns", async () => {
+    const bus = createEventBus();
+    const prompted: (string | null)[] = [];
+    mountDelegationMessaging({
+      db,
+      bus,
+      // A preparation that repairs the working directory before the turn.
+      prepareTurn: (session) => ({
+        session: updateSessionCwd(db, session.id, dir),
+        turnDeps: {
+          db,
+          bus,
+          llmClients: clientsFor(capturingModel([])),
+          buildSystemPrompt: (current) => {
+            prompted.push(current.cwd);
+            return "prompt";
+          },
+        },
+      }),
+    });
+    createSession(db, MODEL, { id: "parent", cwd: join(dir, "gone") });
+    enqueueInboxItem(db, "parent", { source: "child", text: "the report" });
+
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+
+    await until(() => getSession(db, "parent")?.status === "idle" && prompted.length > 0);
+    expect(prompted[0]).toBe(dir);
+  });
+
+  it("leaves a session with nothing queued unprepared", async () => {
+    const bus = createEventBus();
+    let prepared = 0;
+    mountDelegationMessaging({
+      db,
+      bus,
+      prepareTurn: (session) => {
+        prepared += 1;
+        return { session, turnDeps: { db, bus, llmClients: clientsFor(capturingModel([])) } };
+      },
+    });
+    createSession(db, MODEL, { id: "parent" });
+
+    // The queued message was withdrawn, or an earlier turn already drained it.
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(prepared).toBe(0);
+    expect(getSession(db, "parent")?.status).toBe("idle");
   });
 
   it("wakes a failed session, so a dead parent still hears its workers", async () => {
@@ -178,7 +229,7 @@ describe("mountDelegationMessaging", () => {
 
   it("survives a wake whose turn cannot start, leaving the backlog queued", async () => {
     const bus = createEventBus();
-    const turnDepsFor = (): RunTurnDeps => ({
+    const turnDeps: RunTurnDeps = {
       db,
       llmClients: {
         ...clientsFor(capturingModel([])),
@@ -187,8 +238,8 @@ describe("mountDelegationMessaging", () => {
         },
       },
       bus,
-    });
-    mountDelegationMessaging({ db, bus, turnDepsFor });
+    };
+    mountDelegationMessaging({ db, bus, prepareTurn: (session) => ({ session, turnDeps }) });
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
@@ -441,16 +492,19 @@ describe("mountDelegationMessaging", () => {
     mountDelegationMessaging({
       db,
       bus,
-      turnDepsFor: () => ({
-        db,
-        bus,
-        llmClients: {
-          ...clientsFor(capturingModel([])),
-          resolveModel: () => {
-            throw "model removed";
+      prepareTurn: (session) => ({
+        session,
+        turnDeps: {
+          db,
+          bus,
+          llmClients: {
+            ...clientsFor(capturingModel([])),
+            resolveModel: () => {
+              throw "model removed";
+            },
           },
+          cancelRegistry,
         },
-        cancelRegistry,
       }),
     });
     createSession(db, MODEL, { id: "parent" });

@@ -2637,10 +2637,51 @@ describe("sessions routes", () => {
       await settled;
 
       // The stale value was swapped for the configured default before the
-      // turn ran, and the swap was announced so the app can refresh.
+      // turn ran. The turn's own running update is what refreshes the app —
+      // the repair announces nothing idle-shaped ahead of it, which would
+      // read as a settled turn.
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events.filter((event) => event.type === "session.updated")[0]).toEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+      });
       // The turn's system prompt told the model about the move.
+      expect(systemText).toContain(`"${join(env.cwd, "gone")}" no longer exists`);
+      expect(systemText).toContain(
+        `moved to the configured default working directory, "${env.cwd}"`,
+      );
+    });
+
+    it("heals a woken session's working directory too, and tells its model", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const { bus, waitForSettled } = createSessionWaiter();
+      makeApp(fakeClients({ model }), { bus, defaultWorkingDirectory: env.cwd });
+      createSession(env.db, MODEL, { id: "s1", title: "woken", cwd: join(env.cwd, "gone") });
+
+      // A worker's report queues for the idle session and wakes it — no HTTP
+      // turn is involved.
+      const settled = waitForSettled("s1");
+      enqueueInboxItem(env.db, "s1", { source: "child", text: "the report" });
+      bus.publish({ type: "session.inbox.queued", sessionId: "s1" });
+      await settled;
+
+      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
       expect(systemText).toContain(`"${join(env.cwd, "gone")}" no longer exists`);
       expect(systemText).toContain(
         `moved to the configured default working directory, "${env.cwd}"`,

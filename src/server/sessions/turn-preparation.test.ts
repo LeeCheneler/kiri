@@ -13,8 +13,9 @@ import { createRegistry } from "../workflows/index.ts";
 import { createSession, getSession, updateSessionCwd } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
 import { createToolPermissionStore } from "./tool-permissions.ts";
-import { type PreparedTurn, createTurnPreparation } from "./turn-preparation.ts";
+import { createTurnPreparation } from "./turn-preparation.ts";
 import { createTurnTools } from "./turn-tools.ts";
+import type { PreparedTurn } from "./turn.ts";
 
 const MODEL = "test:model";
 
@@ -75,7 +76,7 @@ describe("turn preparation", () => {
         guidance: () => "",
         flush: async () => {},
       },
-      childTurnDeps: () => ({ db, llmClients }),
+      prepareTurn: (session) => ({ session, turnDeps: { db, llmClients } }),
     });
     return createTurnPreparation({
       db,

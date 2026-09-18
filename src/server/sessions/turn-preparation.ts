@@ -14,7 +14,7 @@ import type { StreamRegistry } from "./stream-registry.ts";
 import { createSystemPromptBuilder } from "./system-prompt.ts";
 import { summariseTaskList } from "./task-tools.ts";
 import type { TurnTools } from "./turn-tools.ts";
-import type { RunTurnDeps } from "./turn.ts";
+import type { PreparedTurn, RunTurnDeps } from "./turn.ts";
 import { prepareWorkingDirectory, sandboxOf } from "./working-directory.ts";
 
 export interface TurnPreparationDeps {
@@ -31,13 +31,6 @@ export interface TurnPreparationDeps {
   turnTools: TurnTools;
 }
 
-/** A session made ready for a turn, with the dependencies that turn runs against. */
-export interface PreparedTurn {
-  /** The session as it stands after preparation — run the turn with this one. */
-  session: Session;
-  turnDeps: RunTurnDeps;
-}
-
 /** Prepares turns the same way for every driver: a message, an approval continuation, a worker spawn, a wake. */
 export interface TurnPreparation {
   /**
@@ -50,8 +43,6 @@ export interface TurnPreparation {
    * turn the standard working-directory line is accurate on its own.
    */
   prepareTurn(session: Session): PreparedTurn;
-  /** The turn dependencies for a session whose working directory is left as it stands. */
-  turnDepsFor(sessionId: string): RunTurnDeps;
 }
 
 /** Create the turn preparation a session surface shares between every driver of a turn. */
@@ -120,7 +111,7 @@ export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparatio
   return {
     prepareTurn(session) {
       const snapshot = configService.current();
-      const prepared = prepareWorkingDirectory({ db, bus }, snapshot, session);
+      const prepared = prepareWorkingDirectory(db, snapshot, session);
       const base = turnDepsUnder(session.id, snapshot);
       const { notice } = prepared;
       if (notice === undefined) return { session: prepared.session, turnDeps: base };
@@ -136,6 +127,5 @@ export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparatio
         },
       };
     },
-    turnDepsFor: (sessionId) => turnDepsUnder(sessionId, configService.current()),
   };
 }

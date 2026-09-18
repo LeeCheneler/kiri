@@ -264,7 +264,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     toolPermissions,
     getProviderNames,
     commandLearning,
-    childTurnDeps: (childSessionId) => preparation.turnDepsFor(childSessionId),
+    prepareTurn: (session) => preparation.prepareTurn(session),
   });
 
   // Every driver of a turn — the turn endpoint, a delegate spawn, and a
@@ -285,7 +285,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // The delegation messaging loop: a message queued to a session that is out
   // of a turn wakes it, and a child whose turn fails notices its parent.
   // Lives for the app's lifetime, like the surface's routes themselves.
-  if (bus) mountDelegationMessaging({ db, bus, turnDepsFor: preparation.turnDepsFor });
+  if (bus) mountDelegationMessaging({ db, bus, prepareTurn: preparation.prepareTurn });
 
   // The listing carries the configured model shortcuts alongside the models,
   // so the pickers can pin them and new sessions can start on the first one,

@@ -28,7 +28,6 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
-import type { RunTurnDeps } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -99,9 +98,9 @@ describe("delegate tool", () => {
     db,
     parentSessionId: "parent",
     bus,
-    childTurnDeps: (childSessionId): RunTurnDeps => {
-      capture.childId = childSessionId;
-      return { db, llmClients: clientsFor(model), bus };
+    prepareTurn: (child) => {
+      capture.childId = child.id;
+      return { session: child, turnDeps: { db, llmClients: clientsFor(model), bus } };
     },
   });
 
@@ -146,6 +145,37 @@ describe("delegate tool", () => {
       { toolCallId: opts.toolCallId ?? "call_1", messages: [], abortSignal: opts.abortSignal },
     );
   };
+
+  it("runs the worker with the session and dependencies its preparation returns", async () => {
+    const prompted: (string | null)[] = [];
+    const capture: { childId?: string } = {};
+    const deps: DelegateToolDeps = {
+      db,
+      parentSessionId: "parent",
+      bus,
+      // A preparation that repairs the working directory before the turn.
+      prepareTurn: (child) => {
+        capture.childId = child.id;
+        return {
+          session: updateSessionCwd(db, child.id, dir),
+          turnDeps: {
+            db,
+            bus,
+            llmClients: clientsFor(reportingModel("done")),
+            buildSystemPrompt: (current) => {
+              prompted.push(current.cwd);
+              return "prompt";
+            },
+          },
+        };
+      },
+    };
+
+    await invoke(deps, "look into it");
+    await settled(capture.childId);
+
+    expect(prompted[0]).toBe(dir);
+  });
 
   it("spawns a detached child session and resolves immediately with its id", async () => {
     const events: KiriEvent[] = [];
@@ -458,7 +488,10 @@ describe("message_worker tool", () => {
       db,
       parentSessionId: "parent",
       bus,
-      childTurnDeps: () => ({ db, llmClients: clientsFor(reportingModel("unused")) }),
+      prepareTurn: (session) => ({
+        session,
+        turnDeps: { db, llmClients: clientsFor(reportingModel("unused")) },
+      }),
     });
     const sendTool = set[MESSAGE_WORKER_TOOL_NAME] as {
       execute: (
