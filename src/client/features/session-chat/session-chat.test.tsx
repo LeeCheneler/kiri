@@ -215,10 +215,9 @@ const runningToolTranscript = () => [
 
 // happy-dom has no layout, so the page never actually scrolls. Stand in for it:
 // track the page offset and the foot it can scroll to, and capture the chat's own
-// scrolls. The chat always asks to scroll to the foot and a real browser clamps
-// that to the furthest the page allows, so `window.scrollTo` lands the offset on
-// `foot` here — which is what lets a test move the foot and watch the chat cope.
-// Install before rendering: the chat reads the offset as it lands on the foot.
+// sentinel scrolls. A real browser clamps `scrollIntoView` to the furthest the
+// page allows, so landing the offset on `foot` lets a test move the foot and watch
+// the chat cope. Install before rendering: the chat reads the offset as it lands.
 const stubScrolling = (initialFoot: number) => {
   let top = initialFoot;
   let foot = initialFoot;
@@ -227,12 +226,24 @@ const stubScrolling = (initialFoot: number) => {
     configurable: true,
     get: () => top,
   });
-  const scrollCalls: ScrollToOptions[] = [];
-  const originalScrollTo = window.scrollTo;
-  window.scrollTo = ((options: ScrollToOptions) => {
-    scrollCalls.push(options);
+  const scrollCalls: ScrollIntoViewOptions[] = [];
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = ((options?: boolean | ScrollIntoViewOptions) => {
+    if (typeof options === "object") scrollCalls.push(options);
     top = foot;
-  }) as typeof scrollTo;
+  }) as typeof HTMLElement.prototype.scrollIntoView;
+
+  const OriginalResizeObserver = globalThis.ResizeObserver;
+  let resizeCallback: ResizeObserverCallback | undefined;
+  class TestResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      resizeCallback = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
 
   return {
     scrollCalls,
@@ -245,8 +256,13 @@ const stubScrolling = (initialFoot: number) => {
     setFoot(next: number) {
       foot = next;
     },
+    async resize() {
+      resizeCallback?.([], {} as ResizeObserver);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    },
     restore() {
-      window.scrollTo = originalScrollTo;
+      globalThis.ResizeObserver = OriginalResizeObserver;
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
       // Drop the shadowing own property so the prototype's accessor is exposed
       // again — assigning `undefined` would leave the shadow in place.
       if (descriptor) Object.defineProperty(document.documentElement, "scrollTop", descriptor);
@@ -1675,7 +1691,9 @@ describe("<SessionChat>", () => {
 
       // Landing jumps straight to the latest message: an instant scroll that
       // opts out of the document's smooth scroll-behavior.
-      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+      await waitFor(() =>
+        expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true),
+      );
       expect(scroll.scrollCalls.some((o) => o.behavior === "smooth")).toBe(false);
     } finally {
       scroll.restore();
@@ -1706,6 +1724,7 @@ describe("<SessionChat>", () => {
       };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
+      await scroll.resize();
 
       expect(scroll.scrollCalls).toHaveLength(0);
     } finally {
@@ -1737,8 +1756,11 @@ describe("<SessionChat>", () => {
       };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
+      await scroll.resize();
 
-      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+      await waitFor(() =>
+        expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true),
+      );
     } finally {
       scroll.restore();
     }
@@ -1767,6 +1789,7 @@ describe("<SessionChat>", () => {
       };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
+      await scroll.resize();
       window.dispatchEvent(new Event("scroll"));
       scroll.scrollCalls.length = 0;
 
@@ -1784,8 +1807,11 @@ describe("<SessionChat>", () => {
       };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("Another");
+      await scroll.resize();
 
-      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+      await waitFor(() =>
+        expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true),
+      );
     } finally {
       scroll.restore();
     }
@@ -1812,8 +1838,11 @@ describe("<SessionChat>", () => {
       await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello there");
       await user.keyboard("{Enter}");
       await screen.findByText("Hi back");
+      await scroll.resize();
 
-      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+      await waitFor(() =>
+        expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true),
+      );
     } finally {
       scroll.restore();
     }
