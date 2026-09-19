@@ -75,6 +75,7 @@ describe("turn preparation", () => {
         recordResolution: () => {},
         guidance: () => "",
         flush: async () => {},
+        stop: () => {},
       },
       startTurn: () => {
         throw new Error("no turn starts in this test");

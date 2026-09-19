@@ -7,7 +7,12 @@ import { migrate } from "../db/migrate.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createSession, getSession, setSessionStatus } from "./store.ts";
 import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
-import { TurnInFlightError, type TurnLifecycle, createTurnLifecycle } from "./turn-lifecycle.ts";
+import {
+  ShuttingDownError,
+  TurnInFlightError,
+  type TurnLifecycle,
+  createTurnLifecycle,
+} from "./turn-lifecycle.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -210,5 +215,31 @@ describe("createTurnLifecycle", () => {
     await lease.done;
     db = openDatabase(join(dir, "state.db"));
     expect(lifecycle.cancel("s1")).toBe(false);
+  });
+
+  it("drains by aborting every executing turn and waiting for each to settle", async () => {
+    createSession(db, MODEL, { id: "s2" });
+    const begun = lifecycle.acquire("s1");
+    begun.begin();
+    const unbegun = lifecycle.acquire("s2");
+
+    let drained = false;
+    const draining = lifecycle.drain().then(() => {
+      drained = true;
+    });
+    expect(begun.signal.aborted).toBe(true);
+    expect(unbegun.signal.aborted).toBe(true);
+
+    begun.settle({ status: "cancelled", messageId: null });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    unbegun.fail(new Error("never started"));
+    await draining;
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+  });
+
+  it("refuses every turn once draining, and drains at once with none executing", async () => {
+    await lifecycle.drain();
+    expect(() => lifecycle.acquire("s1")).toThrow(ShuttingDownError);
   });
 });

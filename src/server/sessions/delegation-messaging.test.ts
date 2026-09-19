@@ -24,7 +24,7 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
-import { TurnInFlightError } from "./turn-lifecycle.ts";
+import { ShuttingDownError, TurnInFlightError } from "./turn-lifecycle.ts";
 import type { StartTurn } from "./turn-start.ts";
 import type { RunTurnDeps } from "./turn.ts";
 
@@ -316,6 +316,28 @@ describe("mountDelegationMessaging", () => {
     // The turn that holds the session delivers the backlog; nothing went wrong here.
     expect(logged).not.toHaveBeenCalled();
     expect(getSession(db, "parent")?.status).toBe("idle");
+    expect(pendingInboxItems(db, "parent")).toHaveLength(1);
+    logged.mockRestore();
+  });
+
+  it("leaves the backlog queued when the application is shutting down", async () => {
+    const bus = createEventBus();
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    mountDelegationMessaging({
+      db,
+      bus,
+      startTurn: (async () => {
+        throw new ShuttingDownError();
+      }) as StartTurn,
+    });
+    createSession(db, MODEL, { id: "parent" });
+    enqueueInboxItem(db, "parent", { source: "child", text: "report" });
+
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    await tick();
+
+    // The next start wakes the session for it; nothing went wrong here.
+    expect(logged).not.toHaveBeenCalled();
     expect(pendingInboxItems(db, "parent")).toHaveLength(1);
     logged.mockRestore();
   });

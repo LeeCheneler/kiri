@@ -35,6 +35,12 @@ export interface CommandLearning {
   guidance(): string;
   /** Run any pending distillation now and settle — for tests. */
   flush(): Promise<void>;
+  /**
+   * Schedule nothing further. Events still log, and a distillation already
+   * running is left to finish or be cut short: it touches only its own files,
+   * and its guidance write is atomic.
+   */
+  stop(): void;
 }
 
 /**
@@ -64,6 +70,7 @@ export function createCommandLearning(opts: {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let running: Promise<void> | null = null;
   let rerun = false;
+  let stopped = false;
 
   const distillOnce = async (): Promise<void> => {
     const model = getModel();
@@ -105,6 +112,7 @@ export function createCommandLearning(opts: {
   };
 
   const schedule = (): void => {
+    if (stopped) return;
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
@@ -137,6 +145,11 @@ export function createCommandLearning(opts: {
         timer = null;
         await start();
       }
+    },
+    stop: () => {
+      stopped = true;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
     },
   };
 }

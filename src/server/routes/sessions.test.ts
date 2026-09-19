@@ -25,6 +25,7 @@ import { type ConfigService, type ConfigSnapshot, createConfigService } from "..
 import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
+import { type AppLifetime, createAppLifetime } from "../lifetime.ts";
 import {
   type LlmClients,
   type LlmModel,
@@ -211,6 +212,7 @@ describe("sessions routes", () => {
       /** Served in place of the workspace's default working directory. */
       defaultWorkingDirectory?: string;
       commandLearning?: CommandLearning;
+      lifetime?: AppLifetime;
     } = {},
   ) => {
     const { models, defaultWorkingDirectory, ...deps } = extra;
@@ -2962,6 +2964,7 @@ describe("sessions routes", () => {
           },
           guidance: () => guidance,
           flush: async () => {},
+          stop: () => {},
         };
         return { judgements, resolutions, learning };
       };
@@ -3600,6 +3603,45 @@ describe("sessions routes", () => {
         headers: CLIENT_HEADERS,
       });
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("application shutdown", () => {
+    it("settles an in-flight turn before the database closes, then starts nothing more", async () => {
+      const titled: string[] = [];
+      const lifetime = createAppLifetime();
+      const { bus } = createSessionWaiter();
+      const app = makeApp(
+        fakeClients({
+          model: pendingModel(),
+          generateText: async ({ prompt }) => {
+            titled.push(String(prompt));
+            return { text: "", usage: {} };
+          },
+        }),
+        { bus, lifetime },
+      );
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s2" });
+      let statusAtClose: string | undefined;
+      lifetime.onClose("db", () => {
+        statusAtClose = getSession(env.db, "s1")?.status;
+      });
+
+      // The turn parks (the model stream never closes); shutdown cancels it.
+      const turn = await postMessage(app, "s1", "Hi there");
+      const shutdown = lifetime.shutdown();
+      await turn.text();
+      await shutdown;
+      expect(statusAtClose).toBe("cancelled");
+      expect(titled).toHaveLength(1);
+
+      // A message that arrives afterwards starts neither a turn nor a title call.
+      const refused = await postMessage(app, "s2", "Anyone there?");
+      expect(refused.status).toBe(503);
+      expect(await refused.json()).toEqual({ error: "kiri is shutting down" });
+      expect(getSession(env.db, "s2")?.status).toBe("idle");
+      expect(titled).toHaveLength(1);
     });
   });
 

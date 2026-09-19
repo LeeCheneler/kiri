@@ -11,6 +11,14 @@ export class TurnInFlightError extends Error {
   }
 }
 
+/** Thrown by `acquire` once the application has begun shutting down. */
+export class ShuttingDownError extends Error {
+  constructor() {
+    super("kiri is shutting down");
+    this.name = "ShuttingDownError";
+  }
+}
+
 /** How a turn came to rest, handed to the lease that owns it. */
 export interface TurnSettlement {
   /** Where the session rests: `waiting` is an approval pause, not an end. */
@@ -64,15 +72,25 @@ export interface TurnLifecycleDeps {
 
 /** Owns which execution, if any, holds each session. */
 export interface TurnLifecycle {
-  /** Take the session for a new turn. Throws `TurnInFlightError` while another lease holds it. */
+  /**
+   * Take the session for a new turn. Throws `TurnInFlightError` while another
+   * lease holds it, and `ShuttingDownError` once `drain` has been called.
+   */
   acquire(sessionId: string): TurnLease;
   /** Abort the session's executing turn. False when none is executing. */
   cancel(sessionId: string): boolean;
+  /**
+   * Refuse every later turn and abort the ones executing, a worker's like any
+   * other. Resolves once they have all settled, each as `cancelled` with the
+   * work it completed saved.
+   */
+  drain(): Promise<void>;
 }
 
 interface ActiveTurn {
   turnId: string;
   controller: AbortController;
+  done: Promise<void>;
 }
 
 const outcomeOf = (settlement: TurnSettlement) => {
@@ -89,21 +107,23 @@ const outcomeOf = (settlement: TurnSettlement) => {
 export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
   const { db, bus, streamRegistry } = deps;
   const active = new Map<string, ActiveTurn>();
+  let draining = false;
 
   return {
     acquire(sessionId) {
+      if (draining) throw new ShuttingDownError();
       if (active.has(sessionId)) throw new TurnInFlightError(sessionId);
       const turnId = crypto.randomUUID();
       const controller = new AbortController();
-      active.set(sessionId, { turnId, controller });
-      const holds = () => active.get(sessionId)?.turnId === turnId;
-
-      let begun = false;
-      let sink: StreamSink | undefined;
       let resolveDone!: () => void;
       const done = new Promise<void>((resolve) => {
         resolveDone = resolve;
       });
+      active.set(sessionId, { turnId, controller, done });
+      const holds = () => active.get(sessionId)?.turnId === turnId;
+
+      let begun = false;
+      let sink: StreamSink | undefined;
 
       const release = () => {
         sink?.close();
@@ -183,6 +203,13 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
       if (!turn) return false;
       turn.controller.abort();
       return true;
+    },
+
+    async drain() {
+      draining = true;
+      const turns = [...active.values()];
+      for (const turn of turns) turn.controller.abort();
+      await Promise.all(turns.map((turn) => turn.done));
     },
   };
 }

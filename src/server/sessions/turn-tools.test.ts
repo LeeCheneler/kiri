@@ -92,6 +92,7 @@ describe("turn tools", () => {
       recordResolution: () => {},
       guidance: () => "",
       flush: async () => {},
+      stop: () => {},
     };
     const turnTools = createTurnTools({
       db,

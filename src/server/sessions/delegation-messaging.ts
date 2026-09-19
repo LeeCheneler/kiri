@@ -5,7 +5,7 @@ import { createLogger } from "../log.ts";
 import { type InboxTrigger, inboxDelivery, queuedBy } from "./inbox-delivery.ts";
 import { enqueueInboxItem, sessionsWithBacklog } from "./inbox.ts";
 import { type Session, getSession, getSessionMessages } from "./store.ts";
-import { TurnInFlightError } from "./turn-lifecycle.ts";
+import { ShuttingDownError, TurnInFlightError } from "./turn-lifecycle.ts";
 import type { StartTurn } from "./turn-start.ts";
 
 const log = createLogger("sessions");
@@ -113,6 +113,8 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
       // Losing the session to another turn is no failure: that turn weaves
       // the backlog in, or its idle settle wakes the session again.
       if (cause instanceof TurnInFlightError) return;
+      // The backlog stays queued, and the next start wakes the session for it.
+      if (cause instanceof ShuttingDownError) return;
       // The start has already settled the session as failed (for example, the
       // worker's model no longer resolves), which notices its parent below.
       log.error(`wake turn for session ${sessionId} failed`, cause);

@@ -2,6 +2,7 @@ import type { ConfigService } from "../config/service.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
+import { type AppLifetime, createAppLifetime } from "../lifetime.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
@@ -52,6 +53,11 @@ export interface SessionRuntimeDeps {
    * instance under `.kiri`; injectable for tests.
    */
   commandLearning?: CommandLearning;
+  /**
+   * The application's lifetime, which every turn and background call belongs
+   * to. Defaults to one nothing shuts down.
+   */
+  lifetime?: AppLifetime;
 }
 
 /** What runs a session's turns, shared by every driver: HTTP, a worker spawn, a wake. */
@@ -64,13 +70,20 @@ export interface SessionRuntime {
   startTurn: StartTurn;
   /** Abort the session's executing turn, which settles as `cancelled`. False when none is executing. */
   cancelTurn(sessionId: string): boolean;
+  /**
+   * Run a call nothing waits on, such as naming a session, holding the
+   * application open until it settles. Not started once shutdown has begun.
+   */
+  background(name: string, task: () => Promise<unknown>): void;
 }
 
 /**
  * Compose the session runtime: the turn lifecycle, tool assembly and turn
  * preparation every driver shares, over one stream registry and one learning
  * loop. It also mounts the delegation messaging loop, which lives as long as
- * the runtime does.
+ * the runtime does: at shutdown the turns are drained first, so a cancelled
+ * worker still leaves its notice for its parent, and the loop is unmounted
+ * after them.
  */
 export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
   const { db, config, configService, llmClients, bus, cancelRegistry } = deps;
@@ -117,7 +130,22 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     prepareTurn: preparation.prepareTurn,
   });
 
-  mountDelegationMessaging({ db, bus, startTurn });
+  const unmountMessaging = mountDelegationMessaging({ db, bus, startTurn });
 
-  return { streamRegistry, commandLearning, startTurn, cancelTurn: lifecycle.cancel };
+  const lifetime = deps.lifetime ?? createAppLifetime();
+  lifetime.own("session turns", async () => {
+    commandLearning.stop();
+    await lifecycle.drain();
+    unmountMessaging();
+  });
+
+  return {
+    streamRegistry,
+    commandLearning,
+    startTurn,
+    cancelTurn: lifecycle.cancel,
+    background(name, task) {
+      if (!lifetime.closing.aborted) lifetime.track(name, task());
+    },
+  };
 }

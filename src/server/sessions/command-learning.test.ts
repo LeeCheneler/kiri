@@ -161,6 +161,16 @@ describe("createCommandLearning", () => {
     expect(calls[1]).toContain('"resolution"');
   });
 
+  it("schedules no distillation once stopped, while still logging events", async () => {
+    const { learning: loop, calls } = learning(() => "- rules");
+    loop.recordJudgement(judgement("call-1"));
+    loop.stop();
+    loop.recordJudgement(judgement("call-2"));
+    await Bun.sleep(10);
+    expect(calls).toHaveLength(0);
+    expect(readRecentCommandEvents(logFile, 10)).toHaveLength(2);
+  });
+
   it("reads guidance fresh from disk on every call", async () => {
     const { learning: loop } = learning(() => "- rules");
     expect(loop.guidance()).toBe("");

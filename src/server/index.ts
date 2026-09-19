@@ -14,6 +14,7 @@ import {
   mountEventsRoute,
   mountRecommendationReflector,
 } from "./events/index.ts";
+import { type AppLifetime, createAppLifetime } from "./lifetime.ts";
 import type { LlmClients } from "./llm/index.ts";
 import { createLogger } from "./log.ts";
 import type { McpCredentialStore } from "./mcp/oauth-store.ts";
@@ -89,6 +90,12 @@ export interface AppDeps {
    */
   commandLearning?: CommandLearning;
   /**
+   * The application's lifetime. Turns, workflow runs, and background calls
+   * register with it, so its shutdown settles them before the caller closes
+   * what they depend on. Defaults to one nothing shuts down.
+   */
+  lifetime?: AppLifetime;
+  /**
    * Completion client forwarded to the runner so `llm:` steps can execute.
    * Without it, llm steps fail cleanly with a not-configured error.
    */
@@ -161,6 +168,7 @@ export function createApp(deps: AppDeps): Hono {
   const env = deps.env ?? process.env;
   const configService = deps.configService ?? createConfigService(config, env);
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
+  const lifetime = deps.lifetime ?? createAppLifetime();
   const app = new Hono();
 
   // One file-backed permission store shared by the session turn loop (which
@@ -273,6 +281,7 @@ export function createApp(deps: AppDeps): Hono {
           streamRegistry: deps.streamRegistry,
           commandLearning: deps.commandLearning,
           getProviderNames: deps.getProviderNames,
+          lifetime,
         }),
       }),
     );
@@ -301,10 +310,15 @@ export function createApp(deps: AppDeps): Hono {
       app,
       eventsHeartbeatMs === undefined ? { bus } : { bus, heartbeatMs: eventsHeartbeatMs },
     );
-    // Reflect a spawned run's status back onto the recommendation that
-    // actioned it, so the producing run's detail refreshes its rec badge.
-    mountRecommendationReflector(db, bus);
   }
+  // Reflect a spawned run's status back onto the recommendation that
+  // actioned it, so the producing run's detail refreshes its rec badge.
+  const unmountReflector = bus ? mountRecommendationReflector(db, bus) : undefined;
+  // Unmounted after the runs: one cancelled by shutdown is still reflected.
+  lifetime.own("workflow runs", async () => {
+    await cancelRegistry?.drain();
+    unmountReflector?.();
+  });
 
   mountStaticRoutes(app, { staticRoot: deps.staticRoot, embeddedFiles });
 

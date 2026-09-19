@@ -46,7 +46,7 @@ import {
   withdrawInboxItem,
 } from "../sessions/index.ts";
 import type { SessionRuntime } from "../sessions/runtime.ts";
-import { TurnInFlightError } from "../sessions/turn-lifecycle.ts";
+import { ShuttingDownError, TurnInFlightError } from "../sessions/turn-lifecycle.ts";
 import type { TurnStart } from "../sessions/turn-start.ts";
 import { defaultWorkingDirectory } from "../sessions/working-directory.ts";
 import {
@@ -685,8 +685,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         try {
           return (await runtime.startTurn(session, turn)).response;
         } catch (cause) {
-          if (!(cause instanceof TurnInFlightError)) throw cause;
-          return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
+          if (cause instanceof TurnInFlightError)
+            return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
+          if (cause instanceof ShuttingDownError)
+            return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 503);
+          throw cause;
         }
       };
       const parts = message.parts as UIMessage["parts"];
@@ -751,14 +754,16 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .join("\n")
         .trim();
       if (session.title === null && priorMessages.length === 0 && userText !== "") {
-        void generateSessionTitle({
-          db,
-          llmClients,
-          sessionId: id,
-          userText,
-          model: modelsConfig().utility ?? session.model,
-          publish: (event) => bus?.publish(event),
-        });
+        runtime.background("session title", () =>
+          generateSessionTitle({
+            db,
+            llmClients,
+            sessionId: id,
+            userText,
+            model: modelsConfig().utility ?? session.model,
+            publish: (event) => bus?.publish(event),
+          }),
+        );
       }
 
       const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };
