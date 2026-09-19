@@ -236,11 +236,10 @@ export function useSessionConversation(opts: {
     onFinish: ({ isAbort }) => {
       void refreshTranscript({ rejoin: !isAbort });
     },
-    // Cap transcript re-renders to ~16/s. A fast provider otherwise delivers
-    // deltas quicker than a grown transcript can re-render, and the backlog
-    // pins the main thread until the tab freezes; 60 ms still reads as live
-    // streaming.
-    experimental_throttle: 60,
+    // Render the growing transcript at most four times a second. Markdown parsing
+    // gets more expensive with every delta, while a quarter-second cadence still
+    // reads as live; status changes use their own unthrottled subscription.
+    experimental_throttle: 250,
     // Live progress (an executing command's console) rides the stream as
     // transient data parts: they never join the transcript, so they land in
     // the side store the tool blocks read — only the block showing a console

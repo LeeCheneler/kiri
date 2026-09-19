@@ -274,44 +274,74 @@ function ChatView({
   // turn. `lastScrollTop` is the offset we last saw, to read a scroll's direction.
   const pinnedToBottom = useRef(true);
   const lastScrollTop = useRef(0);
+  const followingScroll = useRef(false);
+  const releaseFollowFrame = useRef<number | null>(null);
+  const transcriptRef = useRef<HTMLElement>(null);
+  const transcriptFootRef = useRef<HTMLDivElement>(null);
+
+  const followTranscriptFoot = useCallback(() => {
+    if (!pinnedToBottom.current || transcriptFootRef.current === null) return;
+    // A sentinel avoids reading the document's growing scrollHeight. Suppress
+    // the scroll event until the browser has applied the programmatic follow so
+    // a shorter page is not mistaken for the user scrolling upwards.
+    followingScroll.current = true;
+    transcriptFootRef.current.scrollIntoView({ block: "end", behavior: "instant" });
+    if (releaseFollowFrame.current !== null) cancelAnimationFrame(releaseFollowFrame.current);
+    releaseFollowFrame.current = requestAnimationFrame(() => {
+      followingScroll.current = false;
+      releaseFollowFrame.current = null;
+    });
+  }, []);
+
   useEffect(() => {
     // Seed from where the page actually sits: a session with no messages never
-    // runs the follow below, so nothing else would, and the first scroll away
-    // from a non-zero offset would read as downward.
+    // runs the initial follow below, so nothing else would, and the first scroll
+    // away from a non-zero offset would read as downward.
     lastScrollTop.current = document.documentElement.scrollTop;
     const onScroll = () => {
-      // Following the foot only ever scrolls *down*, so any upward movement is
-      // the user taking over — a wheel notch, a trackpad nudge, a scrollbar drag.
-      // Un-pin on the first pixel of it: a threshold would have to be re-cleared
-      // against every streamed delta yanking the page back, so escaping the foot
-      // mid-stream would mean out-scrolling the model.
       const { scrollTop } = document.documentElement;
-      if (scrollTop < lastScrollTop.current) pinnedToBottom.current = false;
+      // Any upward movement outside our own follow is the user taking over — a
+      // wheel notch, a trackpad nudge, or a scrollbar drag.
+      if (!followingScroll.current && scrollTop < lastScrollTop.current) {
+        pinnedToBottom.current = false;
+      }
       lastScrollTop.current = scrollTop;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Keep the foot of the transcript in view while pinned: on landing (the seeded
-  // history), as messages are added, and through the assistant's streamed reply —
-  // `useChat` hands back a fresh `messages` array on each delta, so this re-pins
-  // the whole turn. The page scrolls behind the sticky composer, so we drive the
-  // window. A layout effect lands at the foot before paint (no flash of the top),
-  // and `behavior: "instant"` opts out of the document's smooth scroll-behavior:
-  // it snaps rather than animating.
-  //
-  // Recording where we landed keeps the scroll event this fires from reading as
-  // the user: sending a tall draft collapses the composer, so the page can shrink
-  // and leave the foot *above* the offset we last saw. Both writes land before
-  // paint, and the browser coalesces the frame's scroll events into one, so the
-  // listener only ever sees the settled offset.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: queued is a trigger — a chip appearing or resolving moves the foot; nothing inside reads it.
+  // Land seeded history at the foot before the first paint. Subsequent content
+  // growth is followed from ResizeObserver, after the browser has performed its
+  // normal layout, rather than synchronously measuring on every message delta.
+  const landedAtFoot = useRef(false);
   useLayoutEffect(() => {
-    if (messages.length === 0 || !pinnedToBottom.current) return;
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
-    lastScrollTop.current = document.documentElement.scrollTop;
-  }, [messages, queued]);
+    if (landedAtFoot.current || messages.length === 0) return;
+    landedAtFoot.current = true;
+    followTranscriptFoot();
+  }, [messages.length, followTranscriptFoot]);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (transcript === null) return;
+    let followFrame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (!pinnedToBottom.current || followFrame !== null) return;
+      // ResizeObserver runs after layout. Move the scroll into the next frame so
+      // repeated changes coalesce and the sentinel lookup never forces layout.
+      followFrame = requestAnimationFrame(() => {
+        followFrame = null;
+        followTranscriptFoot();
+      });
+    });
+    observer.observe(transcript);
+    return () => {
+      observer.disconnect();
+      if (followFrame !== null) cancelAnimationFrame(followFrame);
+      if (releaseFollowFrame.current !== null) cancelAnimationFrame(releaseFollowFrame.current);
+      followingScroll.current = false;
+    };
+  }, [followTranscriptFoot]);
 
   // Focus the composer on landing so a message can be typed straight away.
   // `Chat` only mounts once the session has loaded, so this fires when the page
@@ -401,7 +431,7 @@ function ChatView({
   }, [busy, cancel]);
 
   return (
-    <section>
+    <section ref={transcriptRef}>
       {/* Sticky header: pulled up over the shell's top padding (then restored as
           inner padding) so it pins flush to the top with breathing room, mirroring
           the sticky composer at the foot. The transcript scrolls behind it. */}
@@ -567,6 +597,7 @@ function ChatView({
           </Meta>
         </div>
       </div>
+      <div ref={transcriptFootRef} aria-hidden="true" />
     </section>
   );
 }
