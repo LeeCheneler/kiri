@@ -35,6 +35,7 @@ import {
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
+import { createPersistenceBarrier } from "./persistence-barrier.ts";
 import { contextBudget, estimateContextTokens, historySinceCheckpoint } from "./session-context.ts";
 import {
   type Message,
@@ -465,10 +466,11 @@ async function streamCore(
   let contextHandoffMessages: ModelMessage[] = [];
   let lastContextTokens: number | undefined;
   let savedCalibration = savedContextCalibration(history);
-  let savedSteps = 0;
-  let savingWorkStep = false;
-  let checkpointReady: (() => void) | undefined;
-  let checkpointFinished: (() => void) | undefined;
+  // The model loop and the saving of its progress run on different timelines;
+  // every boundary written into the stream is announced here first, and
+  // whatever must not outrun saved work waits here for it. An abort ends every
+  // wait, so a wait ending is followed by a check of the signal.
+  const barrier = createPersistenceBarrier(signal);
   const resumedApprovals = new Set(
     last?.role === "assistant"
       ? last.parts
@@ -477,7 +479,7 @@ async function streamCore(
           .map((part) => part.toolCallId)
       : [],
   );
-  let approvalsSaved: (() => void) | undefined;
+  const resumedApprovalCount = resumedApprovals.size;
   const acknowledgedIds = new Set<string>();
 
   // The stream can already contain an inbox delivery for the next model step.
@@ -624,16 +626,10 @@ async function streamCore(
           prepareStep: async ({ messages, stepNumber }) => {
             // Resumed approvals execute before step zero, without an SDK step
             // boundary. Wait for their results to reach the transcript too.
-            if (resumedApprovals.size > 0)
-              await new Promise<void>((resolve) => {
-                approvalsSaved = resolve;
-              });
+            await barrier.processed("approval-result", resumedApprovalCount);
             // The SDK can prepare its next call before the UI stream has saved
             // the previous step. Summaries must never outrun saved action results.
-            if (savedSteps < stepNumber)
-              await new Promise<void>((resolve) => {
-                checkpointReady = resolve;
-              });
+            await barrier.processed("work-step", stepNumber);
             signal.throwIfAborted();
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt
@@ -735,9 +731,7 @@ async function streamCore(
               }
               // This boundary is part of the same transcript, and must be durable
               // before the model can take actions using only its summary.
-              const summarySaved = new Promise<void>((resolve) => {
-                checkpointFinished = resolve;
-              });
+              const summarySaved = barrier.expect("summary");
               // Clear the old measurement in the same durable boundary as its
               // replaced history, even if the turn stops before another call.
               calibration = undefined;
@@ -798,15 +792,9 @@ async function streamCore(
             chunk.errorText === CONTEXT_LIMIT_NOTICE
           )
             continue;
-          let checkpoint: Promise<void> | undefined;
-          if (chunk.type === "finish-step") {
-            savingWorkStep = true;
-            checkpoint = new Promise<void>((resolve) => {
-              checkpointFinished = resolve;
-            });
-          }
+          const stepSaved = chunk.type === "finish-step" ? barrier.expect("work-step") : undefined;
           writer.write(chunk);
-          if (checkpoint) await checkpoint;
+          if (stepSaved) await stepSaved;
           if (
             (chunk.type === "tool-output-available" ||
               chunk.type === "tool-output-error" ||
@@ -814,13 +802,10 @@ async function streamCore(
             !(chunk.type === "tool-output-available" && chunk.preliminary) &&
             resumedApprovals.has(chunk.toolCallId)
           ) {
-            const approvalSaved = new Promise<void>((resolve) => {
-              checkpointFinished = resolve;
-            });
+            const approvalSaved = barrier.expect("approval-result");
             writer.write({ type: "finish-step" });
             await approvalSaved;
             resumedApprovals.delete(chunk.toolCallId);
-            if (resumedApprovals.size === 0) approvalsSaved?.();
           }
         }
         if (signal.aborted || streamError !== undefined) return;
@@ -840,9 +825,7 @@ async function streamCore(
           delta: `${contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE}\n\n`,
         });
         writer.write({ type: "text-end", id: noticeId });
-        const noticeSaved = new Promise<void>((resolve) => {
-          checkpointFinished = resolve;
-        });
+        const noticeSaved = barrier.expect("notice");
         writer.write({ type: "finish-step" });
         await noticeSaved;
         if (signal.aborted) return;
@@ -913,13 +896,8 @@ async function streamCore(
         checkpointAbort.abort();
         throw cause;
       } finally {
-        // Synthetic summary/approval boundaries save progress without consuming a work step.
-        if (savingWorkStep) savedSteps += 1;
-        savingWorkStep = false;
-        checkpointReady?.();
-        checkpointReady = undefined;
-        checkpointFinished?.();
-        checkpointFinished = undefined;
+        // A failed save has already aborted the turn, which ended every wait.
+        barrier.settle();
       }
     },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
