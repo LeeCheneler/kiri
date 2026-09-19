@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
+import { createAppLifetime } from "../lifetime.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import type { WorkflowDefinition } from "../workflows/index.ts";
 import {
@@ -517,6 +518,28 @@ EOF
   });
 
   describe("GET /api/runs/:id", () => {
+    it("preserves historical snapshots without current prompt fields", async () => {
+      const snapshot = { name: "legacy", steps: [{ llm: { model: "old:model" } }] };
+      const startedAt = new Date("2024-01-01T00:00:00.000Z");
+      env.db
+        .insert(runs)
+        .values({
+          id: "legacy-run",
+          workflowName: "legacy",
+          status: "ok",
+          startedAt,
+          definitionSnapshot: snapshot,
+        })
+        .run();
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
+      const response = await app.request("/api/runs/legacy-run");
+      expect(response.status).toBe(200);
+      const { run } = await response.json();
+      expect(run.definitionSnapshot).toEqual(snapshot);
+      expect(run.startedAt).toBe(startedAt.toISOString());
+      expect(run.finishedAt).toBeNull();
+    });
+
     it("returns 404 for an unknown run id", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/missing");
@@ -1192,6 +1215,39 @@ EOF
       expect(final?.status).toBe("cancelled");
     });
 
+    it("cancels an in-flight run when the application shuts down, before its database closes", async () => {
+      const wf: WorkflowDefinition = {
+        name: "long",
+        steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
+      };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const lifetime = createAppLifetime();
+      let statusAtClose: string | undefined;
+      const app = createApp({
+        db: env.db,
+        registry: env.registry,
+        config: env.config,
+        bus: createEventBus(),
+        cancelRegistry: createCancelRegistry({ sigkillDelayMs: 100 }),
+        lifetime,
+      });
+      const trigger = await app.request("/api/workflows/long/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      lifetime.onClose("db", () => {
+        statusAtClose = env.db.select().from(runs).where(eq(runs.id, runId)).get()?.status;
+      });
+      // Brief settle so the spawn's child is live before we signal it.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await lifetime.shutdown();
+
+      expect(statusAtClose).toBe("cancelled");
+    });
+
     it("rejects cancel without the X-Kiri-Client header (CSRF gate)", async () => {
       const cancelRegistry = createCancelRegistry();
       const app = createApp({
@@ -1611,6 +1667,7 @@ EOF
           return false;
         },
         release() {},
+        drain: async () => {},
         isCancelled() {
           throw new Error("cancel-registry boom");
         },
@@ -2195,6 +2252,7 @@ EOF
           return false;
         },
         release() {},
+        drain: async () => {},
         isCancelled() {
           throw new Error("cancel-registry boom");
         },

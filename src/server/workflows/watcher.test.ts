@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
-import { loadWorkflows } from "./loader.ts";
+import { type LoadResult, loadWorkflows } from "./loader.ts";
 import { createRegistry } from "./registry.ts";
 import { watchWorkflows } from "./watcher.ts";
 
@@ -94,6 +94,80 @@ describe("watchWorkflows", () => {
     console.error = origErr;
     rmSync(cwd, { recursive: true, force: true });
   });
+
+  it("keeps the newer workflow load when results arrive in reverse order", async () => {
+    const registry = createRegistry();
+    const initial = await loadWorkflows(config);
+    writeBundle(cwd, "old");
+    writeFileSync(join(dir, "old.yaml"), yamlSource("old"));
+    const oldResult = await loadWorkflows(config);
+    unlinkSync(join(dir, "old.yaml"));
+    writeBundle(cwd, "new");
+    writeFileSync(join(dir, "new.yaml"), yamlSource("new"));
+    const newResult = await loadWorkflows(config);
+    const first = Promise.withResolvers<LoadResult>();
+    const second = Promise.withResolvers<LoadResult>();
+    let loads = 0;
+    const events: KiriEvent[] = [];
+    const bus = createEventBus();
+    bus.subscribe((event) => events.push(event));
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(config, registry, initial, {
+      debounceMs: 0,
+      watchFn,
+      bus,
+      loadFn: () => (++loads === 1 ? first.promise : second.promise),
+    });
+    triggerChange();
+    await waitFor(() => loads === 1);
+    triggerChange();
+    await waitFor(() => loads === 2);
+    second.resolve(newResult);
+    await waitFor(() => registry.getWorkflow("new") !== undefined);
+    first.resolve(oldResult);
+    await first.promise;
+    // The stale source has disappeared; discarding it must precede statting it.
+    expect(registry.listWorkflows().map((w) => w.name)).toEqual(["new"]);
+    expect(registry.getSource("new")).toBe(join(dir, "new.yaml"));
+    expect(events).toEqual([{ type: "workflow.added", name: "new" }]);
+    expect(logs).toHaveLength(1);
+    watcher.stop();
+  });
+
+  for (const fails of [false, true]) {
+    it(`discards a pending load after stop (${fails ? "failure" : "success"})`, async () => {
+      const registry = createRegistry();
+      const initial = await loadWorkflows(config);
+      const pending = Promise.withResolvers<LoadResult>();
+      let loads = 0;
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const { watchFn, triggerChange, watcher: fsWatcher } = createFakeWatcher();
+      const watcher = watchWorkflows(config, registry, initial, {
+        debounceMs: 0,
+        watchFn,
+        bus,
+        loadFn: () => {
+          loads++;
+          return pending.promise;
+        },
+      });
+      triggerChange();
+      await waitFor(() => loads === 1);
+      watcher.stop();
+      if (fails) pending.reject(new Error("late load failure"));
+      else pending.resolve(initial);
+      watcher.revalidate();
+      fsWatcher.emit("error", new Error("late watcher error"));
+      await Bun.sleep(10);
+      expect(loads).toBe(1);
+      expect(registry.listWorkflows()).toEqual([]);
+      expect(events).toEqual([]);
+      expect(logs).toEqual([]);
+      expect(errs.some((line) => line.includes("rebuild failed"))).toBe(false);
+    });
+  }
 
   it("logs added when a new workflow file appears", async () => {
     writeBundle(cwd, "new");

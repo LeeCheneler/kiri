@@ -1,9 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { articles, memories, projects, sessions } from "../db/schema.ts";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import {
+  articles,
+  memories,
+  messages,
+  projects,
+  sessionInbox,
+  sessions,
+  taskGroups,
+  tasks,
+} from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import { createTask, createTaskGroup, updateTask } from "../projects/tasks.ts";
-import { appendMessage, createSession } from "../sessions/store.ts";
+import { enqueueInboxItem } from "../sessions/inbox.ts";
+import { appendMessage, createSession, getSession, setSessionStatus } from "../sessions/store.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -40,7 +51,15 @@ describe("projects routes", () => {
   ) => {
     env.db
       .insert(articles)
-      .values({ id, projectId, slug, name: "Doc", contentMd, createdAt })
+      .values({
+        id,
+        projectId,
+        slug,
+        name: "Doc",
+        contentMd,
+        heading: extractFirstHeading(contentMd),
+        createdAt,
+      })
       .run();
   };
 
@@ -194,7 +213,7 @@ describe("projects routes", () => {
         expect.objectContaining({
           id: "s1",
           title: "Titled",
-          preview: "hello there",
+          preview: null,
           status: "idle",
           projectName: "Research",
           hasWaitingChild: false,
@@ -407,6 +426,89 @@ describe("projects routes", () => {
   });
 
   describe("DELETE /api/projects/:id", () => {
+    it("409s a project with a session running, changing nothing and publishing nothing", async () => {
+      seedProject("p1");
+      seedArticle("a1", "p1", "kept-doc");
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      setSessionStatus(env.db, "s1", "running");
+      const before = env.db.select().from(sessions).all();
+
+      const res = await buildApp().request("/api/projects/p1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("cancel it first");
+      expect(env.db.select().from(projects).all()).toHaveLength(1);
+      expect(env.db.select().from(sessions).all()).toEqual(before);
+      expect(env.db.select().from(articles).all()).toHaveLength(1);
+      expect(events).toEqual([]);
+    });
+
+    it("does not block deletion for a running session in another project", async () => {
+      seedProject("p1");
+      seedProject("p2", "Kept");
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      createSession(env.db, MODEL, { id: "s2", projectId: "p2" });
+      setSessionStatus(env.db, "s2", "running");
+      const inbox = enqueueInboxItem(env.db, "s2", { source: "user", text: "Keep queued" });
+
+      const res = await buildApp().request("/api/projects/p1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(getSession(env.db, "s1")).toBeUndefined();
+      expect(getSession(env.db, "s2")?.status).toBe("running");
+      expect(env.db.select().from(sessionInbox).all()).toEqual([inbox]);
+    });
+
+    it("rolls back the entire container and emits no deletion events if the final delete fails", async () => {
+      seedProject("p1");
+      seedArticle("a1", "p1", "kept-doc");
+      seedMemory("m1", "p1", "kept-memory");
+      createTaskGroup(env.db, "p1", "Kept group", { id: "g1" });
+      createTask(env.db, "g1", { title: "Kept task" }, { id: "t1" });
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      createSession(env.db, MODEL, { id: "c1", parentSessionId: "s1", parentToolCallId: "call-1" });
+      appendMessage(env.db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Keep transcript" }],
+      });
+      appendMessage(env.db, "c1", {
+        role: "user",
+        parts: [{ type: "text", text: "Keep worker transcript" }],
+      });
+      enqueueInboxItem(env.db, "s1", { source: "child", fromSessionId: "c1", text: "Keep report" });
+      enqueueInboxItem(env.db, "c1", { source: "parent", text: "Keep steering" });
+      const tables = [
+        projects,
+        articles,
+        memories,
+        taskGroups,
+        tasks,
+        sessions,
+        messages,
+        sessionInbox,
+      ];
+      const before = tables.map((table) => env.db.select().from(table).all());
+      env.db.$client.exec(`CREATE TEMP TRIGGER reject_project_delete
+        BEFORE DELETE ON projects
+        BEGIN SELECT RAISE(ABORT, 'project delete rejected'); END;`);
+
+      const res = await buildApp().request("/api/projects/p1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "internal server error" });
+      expect(tables.map((table) => env.db.select().from(table).all())).toEqual(before);
+      expect(events).toEqual([]);
+    });
+
     it("cascades the container and announces the project and its sessions", async () => {
       seedProject("p1");
       seedArticle("a1", "p1", "corpus-doc");
@@ -420,16 +522,41 @@ describe("projects routes", () => {
         parentToolCallId: "t1",
       });
 
+      setSessionStatus(env.db, "s1", "waiting");
+      setSessionStatus(env.db, "c1", "waiting");
+      enqueueInboxItem(env.db, "s1", { source: "child", fromSessionId: "c1", text: "Report" });
+      enqueueInboxItem(env.db, "c1", { source: "parent", text: "Steering" });
+      const observed: boolean[] = [];
+      bus.subscribe((event) => {
+        if (event.type === "project.deleted")
+          observed.push(
+            env.db.select().from(sessionInbox).all().length === 0 &&
+              getSession(env.db, "s1") === undefined,
+          );
+      });
+
       const res = await buildApp().request("/api/projects/p1", {
         method: "DELETE",
         headers: CLIENT_HEADERS,
       });
 
       expect(res.status).toBe(204);
+      expect(env.db.select().from(sessionInbox).all()).toEqual([]);
+      expect(observed).toEqual([true]);
       expect(events).toContainEqual({ type: "project.deleted", id: "p1" });
-      expect(events).toContainEqual({ type: "session.deleted", id: "s1" });
-      // The child was deleted with its parent, not announced separately.
-      expect(events).not.toContainEqual({ type: "session.deleted", id: "c1" });
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "s1",
+        projectId: "p1",
+        parentSessionId: null,
+      });
+      // The worker has caches of its own, so it is announced too.
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "c1",
+        projectId: "p1",
+        parentSessionId: "s1",
+      });
       expect(env.db.select().from(sessions).all()).toEqual([]);
       expect(env.db.select().from(articles).all()).toEqual([]);
       // The project's memories went with it; the workspace's did not.

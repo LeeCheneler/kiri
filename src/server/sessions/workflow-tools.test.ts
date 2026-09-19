@@ -701,18 +701,6 @@ describe("workflowTools", () => {
       );
     });
 
-    it("strips the diff from what the model receives via toModelOutput", async () => {
-      const result = await tools().replace_workflow.toModelOutput?.({
-        toolCallId: "c1",
-        input: { name: "greet", content_yaml: "name: greet" },
-        output: { name: "greet", file: "workflows/greet.yaml", diff: "-a\n+b" },
-      });
-      expect(result).toEqual({
-        type: "json",
-        value: { name: "greet", file: "workflows/greet.yaml" },
-      });
-    });
-
     it("rejects invalid content, leaving the file unchanged", async () => {
       const path = writeWorkflowFile("greet.yaml", GREET_YAML);
       await syncFromDisk();

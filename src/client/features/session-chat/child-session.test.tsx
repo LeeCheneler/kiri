@@ -23,6 +23,7 @@ const delegatePart = (overrides: Record<string, unknown> = {}): ToolPart =>
   }) as ToolPart;
 
 const child = (status: Session["status"]): Session => ({
+  transcriptRevision: 0,
   id: "child-1",
   status,
   projectId: null,
@@ -54,7 +55,13 @@ const withChildren = (children: Session[]) =>
 const withChildDetail = (status: Session["status"], messages: unknown[]) =>
   server.use(
     http.get("*/api/sessions/child-1", () =>
-      HttpResponse.json({ session: child(status), messages }),
+      HttpResponse.json({
+        session: child(status),
+        messages,
+        transcriptRevision: 0,
+        // A running worker names the turn streaming for it, which the view joins.
+        turnId: status === "running" ? "t1" : null,
+      }),
     ),
   );
 
@@ -181,7 +188,11 @@ describe("<ChildSession>", () => {
     withChildDetail("running", [
       childMessage("m1", "user", [{ type: "text", text: "Research pelicans" }]),
     ]);
-    server.use(http.get("*/api/sessions/child-1/stream", () => compaction.response));
+    // The worker still reads as running once the stream ends, so the view
+    // asks to rejoin; by then there is no live stream left to serve.
+    server.use(
+      http.get("*/api/sessions/child-1/stream", () => compaction.response, { once: true }),
+    );
     renderBox();
 
     await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
@@ -190,7 +201,7 @@ describe("<ChildSession>", () => {
     expect(screen.getByRole("status").textContent).toBe("Compacting conversation…");
 
     compaction.finish();
-    await waitFor(() => expect(screen.queryByText("Compacting conversation…")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("Compacting conversation…").length).toBe(0));
   });
 
   it("renders a worker's in-flight shell command as the usual collapsible block", async () => {
@@ -288,12 +299,7 @@ describe("<ChildSession>", () => {
     await userEvent.click(screen.getByRole("button", { name: "Allow" }));
 
     await waitFor(() => expect(resumes).toHaveLength(1));
-    const body = resumes[0] as {
-      message: { role: string; parts: { state?: string; approval?: { approved?: boolean } }[] };
-    };
-    expect(body.message.role).toBe("assistant");
-    const verdict = body.message.parts.find((part) => part.state === "approval-responded");
-    expect(verdict?.approval?.approved).toBe(true);
+    expect(resumes[0]).toEqual({ approvals: [{ toolCallId: "t1", approved: true }] });
   });
 
   it("surfaces a transcript that fails to load", async () => {
@@ -323,6 +329,8 @@ describe("<ChildSession>", () => {
               } as Parameters<typeof ChatMessage>[0]["message"]
             }
             busy={false}
+            acceptsImages
+            acceptsDocuments={[]}
             sessionId="parent-1"
             onResubmit={() => {}}
             onDelete={() => {}}

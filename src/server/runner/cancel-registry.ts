@@ -25,6 +25,12 @@ export interface CancelRegistry {
   release(runId: string): void;
   /** True once `requestCancel` has been called for `runId`. Used by the runner to halt between steps. */
   isCancelled(runId: string): boolean;
+  /**
+   * Cancel every registered run and resolve once each has been released. A
+   * run registered afterwards starts out cancelled, so it halts before its
+   * first step.
+   */
+  drain(): Promise<void>;
 }
 
 export interface CancelRegistryOptions {
@@ -55,10 +61,18 @@ const armKillTimer = (entry: Entry, child: ChildHandle, delayMs: number): void =
 export function createCancelRegistry(opts: CancelRegistryOptions = {}): CancelRegistry {
   const { sigkillDelayMs = DEFAULT_SIGKILL_DELAY_MS } = opts;
   const entries = new Map<string, Entry>();
+  let drained: (() => void) | undefined;
+  let draining: Promise<void> | undefined;
+
+  const cancel = (entry: Entry): void => {
+    if (entry.cancelled) return;
+    entry.cancelled = true;
+    if (entry.child) armKillTimer(entry, entry.child, sigkillDelayMs);
+  };
 
   return {
     register(runId) {
-      entries.set(runId, { cancelled: false });
+      entries.set(runId, { cancelled: draining !== undefined });
     },
 
     setChild(runId, child) {
@@ -73,9 +87,7 @@ export function createCancelRegistry(opts: CancelRegistryOptions = {}): CancelRe
     requestCancel(runId) {
       const entry = entries.get(runId);
       if (!entry) return false;
-      if (entry.cancelled) return true;
-      entry.cancelled = true;
-      if (entry.child) armKillTimer(entry, entry.child, sigkillDelayMs);
+      cancel(entry);
       return true;
     },
 
@@ -84,10 +96,20 @@ export function createCancelRegistry(opts: CancelRegistryOptions = {}): CancelRe
       if (!entry) return;
       if (entry.killTimer) clearTimeout(entry.killTimer);
       entries.delete(runId);
+      if (entries.size === 0) drained?.();
     },
 
     isCancelled(runId) {
       return entries.get(runId)?.cancelled ?? false;
+    },
+
+    drain() {
+      draining ??= new Promise<void>((resolve) => {
+        drained = resolve;
+        for (const entry of entries.values()) cancel(entry);
+        if (entries.size === 0) resolve();
+      });
+      return draining;
     },
   };
 }

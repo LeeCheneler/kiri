@@ -1,26 +1,10 @@
-import { desc, eq, inArray } from "drizzle-orm";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
-import {
-  articles,
-  memories,
-  messages,
-  projects,
-  sessions,
-  taskGroups,
-  tasks,
-} from "../db/schema.ts";
+import { articles, memories, projects, sessions, taskGroups, tasks } from "../db/schema.ts";
+import { type DeletedSession, deleteSessions } from "../sessions/store.ts";
 
 /** A persisted project row. */
 export type Project = typeof projects.$inferSelect;
-
-/** One entry of a project's article index: summary metadata plus the body's derived first heading. */
-export interface ProjectArticleSummary {
-  slug: string;
-  name: string;
-  heading: string | null;
-  createdAt: Date;
-}
 
 /** Insert a new project named `name`. Returns the persisted row. */
 export function createProject(
@@ -46,25 +30,6 @@ export function listProjects(db: KiriDb): Project[] {
 }
 
 /**
- * A project's article index, newest first. The body is read only to derive
- * each entry's heading, never returned — detail surfaces serve it.
- */
-export function listProjectArticles(db: KiriDb, projectId: string): ProjectArticleSummary[] {
-  return db
-    .select()
-    .from(articles)
-    .where(eq(articles.projectId, projectId))
-    .orderBy(desc(articles.createdAt), desc(articles.id))
-    .all()
-    .map((article) => ({
-      slug: article.slug,
-      name: article.name,
-      heading: extractFirstHeading(article.contentMd),
-      createdAt: article.createdAt,
-    }));
-}
-
-/**
  * Update a project's name and/or standing instructions, leaving anything the
  * patch omits untouched. The name is a display change only — nothing keys off
  * it — while instructions are normalised: a blank body is stored as null, the
@@ -87,36 +52,59 @@ export function updateProject(
   return getProject(db, id) as Project;
 }
 
+/** A project operation refused because of the state its sessions are in. */
+export class ProjectConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectConflictError";
+  }
+}
+
 /**
  * Permanently delete a project and everything in its container: the
- * project's articles, memories, and task list, its sessions — including the delegate
- * children those sessions spawned — and those sessions' messages and
- * articles, in one transaction. An in-code cascade matching the rest of the
- * codebase rather than a schema-level ON DELETE. Deleting an absent project
- * removes nothing.
+ * project's articles, memories, and task list, its sessions — including the
+ * delegate children those sessions spawned — and those sessions' messages,
+ * articles, and inbox rows, in one transaction. An in-code cascade matching
+ * the rest of the codebase rather than a schema-level ON DELETE.
+ *
+ * A session or delegated worker with a turn running refuses the delete with
+ * `ProjectConflictError` until it is cancelled — matching the session
+ * cascade, including workers that carry no project id of their own. Returns
+ * every session deleted with the project, for announcing; deleting an absent
+ * project removes nothing.
  */
-export function deleteProject(db: KiriDb, id: string): void {
-  db.transaction((tx) => {
+export function deleteProject(db: KiriDb, id: string): DeletedSession[] {
+  return db.transaction((tx) => {
     const sessionIds = tx
       .select({ id: sessions.id })
       .from(sessions)
       .where(eq(sessions.projectId, id))
       .all()
       .map((row) => row.id);
-    const childIds =
-      sessionIds.length > 0
-        ? tx
-            .select({ id: sessions.id })
-            .from(sessions)
-            .where(inArray(sessions.parentSessionId, sessionIds))
-            .all()
-            .map((row) => row.id)
-        : [];
-    const allSessionIds = [...childIds, ...sessionIds];
-    if (allSessionIds.length > 0) {
-      tx.delete(articles).where(inArray(articles.sessionId, allSessionIds)).run();
-      tx.delete(messages).where(inArray(messages.sessionId, allSessionIds)).run();
+
+    const running = tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.status, "running"),
+          or(
+            eq(sessions.projectId, id),
+            inArray(
+              sessions.parentSessionId,
+              tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id)),
+            ),
+          ),
+        ),
+      )
+      .get();
+    if (running) {
+      throw new ProjectConflictError(
+        `project "${id}" has a session or delegated worker running; cancel it first`,
+      );
     }
+
+    const deleted = deleteSessions(tx, sessionIds);
     tx.delete(articles).where(eq(articles.projectId, id)).run();
     tx.delete(memories).where(eq(memories.projectId, id)).run();
     const groupIds = tx
@@ -127,9 +115,8 @@ export function deleteProject(db: KiriDb, id: string): void {
       .map((row) => row.id);
     if (groupIds.length > 0) tx.delete(tasks).where(inArray(tasks.groupId, groupIds)).run();
     tx.delete(taskGroups).where(eq(taskGroups.projectId, id)).run();
-    // Children first: they hold an FK to their parent, and foreign_keys is ON.
-    if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
-    if (sessionIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, sessionIds)).run();
     tx.delete(projects).where(eq(projects.id, id)).run();
+
+    return deleted;
   });
 }

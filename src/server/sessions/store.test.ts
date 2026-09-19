@@ -5,26 +5,37 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, projects, sessions } from "../db/schema.ts";
+import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
+import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
+  SessionConflictError,
   appendMessage,
   createSession,
   deleteMessagesFrom,
   deleteSession,
   findChildByToolCall,
+  getLastMessage,
+  getMessage,
   getSession,
   getSessionLabels,
   getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
   getSessionsWithWaitingChildren,
+  moveSessionToProject,
   setSessionStatus,
   updateMessage,
   updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
+  updateSessionSettings,
   updateSessionTitle,
 } from "./store.ts";
+import {
+  CURRENT_PARTS_FORMAT,
+  LEGACY_PARTS_FORMAT,
+  TranscriptFormatError,
+} from "./transcript-format.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -41,6 +52,52 @@ describe("sessions store", () => {
   afterEach(() => {
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("advances revisions for equal-size replacements and truncation, leaving no-ops alone", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(0);
+    const row = appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "old" }] });
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(1);
+    updateMessage(db, "s1", row.id, { parts: [{ type: "text", text: "new" }] });
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(2);
+    updateMessage(db, "s1", "absent", { parts: [] });
+    expect(deleteMessagesFrom(db, "s1", "absent")).toBeUndefined();
+    updateSessionTitle(db, "s1", "Renamed");
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(2);
+    expect(deleteMessagesFrom(db, "s1", row.id)).toBe(3);
+    expect(getSessionMessages(db, "s1")).toEqual([]);
+  });
+
+  for (const mutation of ["append", "update", "truncate"] as const) {
+    it(`rolls back ${mutation} when its revision cannot be saved`, () => {
+      createSession(db, MODEL, { id: "s1" });
+      const row = appendMessage(db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "saved" }],
+      });
+      db.$client.run(`CREATE TRIGGER reject_revision BEFORE UPDATE OF transcript_revision ON sessions
+        BEGIN SELECT RAISE(IGNORE); END;`);
+      expect(() => {
+        if (mutation === "append") appendMessage(db, "s1", { role: "assistant", parts: [] });
+        else if (mutation === "update") updateMessage(db, "s1", row.id, { parts: [] });
+        else deleteMessagesFrom(db, "s1", row.id);
+      }).toThrow();
+      expect(getSessionMessages(db, "s1")).toEqual([row]);
+      expect(getSession(db, "s1")?.transcriptRevision).toBe(1);
+    });
+  }
+
+  it("rolls back revisions together with a surrounding checkpoint transaction", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(() =>
+      db.transaction(() => {
+        appendMessage(db, "s1", { role: "assistant", parts: [] });
+        throw new Error("inbox acknowledgement failed");
+      }),
+    ).toThrow("inbox acknowledgement failed");
+    expect(getSessionMessages(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.transcriptRevision).toBe(0);
   });
 
   it("creates an idle top-level session against the model by default", () => {
@@ -103,6 +160,48 @@ describe("sessions store", () => {
 
     expect(updateSessionEffort(db, "s1", "max").effort).toBe("max");
     expect(getSession(db, "s1")?.effort).toBe("max");
+  });
+
+  it("updates supplied settings together while leaving omitted and undefined fields unchanged", () => {
+    const before = createSession(db, MODEL, {
+      id: "s1",
+      imageModel: "fake:paint",
+      title: "Original",
+      effort: "high",
+      cwd: "/srv/notes",
+    });
+
+    const updated = updateSessionSettings(db, "s1", {
+      model: "fake:other",
+      title: "Updated",
+      effort: undefined,
+    });
+
+    expect(updated).toEqual({ ...before, model: "fake:other", title: "Updated" });
+    expect(getSession(db, "s1")).toEqual(updated);
+    expect(updateSessionSettings(db, "s1", { imageModel: null, title: null })).toEqual({
+      ...updated,
+      imageModel: null,
+      title: null,
+    });
+    expect(getSession(db, "s1")).toEqual({ ...updated, imageModel: null, title: null });
+  });
+
+  it("does not write for an empty or undefined-only settings patch", () => {
+    const before = createSession(db, MODEL, { id: "s1" });
+    db.$client.exec(`CREATE TEMP TRIGGER reject_session_update
+      BEFORE UPDATE ON sessions
+      BEGIN SELECT RAISE(ABORT, 'unexpected update'); END;`);
+
+    expect(updateSessionSettings(db, "s1", {})).toEqual(before);
+    expect(
+      updateSessionSettings(db, "s1", {
+        model: undefined,
+        imageModel: undefined,
+        effort: undefined,
+        title: undefined,
+      }),
+    ).toEqual(before);
   });
 
   it("creates a child session carrying its parent and spawning tool call", () => {
@@ -176,6 +275,68 @@ describe("sessions store", () => {
     expect(rows[1]?.contextTokens).toBe(8);
   });
 
+  describe("parts format", () => {
+    const insertLegacy = (id: string, parts: unknown, format = 0) =>
+      db.$client
+        .prepare(
+          'INSERT INTO messages (id, session_id, "index", role, parts, parts_format, created_at) VALUES (?, ?, 0, ?, ?, ?, 1)',
+        )
+        .run(id, "s1", "user", JSON.stringify(parts), format);
+    const storedFormat = (id: string) =>
+      db.select().from(messages).where(eq(messages.id, id)).get()?.partsFormat;
+
+    beforeEach(() => {
+      createSession(db, MODEL, { id: "s1" });
+    });
+
+    it("stamps appended messages with the current format and keeps it off the message", () => {
+      const message = appendMessage(db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Hi" }],
+      });
+
+      expect(storedFormat(message.id)).toBe(CURRENT_PARTS_FORMAT);
+      expect(message).not.toHaveProperty("partsFormat");
+      expect(getSessionMessages(db, "s1")[0]).not.toHaveProperty("partsFormat");
+    });
+
+    it("reads a row written before parts were versioned", () => {
+      insertLegacy("old", [{ type: "text", text: "from before" }]);
+
+      expect(getSessionMessages(db, "s1")[0]?.parts).toEqual([
+        { type: "text", text: "from before" },
+      ]);
+      expect(getSessionPreviews(db, ["s1"]).get("s1")).toBe("from before");
+      expect(storedFormat("old")).toBe(LEGACY_PARTS_FORMAT);
+    });
+
+    it("restamps a legacy row when its parts are rewritten", () => {
+      insertLegacy("old", [{ type: "text", text: "paused" }]);
+
+      updateMessage(db, "s1", "old", { parts: [{ type: "text", text: "resumed" }] });
+
+      expect(storedFormat("old")).toBe(CURRENT_PARTS_FORMAT);
+    });
+
+    it("keeps the format apart from the transcript revision", () => {
+      const message = appendMessage(db, "s1", {
+        role: "assistant",
+        parts: [{ type: "text", text: "one" }],
+      });
+      updateMessage(db, "s1", message.id, { parts: [{ type: "text", text: "two" }] });
+
+      expect(getSession(db, "s1")?.transcriptRevision).toBe(2);
+      expect(storedFormat(message.id)).toBe(CURRENT_PARTS_FORMAT);
+    });
+
+    it("refuses to read parts it cannot interpret", () => {
+      insertLegacy("newer", [{ type: "text", text: "from the future" }], CURRENT_PARTS_FORMAT + 1);
+
+      expect(() => getSessionMessages(db, "s1")).toThrow(TranscriptFormatError);
+      expect(() => getSessionPreviews(db, ["s1"])).toThrow(TranscriptFormatError);
+    });
+  });
+
   it("patches parts only, then records the resumed turn's footprint", () => {
     createSession(db, MODEL, { id: "s1" });
     const msg = appendMessage(db, "s1", {
@@ -238,6 +399,32 @@ describe("sessions store", () => {
     expect(previews.has("s2")).toBe(false);
   });
 
+  it("previews only the opening user message, whatever follows it", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "reasoning", text: "no prose" }] });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Second thoughts" }] });
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Opening" }] });
+    // A later message this build cannot read proves the history is never loaded.
+    db.$client
+      .prepare(
+        'INSERT INTO messages (id, session_id, "index", role, parts, parts_format, created_at) VALUES (?, ?, 1, ?, ?, ?, 1)',
+      )
+      .run("newer", "s2", "user", "[]", CURRENT_PARTS_FORMAT + 1);
+
+    const previews = getSessionPreviews(db, ["s1", "s2"]);
+
+    expect(previews.has("s1")).toBe(false);
+    expect(previews.get("s2")).toBe("Opening");
+  });
+
+  it("never reads a preview for a titled session", () => {
+    createSession(db, MODEL, { id: "s1", title: "Corpus sweep" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Sweep the corpus" }] });
+
+    expect(getSessionPreviews(db, ["s1"]).has("s1")).toBe(false);
+  });
+
   it("labels sessions by title, else opening message, else short id", () => {
     createSession(db, MODEL, { id: "titled-0000-0000", title: "Corpus sweep" });
     createSession(db, MODEL, { id: "spoken-0000-0000" });
@@ -291,6 +478,44 @@ describe("sessions store", () => {
     expect(activity.get("s1")).toEqual(new Date(3000));
     expect(activity.get("s2")).toEqual(new Date(2000));
     expect(activity.has("s3")).toBe(false);
+  });
+
+  it("moves a session's last activity back when its newest messages are deleted", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "Hi" }] },
+      { createdAt: new Date(1000) },
+    );
+    const reply = appendMessage(
+      db,
+      "s1",
+      { role: "assistant", parts: [{ type: "text", text: "Hello" }] },
+      { createdAt: new Date(3000) },
+    );
+
+    deleteMessagesFrom(db, "s1", reply.id);
+
+    expect(getSessionLastActivity(db, ["s1"]).get("s1")).toEqual(new Date(1000));
+  });
+
+  it("reads a session's last message and any one message by id", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    expect(getLastMessage(db, "s1")).toBeUndefined();
+
+    const first = appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Hi" }] });
+    const last = appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "Hello" }],
+    });
+
+    expect(getLastMessage(db, "s1")).toEqual(last);
+    expect(getMessage(db, "s1", first.id)).toEqual(first);
+    expect(getMessage(db, "s1", "gone")).toBeUndefined();
+    // A message belongs to one session; another session's id never reaches it.
+    expect(getMessage(db, "s2", first.id)).toBeUndefined();
   });
 
   it("finds the sessions with a delegated child paused waiting on approval", () => {
@@ -377,12 +602,117 @@ describe("sessions store", () => {
     appendMessage(db, "child", { role: "user", parts: [{ type: "text", text: "Task" }] });
     createSession(db, MODEL, { id: "other" });
 
-    deleteSession(db, "parent");
+    enqueueInboxItem(db, "parent", { source: "child", fromSessionId: "child", text: "Report" });
+    enqueueInboxItem(db, "child", { source: "parent", text: "Steering" });
+    const kept = enqueueInboxItem(db, "other", {
+      source: "child",
+      fromSessionId: "child",
+      text: "Keep report",
+    });
 
+    const deleted = deleteSession(db, "parent");
+
+    expect(deleted.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "child", projectId: null, parentSessionId: "parent" },
+      { id: "parent", projectId: null, parentSessionId: null },
+    ]);
     expect(getSession(db, "parent")).toBeUndefined();
     expect(getSession(db, "child")).toBeUndefined();
     expect(getSessionMessages(db, "child")).toHaveLength(0);
     expect(getSession(db, "other")?.id).toBe("other");
+    expect(pendingInboxItems(db, "parent")).toEqual([]);
+    expect(pendingInboxItems(db, "child")).toEqual([]);
+    expect(pendingInboxItems(db, "other")).toEqual([kept]);
+  });
+
+  it("rolls back session-owned cleanup if deleting the parent fails", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call-1",
+    });
+    for (const id of ["parent", "child"]) {
+      appendMessage(db, id, { role: "user", parts: [{ type: "text", text: "Keep transcript" }] });
+      enqueueInboxItem(db, id, { source: "user", text: "Keep queued" });
+      db.insert(articles)
+        .values({
+          id: `article-${id}`,
+          sessionId: id,
+          slug: "notes",
+          name: "Notes",
+          contentMd: "# Kept",
+          createdAt: new Date(),
+        })
+        .run();
+    }
+    const tables = [sessions, messages, articles, sessionInbox];
+    const before = tables.map((table) => db.select().from(table).all());
+    db.$client.exec(`CREATE TEMP TRIGGER reject_parent_delete
+      BEFORE DELETE ON sessions WHEN OLD.id = 'parent'
+      BEGIN SELECT RAISE(ABORT, 'parent delete rejected'); END;`);
+
+    expect(() => deleteSession(db, "parent")).toThrow("parent delete rejected");
+
+    expect(tables.map((table) => db.select().from(table).all())).toEqual(before);
+  });
+
+  it("enforces one message per position in a session", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "First" }] });
+    const message = {
+      role: "user" as const,
+      parts: [],
+      partsFormat: CURRENT_PARTS_FORMAT,
+      createdAt: new Date(),
+    };
+
+    expect(() =>
+      db
+        .insert(messages)
+        .values({ ...message, id: "dup", sessionId: "s1", index: 0 })
+        .run(),
+    ).toThrow();
+    // The same position in another session is a different message.
+    db.insert(messages)
+      .values({ ...message, id: "other", sessionId: "s2", index: 0 })
+      .run();
+  });
+
+  it("enforces one child per spawning tool call, leaving top-level sessions unconstrained", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, { id: "other-parent" });
+    createSession(db, MODEL, { id: "child", parentSessionId: "parent", parentToolCallId: "c1" });
+
+    expect(() =>
+      createSession(db, MODEL, { id: "twin", parentSessionId: "parent", parentToolCallId: "c1" }),
+    ).toThrow();
+    // Tool call ids are only unique within the session that made the call.
+    createSession(db, MODEL, {
+      id: "cousin",
+      parentSessionId: "other-parent",
+      parentToolCallId: "c1",
+    });
+    expect(getSession(db, "cousin")?.parentToolCallId).toBe("c1");
+  });
+
+  it("refuses to delete a session with a turn in flight", () => {
+    createSession(db, MODEL, { id: "s1" });
+    setSessionStatus(db, "s1", "running");
+
+    expect(() => deleteSession(db, "s1")).toThrow(SessionConflictError);
+    expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("refuses to delete a parent whose delegated worker is running", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, { id: "child", parentSessionId: "parent", parentToolCallId: "c1" });
+    setSessionStatus(db, "child", "running");
+
+    expect(() => deleteSession(db, "parent")).toThrow("delegated worker running");
+    expect(getSession(db, "parent")).toBeDefined();
+    expect(getSession(db, "child")?.status).toBe("running");
   });
 
   it("is a no-op deleting a session that does not exist", () => {
@@ -409,7 +739,7 @@ describe("sessions store", () => {
     createSession(db, MODEL, { id: "s2" });
     appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Keep me" }] });
 
-    expect(deleteMessagesFrom(db, "s1", second.id)).toBe(true);
+    expect(deleteMessagesFrom(db, "s1", second.id)).toBe(5);
 
     const rows = getSessionMessages(db, "s1");
     expect(rows.map((r) => r.index)).toEqual([0, 1]);
@@ -426,7 +756,7 @@ describe("sessions store", () => {
       contextTokens: 8,
     });
 
-    expect(deleteMessagesFrom(db, "s1", first.id)).toBe(true);
+    expect(deleteMessagesFrom(db, "s1", first.id)).toBe(3);
 
     expect(getSessionMessages(db, "s1")).toHaveLength(0);
   });
@@ -435,8 +765,95 @@ describe("sessions store", () => {
     createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
 
-    expect(deleteMessagesFrom(db, "s1", "ghost")).toBe(false);
+    expect(deleteMessagesFrom(db, "s1", "ghost")).toBeUndefined();
 
     expect(getSessionMessages(db, "s1")).toHaveLength(1);
+  });
+
+  describe("moveSessionToProject", () => {
+    const session = (id: string) =>
+      getSession(db, id) as NonNullable<ReturnType<typeof getSession>>;
+
+    const seedArticle = (id: string, owner: { sessionId: string } | { projectId: string }) =>
+      db
+        .insert(articles)
+        .values({
+          id,
+          ...owner,
+          slug: "notes",
+          name: "Notes",
+          contentMd: "Body",
+          createdAt: new Date(),
+        })
+        .run();
+
+    beforeEach(() => {
+      db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(db, MODEL, { id: "s1" });
+    });
+
+    it("moves the family and hands back its articles as they stood before", () => {
+      createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+      createSession(db, MODEL, { id: "other" });
+      seedArticle("a1", { sessionId: "child" });
+
+      const moved = moveSessionToProject(db, session("s1"), "p1");
+
+      expect(moved.family.map((row) => [row.id, row.projectId])).toEqual([
+        ["s1", "p1"],
+        ["child", "p1"],
+      ]);
+      expect(moved.articles).toEqual([{ id: "a1", slug: "notes", sessionId: "child" }]);
+      expect(getSession(db, "child")?.projectId).toBe("p1");
+      expect(getSession(db, "other")?.projectId).toBeNull();
+      expect(db.select().from(articles).where(eq(articles.id, "a1")).get()).toMatchObject({
+        sessionId: null,
+        projectId: "p1",
+      });
+    });
+
+    it("refuses a delegated session and one already in a project", () => {
+      createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+      createSession(db, MODEL, { id: "placed", projectId: "p1" });
+
+      expect(() => moveSessionToProject(db, session("child"), "p1")).toThrow(SessionConflictError);
+      expect(() => moveSessionToProject(db, session("placed"), "p1")).toThrow(
+        "already belongs to a project",
+      );
+    });
+
+    it.each(["running", "waiting"] as const)(
+      "refuses a family with a %s session or child without changing ownership",
+      (status) => {
+        createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+
+        for (const busy of ["s1", "child"]) {
+          setSessionStatus(db, busy, status);
+          expect(() => moveSessionToProject(db, session("s1"), "p1")).toThrow(SessionConflictError);
+          setSessionStatus(db, busy, "idle");
+        }
+
+        expect(getSession(db, "s1")?.projectId).toBeNull();
+        expect(getSession(db, "child")?.projectId).toBeNull();
+      },
+    );
+
+    it.each(["project", "child"])(
+      "leaves everything untouched when a slug conflicts with the %s",
+      (owner) => {
+        createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+        seedArticle("a1", { sessionId: "s1" });
+        seedArticle("a2", owner === "project" ? { projectId: "p1" } : { sessionId: "child" });
+        const before = db.select().from(articles).all();
+
+        expect(() => moveSessionToProject(db, session("s1"), "p1")).toThrow(
+          'Article slug "notes" conflicts',
+        );
+
+        expect(getSession(db, "s1")?.projectId).toBeNull();
+        expect(getSession(db, "child")?.projectId).toBeNull();
+        expect(db.select().from(articles).all()).toEqual(before);
+      },
+    );
   });
 });

@@ -14,6 +14,13 @@ You can swap a session's model mid-conversation — it applies from the next
 turn — and a streaming turn survives a page reload: reopening the session
 rejoins it live.
 
+A message you send while a turn is running is queued and reaches the
+assistant at its next work step, as a course correction to the work in
+progress. If the turn finishes first, the message starts the next one. A turn
+paused for your approval takes it when you answer. If the turn fails, or you
+cancel it, the message waits: it goes ahead of the next message you send, and
+you can withdraw it before then. Queued messages carry text only.
+
 Kiri saves progress after each completed model/tool step. If a later provider
 request fails, completed actions and useful partial replies remain in the
 conversation after reload, ready for your next message. A failed turn does
@@ -180,7 +187,10 @@ Every session has an **effort level** — `low`, `medium` (the default),
 `high`, `xhigh`, or `max` — setting how hard the assistant works, using the
 provider's native reasoning controls where the model has them. Model and
 effort are independent levers: a large model can answer briskly at `low`, a
-small one can take its time at `high`.
+small one can take its time at `high`. Kiri sends reasoning settings only to a
+model known to take them — from its provider's listing, or, when the listing is
+unavailable or doesn't carry the model, from a well-known reasoning model
+family — and otherwise sends none.
 
 ## Tools from MCP servers
 
@@ -314,8 +324,11 @@ filesystem:
   `default_working_directory` (or the first allowed directory) and the
   assistant can move it within the sandbox as the work settles somewhere
   else. The new directory's instructions apply within the same turn. If it
-  disappears — a deleted checkout, a narrowed sandbox — the
-  session falls back to the default and the assistant lets you know.
+  disappears — a deleted checkout, a narrowed sandbox — the session falls
+  back to the default at the start of its next turn and the assistant lets you
+  know, whether you started that turn or a worker's report did. A session
+  created before a default was configured picks it up the same way, on its
+  next turn.
 
 File searches start in the working directory. The assistant can target another
 allowed directory or explicitly search all allowed roots. Search and directory
@@ -438,8 +451,9 @@ files, or other sources, without repeating completed actions. The full
 transcript stays visible, and each checkpoint expands to show its summary.
 Editing or deleting an earlier message removes subsequent checkpoints too.
 
-When a model's context window is unknown, Kiri uses a conservative **32,768-token
-working window** for these checks; this is not a claim about the provider's
+When a model's context window is unknown — its provider's listing doesn't
+report one, doesn't carry the model, or is unavailable — Kiri uses a
+conservative **32,768-token working window** for these checks; this is not a claim about the provider's
 actual limit. Switching models recalculates the budget on the next turn. A shared
 heuristic estimates visible text at roughly four ASCII characters per token,
 with a higher allowance for Unicode. It counts tool arguments, results, and
@@ -470,9 +484,38 @@ request; it does not reset the turn's work-step limit.
 
 ## Attachments
 
-Sessions take file attachments and pasted images. Text files are sent inline
-so the model reads the whole file; images ride alongside — check your model
-accepts image input. Attachments are capped to fit the context window.
+Sessions take text files, images, and documents. Text files (Markdown, code,
+CSV, JSON, and the like) are sent inline so the model reads the whole file and
+reach every provider. Images ride alongside as visual input — check your model
+accepts it. Documents ride as files, so what you can attach depends on the
+session model's provider: PDFs reach Codex, OpenAI, Anthropic, and OpenRouter
+models; Word, PowerPoint, and Excel files reach Codex models, which read their
+text but not their embedded images. Local servers take no documents. The file
+picker offers exactly what the current model can read, and switching model
+changes it. An attachment added before a switch to a model that can't read it
+stays in the draft and holds the message back, with an error, until you remove
+it or switch model again; the same check applies when you edit and resend an
+earlier message. Each image may be up to 10 MiB, each document up to 20 MiB,
+and each text file up to 256 KiB of UTF-8 content. Attachments count towards
+the context window.
+
+Attachments are sent in the order you add them, ahead of your text. A file
+joins the draft as soon as you add it, and a message waits until every
+attachment has been read, so nothing is left behind by a quick send. A file
+that can't be read is dropped from the draft with an error.
+
+A message request is capped at 32 MiB, including base64 encoding, UTF-8 text,
+filenames, and JSON overhead; 1 KiB is reserved for the request envelope.
+Base64 adds roughly one third to a binary file's size, so several individually
+valid files can exceed the combined limit. An oversized draft stays in the
+composer with an error so you can remove files or shorten the message.
+Queued text messages keep a separate 256 KiB encoded-request limit; wait for
+the running turn to finish to send a larger draft. Provider-specific file
+and context limits still apply.
+
+On OpenRouter, a model without native file input still reads a PDF: Kiri asks
+for OpenRouter's free text parser rather than its default paid OCR, so pages
+are never billed unasked. Models with native file input get the PDF as-is.
 
 ## Titles
 

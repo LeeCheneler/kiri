@@ -15,7 +15,8 @@ you need. For example:
 Follow up, correct assumptions, and ask for changes. You can switch models
 mid-conversation; the next reply uses your selection.
 
-Use **+ add file** to attach material, or paste an image if your model
+Use **+ add file** to attach text files, images, or documents — PDFs reach
+most hosted models, Office files reach Codex — or paste an image if your model
 supports it. To let Kiri explore a folder or change code, first
 [enable file access](/docs/working-with-files). Web search and other external
 tools need a [connected MCP server](/docs/session-reference#tools-from-mcp-servers).

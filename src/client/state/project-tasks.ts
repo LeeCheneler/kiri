@@ -10,40 +10,17 @@ import {
   patchProjectTaskGroup,
   reorderProjectTaskGroups,
 } from "../api.ts";
-import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
-
-const projectsKey = ["projects"] as const;
-const projectTasksKey = (projectId: string) => ["project-tasks", projectId] as const;
+import { projectTasksKey, projectsKey } from "./query-keys.ts";
 
 /**
  * Read a project's task list — its groups in order, each with its tasks in
  * order. Fetched on first use and served from cache thereafter; kept current
- * by `useProjectTasksLive`, mounted once near the root via `<LiveSync>`.
+ * by `<LiveSync>`.
  */
 export function useProjectTasks(projectId: string): UseQueryResult<ProjectTaskGroup[]> {
   return useQuery({
     queryKey: projectTasksKey(projectId),
     queryFn: async () => (await fetchProjectTasks(projectId)).groups,
-  });
-}
-
-/**
- * Bridges `task.changed` to the task caches: any change to a project's list
- * — from this app or a session's tools — refetches that project's list and
- * the project index (whose cards carry open-task counts). Reconnect re-syncs
- * every list. Mount once near the root via `<LiveSync>`.
- */
-export function useProjectTasksLive(): void {
-  const queryClient = useQueryClient();
-  useLiveEvent({
-    on: ["task.changed"],
-    handler: (event) => {
-      void queryClient.invalidateQueries({ queryKey: projectTasksKey(event.projectId) });
-      void queryClient.invalidateQueries({ queryKey: projectsKey });
-    },
-  });
-  useLiveReconnect(() => {
-    void queryClient.invalidateQueries({ queryKey: ["project-tasks"] });
   });
 }
 

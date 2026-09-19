@@ -13,13 +13,9 @@ import {
 } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
-import { type JSONValue, type ToolSet, tool } from "ai";
+import { type ToolSet, tool } from "ai";
 import { z } from "zod";
-import {
-  MAX_DIFF_LENGTH,
-  unifiedDiff as buildUnifiedDiff,
-  compactWriteOutput,
-} from "./write-tool-diffs.ts";
+import { MAX_DIFF_LENGTH, unifiedDiff as buildUnifiedDiff } from "./write-tool-diffs.ts";
 
 // Byte cap on a returned file body; continuation preserves oversized lines.
 const MAX_READ_BYTES = 128 * 1024;
@@ -142,8 +138,8 @@ const withTrailingNewline = (content: string): string =>
  * relative one resolves against the session's working directory, and is
  * rejected with the allowed set named when the session has none. Every path is resolved to its real form (defeating
  * `../` traversal and symlink escapes) and must sit inside one of
- * `getAllowedDirectories()` — read live per call, so a `kiri.yaml` edit
- * applies on the next call. Hidden (dot-prefixed) paths are reachable like any
+ * `getAllowedDirectories()`. A session turn fixes that set when it starts, so
+ * a `kiri.yaml` edit applies on the next turn. Hidden (dot-prefixed) paths are reachable like any
  * other, bar a narrow denylist that stays outside the tool surface entirely:
  * `.git` internals (thousands of object files that would drown every broad
  * find), secret-bearing files (`.env*`), and kiri's own `.kiri` state
@@ -179,13 +175,6 @@ export function filesystemTools(
   // pathological rewrite can't bloat the persisted message.
   const unifiedDiff = (before: string, after: string) =>
     buildUnifiedDiff(before, after, maxDiffLength);
-
-  // What the model receives in place of a diff-carrying write result: the
-  // same object minus the app-only diff fields.
-  const modelOutput = ({ output }: { output: unknown }) => ({
-    type: "json" as const,
-    value: compactWriteOutput(output) as JSONValue,
-  });
 
   // The sandbox as real paths, deduplicated; an entry that doesn't exist on
   // disk can't contain anything and is skipped.
@@ -819,7 +808,6 @@ export function filesystemTools(
         writeFileSync(real, next);
         return { path: real, created: true };
       },
-      toModelOutput: modelOutput,
     }),
 
     edit_file: tool({
@@ -866,7 +854,6 @@ export function filesystemTools(
         writeFileSync(real, next);
         return { path: real, replacements: count, ...unifiedDiff(raw, next) };
       },
-      toModelOutput: modelOutput,
     }),
 
     create_directory: tool({

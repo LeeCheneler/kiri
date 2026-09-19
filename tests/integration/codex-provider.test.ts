@@ -13,6 +13,7 @@ import { memories } from "../../src/server/db/schema.ts";
 import { CODEX_BASE_URL } from "../../src/server/llm/codex-fetch.ts";
 import {
   type LlmClients,
+  buildModelDescription,
   createLlmClients,
   createLlmProviderRegistry,
   effortProviderOptions,
@@ -24,10 +25,10 @@ import {
   getSession,
   getSessionMessages,
   knowledgeTools,
-  runTurn,
 } from "../../src/server/sessions/index.ts";
 import { createRegistry } from "../../src/server/workflows/index.ts";
 import { server } from "../setup/msw.ts";
+import { runTurn } from "../support/turn-runner.ts";
 
 const completed = {
   type: "response.completed",
@@ -53,6 +54,16 @@ const listedModel = {
   supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
 };
 const provider = { name: "chatgpt", type: "openai-codex" as const };
+
+// A reasoning-capable Codex model advertising `reasoningLevels`, as its listing would describe it.
+const reasoningModel = (modelId: string, reasoningLevels?: string[]) =>
+  buildModelDescription(provider, modelId, {
+    id: `chatgpt:${modelId}`,
+    provider: "chatgpt",
+    output: "text",
+    reasoning: true,
+    ...(reasoningLevels !== undefined ? { reasoningLevels } : {}),
+  });
 
 describe("Codex provider through the AI SDK", () => {
   let cwd: string;
@@ -135,7 +146,8 @@ describe("Codex provider through the AI SDK", () => {
       providerOptions: {
         openai: {
           store: true,
-          ...effortProviderOptions(provider, "future-reasoning-model", "high", ["high"])?.openai,
+          ...effortProviderOptions(reasoningModel("future-reasoning-model", ["high"]), "high")
+            ?.openai,
         },
       },
     });
@@ -166,6 +178,43 @@ describe("Codex provider through the AI SDK", () => {
         content: [
           { type: "input_text", text: "Summarise the screenshot" },
           { type: "input_image", image_url: image },
+        ],
+      },
+    ]);
+  });
+
+  it("sends documents as file input, Office types included, through the streaming adapter", async () => {
+    let input: unknown;
+    server.use(
+      http.post(`${CODEX_BASE_URL}/responses`, async ({ request }) => {
+        input = ((await request.json()) as { input: unknown }).input;
+        return sse(textEvents);
+      }),
+    );
+    const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const result = streamText({
+      model: clients.resolveModel("chatgpt:gpt-5.4-mini"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "file", mediaType: "application/pdf", filename: "a.pdf", data: "AQI=" },
+            { type: "file", mediaType: docx, filename: "b.docx", data: "AwQ=" },
+            { type: "text", text: "Summarise both" },
+          ],
+        },
+      ],
+    });
+    expect(await result.text).toBe("violet");
+    // The SDK maps PDFs itself; Office documents only pass because the model
+    // opts into passing unsupported file parts through to the backend.
+    expect(input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_file", filename: "a.pdf", file_data: "data:application/pdf;base64,AQI=" },
+          { type: "input_file", filename: "b.docx", file_data: `data:${docx};base64,AwQ=` },
+          { type: "input_text", text: "Summarise both" },
         ],
       },
     ]);
@@ -264,32 +313,40 @@ describe("Codex provider through the AI SDK", () => {
       "chatgpt:none-only",
     ]);
     expect(models[0]).toMatchObject({
-      contextWindow: 200_000,
-      imageInput: true,
-      output: "text",
-      reasoning: true,
-      reasoningLevels: ["low", "high"],
+      model: {
+        contextWindow: 200_000,
+        imageInput: true,
+        output: "text",
+        reasoning: true,
+        reasoningLevels: ["low", "high"],
+      },
+      transport: {
+        endpoint: "openai-codex",
+        documents: expect.arrayContaining(["application/pdf"]),
+      },
     });
-    expect(models[1]).toMatchObject({ reasoning: false, reasoningLevels: [] });
-    expect(await clients.contextWindowFor("chatgpt:gpt-5.4-mini")).toBe(200_000);
-    expect(await clients.reasoningOptionsFor("chatgpt:gpt-5.4-mini", "max")).toEqual({
+    expect(models[1]).toMatchObject({ model: { reasoning: false, reasoningLevels: [] } });
+    const mini = await clients.describeModel("chatgpt:gpt-5.4-mini");
+    expect(mini.model.contextWindow).toBe(200_000);
+    expect(effortProviderOptions(mini, "max")).toEqual({
       openai: { reasoningEffort: "high", forceReasoning: true },
     });
-    expect(await clients.reasoningOptionsFor("chatgpt:gpt-5.4-mini", "medium")).toEqual({
+    expect(effortProviderOptions(mini, "medium")).toEqual({
       openai: { reasoningEffort: "low", forceReasoning: true },
     });
-    expect(await clients.reasoningOptionsFor("chatgpt:plain", "high")).toBeUndefined();
-    expect(await clients.reasoningOptionsFor("chatgpt:none-only", "high")).toBeUndefined();
+    for (const id of ["chatgpt:plain", "chatgpt:none-only"]) {
+      expect(effortProviderOptions(await clients.describeModel(id), "high")).toBeUndefined();
+    }
   });
 
   it("handles a model whose lowest supported effort exceeds the requested one", () => {
-    expect(effortProviderOptions(provider, "model", "low", ["high", "xhigh"])).toEqual({
+    expect(effortProviderOptions(reasoningModel("model", ["high", "xhigh"]), "low")).toEqual({
       openai: { reasoningEffort: "high", forceReasoning: true },
     });
-    expect(effortProviderOptions(provider, "model", "max", ["high", "xhigh"])).toEqual({
+    expect(effortProviderOptions(reasoningModel("model", ["high", "xhigh"]), "max")).toEqual({
       openai: { reasoningEffort: "xhigh", forceReasoning: true },
     });
-    expect(effortProviderOptions(provider, "model", "high")).toBeUndefined();
+    expect(effortProviderOptions(reasoningModel("model"), "high")).toBeUndefined();
   });
 
   it("collects listing failures without failing the aggregate", async () => {

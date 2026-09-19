@@ -2,8 +2,8 @@ import { zValidator } from "@hono/zod-validator";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Hono } from "hono";
 import { z } from "zod";
-import { loadKiriConfig } from "../config/loader.ts";
-import type { ConfigStore } from "../config/store.ts";
+import type * as mcpApi from "../../shared/api/mcp.ts";
+import type { ConfigService } from "../config/service.ts";
 import type { EventBus } from "../events/index.ts";
 import type { McpCredentialStore } from "../mcp/oauth-store.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
@@ -24,9 +24,9 @@ export type McpAuth = (
 ) => Promise<"AUTHORIZED" | "REDIRECT">;
 
 export interface McpRoutesDeps {
-  /** Workspace config — read fresh per request to resolve a server's URL and OAuth flag. */
-  config: ConfigStore;
-  /** Environment the config loader resolves `{ env: }` refs against. */
+  /** The workspace's effective config — read per request to resolve a server's URL and OAuth flag. */
+  configService: ConfigService;
+  /** Environment MCP servers resolve their `{ env: }` refs against on reconnect. */
   env: Record<string, string | undefined>;
   /** Live MCP registry — its per-server status and tool catalog are served, and it is reconnected after sign-in. */
   registry: McpRegistry;
@@ -43,7 +43,7 @@ export interface McpRoutesDeps {
 // and the verdict to record. `"ask"` clears any recorded decision.
 const toolPermissionBodySchema = z
   .object({ tool: z.string().min(1), permission: z.enum(["allow", "ask", "off", "auto"]) })
-  .strict();
+  .strict() satisfies z.ZodType<mcpApi.SetToolPermissionRequest>;
 
 const escapeHtml = (value: string): string =>
   value
@@ -78,22 +78,24 @@ const errorHtml = (name: string, message: string): string =>
  * `GET /:server/auth/callback` completes it and reconnects the server.
  */
 export function mcpRoutes(deps: McpRoutesDeps): Hono {
-  const { config, env, registry, permissions, credentialStore, auth, bus } = deps;
+  const { configService, env, registry, permissions, credentialStore, auth, bus } = deps;
   const app = new Hono();
 
   /** Resolve `name` to its OAuth http server config, or undefined when it isn't one. */
   const oauthServer = (name: string): McpHttpServer | undefined => {
-    const server = loadKiriConfig(config, env).mcp.get(name);
+    const server = configService.current().mcp.get(name);
     return server?.type === "http" && server.oauth ? server : undefined;
   };
 
   /** Reconnect all servers (the just-authed one now has tokens) and signal the UI. */
   const reconnect = async (): Promise<void> => {
-    await registry.replace(loadKiriConfig(config, env).mcp, env);
+    await registry.replace(configService.current().mcp, env);
     bus?.publish({ type: "config.changed" });
   };
 
-  app.get("/servers", (c) => c.json({ servers: registry.status() }));
+  app.get("/servers", (c) =>
+    c.json({ servers: registry.status() } satisfies mcpApi.McpServersResult),
+  );
 
   // The per-server tool listing for the MCP management surface: every configured
   // server with its connection state, and (when connected) its tools, each
@@ -123,7 +125,7 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
       description: tool.description,
       permission: permissions.get(tool.name, tool.defaultPermission),
     }));
-    return c.json({ servers, builtin });
+    return c.json({ servers, builtin } satisfies mcpApi.McpToolsResult);
   });
 
   // Set a tool's standing permission (allow/ask/off), keyed by its namespaced

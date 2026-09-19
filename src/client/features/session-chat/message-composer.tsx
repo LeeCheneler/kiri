@@ -3,42 +3,40 @@ import {
   type ChangeEventHandler,
   type ClipboardEventHandler,
   type ReactNode,
-  useCallback,
   useId,
   useRef,
-  useState,
 } from "react";
+import { messagePartsError } from "../../../shared/message-limits.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Field } from "../../design-system/actions/field.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
 import {
-  ATTACHMENT_ACCEPT,
-  type PendingImage,
-  type PendingTextFile,
-  TEXT_ATTACHMENT_ACCEPT,
-  imageFilesFrom,
-  readPendingImages,
-  readPendingTextFiles,
-  textFilesFrom,
-  wrapAttachedFile,
+  type StagedAttachment,
+  attachmentAccept,
+  attachmentName,
+  attachmentParts,
+  pickedFilesFrom,
 } from "./attachments.ts";
 import { FileThumb } from "./file-thumb.tsx";
 import { ImageThumb } from "./image-thumb.tsx";
+import { useStagedAttachments } from "./use-staged-attachments.ts";
 
 /**
  * The shared message composer: one framed surface holding any staged
  * attachments, an auto-growing textarea, and a toolbar — add file on the left;
  * caller controls, an optional cancel, and an optional submit button on the
- * right. Images and text files stage from the file picker (images also from a
- * paste), Enter submits and Shift+Enter breaks a line. Text is controlled via
- * `value`/`onChange`, so the caller owns persistence; staged attachments start
- * from `initialImages`/`initialTextFiles` and are cleared on submit. `onSubmit`
- * receives the assembled `UIMessage` parts — images, then each text file as an
- * `<attached-file>` text part, then the typed text — and the caller decides what
- * they mean (send a turn, resend an edit); returning `false` refuses the
- * submit — staged attachments stay put for the caller's error to explain.
- * `onCancel`, when given, fires from
- * Escape and a cancel button in the toolbar (e.g. to close an inline editor).
+ * right. Images, documents and text files stage from the file picker (images
+ * also from a paste) and show at once, dimmed until their contents are read —
+ * a submit waits for that. Enter submits and Shift+Enter breaks a line. Text is
+ * controlled via `value`/`onChange`, so the caller owns persistence; staged
+ * attachments start from `initialAttachments` and are cleared on submit.
+ * `onSubmit` receives the assembled `UIMessage` parts — the attachments in the
+ * order they were staged (each text file as an `<attached-file>` text part),
+ * then the typed text — and the caller decides what they mean (send a turn,
+ * resend an edit); returning `false` refuses the submit — staged attachments
+ * stay put for the caller's error to explain. `onCancel`, when given, fires
+ * from Escape and a cancel button in the toolbar (e.g. to close an inline
+ * editor).
  * While `busy` — a turn is in flight — the field and its controls stay editable
  * so the next message can be drafted, but submitting is blocked until the turn
  * settles. Pass `id` to let the caller focus the field; `label` names the
@@ -55,7 +53,16 @@ import { ImageThumb } from "./image-thumb.tsx";
  * error pointing at the model picker, instead of staging an attachment the
  * turn would only fail on. Text files stay attachable throughout. Omit it (or
  * pass `true`) when images are fine or the model's input support is unknown.
+ * `acceptsDocuments` lists the document media types the model's provider
+ * carries (PDF, Office): the picker offers exactly those, and a picked file of
+ * any other document type gets the same kind of inline error. Both are
+ * checked again on submit: an attachment staged before a model switch — or
+ * restored from a message sent to another model — refuses the submit with that
+ * error, and stays staged to be removed or sent once the model is switched.
  */
+
+const NO_DOCUMENTS: readonly string[] = [];
+const NO_ATTACHMENTS: StagedAttachment[] = [];
 export function MessageComposer({
   value,
   onChange,
@@ -68,10 +75,10 @@ export function MessageComposer({
   placeholder,
   submitLabel,
   acceptsImages = true,
+  acceptsDocuments = NO_DOCUMENTS,
   controls,
   error,
-  initialImages = [],
-  initialTextFiles = [],
+  initialAttachments = NO_ATTACHMENTS,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -85,112 +92,80 @@ export function MessageComposer({
   placeholder?: string;
   submitLabel?: string;
   acceptsImages?: boolean;
+  acceptsDocuments?: readonly string[];
   controls?: ReactNode;
   /** A failure from a control in the toolbar, shown on the composer's error row. */
   error?: string;
-  initialImages?: PendingImage[];
-  initialTextFiles?: PendingTextFile[];
+  initialAttachments?: StagedAttachment[];
 }) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
-  const [images, setImages] = useState<PendingImage[]>(initialImages);
-  const [textFiles, setTextFiles] = useState<PendingTextFile[]>(initialTextFiles);
-  const [attachmentError, setAttachmentError] = useState<string>();
+  const staged = useStagedAttachments(initialAttachments, {
+    images: acceptsImages,
+    documents: acceptsDocuments,
+  });
+  const { attachments } = staged;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const addImageFiles = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
-      // The single gate for images from any route (picker or paste): a
-      // text-only model surfaces why instead of staging a doomed attachment.
-      if (!acceptsImages) {
-        setAttachmentError("This model reads text only. Switch model to attach images.");
-        return;
-      }
-      const { images, error } = await readPendingImages(files);
-      if (images.length > 0) setImages((prev) => [...prev, ...images]);
-      setAttachmentError(error);
-    },
-    [acceptsImages],
-  );
-  const addTextFiles = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
-    const { textFiles, error } = await readPendingTextFiles(files);
-    if (textFiles.length > 0) setTextFiles((prev) => [...prev, ...textFiles]);
-    setAttachmentError(error);
-  }, []);
   // Paste an image straight into the composer. Plain-text (and other) pastes
   // carry no image files, so they fall through to the textarea's default — text
   // is meant to be typed, not turned into an attachment.
   const onPaste: ClipboardEventHandler<HTMLTextAreaElement> = (event) => {
-    const files = imageFilesFrom(event.clipboardData.files);
-    if (files.length === 0) return;
+    const images = pickedFilesFrom(event.clipboardData.files).filter(
+      (picked) => picked.kind === "image",
+    );
+    if (images.length === 0) return;
     event.preventDefault();
-    void addImageFiles(files);
+    void staged.addFiles(images);
   };
   const onPickFiles: ChangeEventHandler<HTMLInputElement> = (event) => {
-    void addImageFiles(imageFilesFrom(event.target.files));
-    void addTextFiles(textFilesFrom(event.target.files));
+    void staged.addFiles(pickedFilesFrom(event.target.files));
     event.target.value = ""; // let the same file be picked again after removal
   };
-  const removeImage = (id: string) => setImages((prev) => prev.filter((image) => image.id !== id));
-  const removeTextFile = (id: string) =>
-    setTextFiles((prev) => prev.filter((file) => file.id !== id));
 
-  const empty = value.trim() === "" && images.length === 0 && textFiles.length === 0;
+  const empty = value.trim() === "" && attachments.length === 0;
 
   const submit = () => {
     if (busy || empty) return;
+    const sendable = staged.takeSendable();
+    if (!sendable) return;
     const text = value.trim();
     // Attachments first, then the text, so the model reads them before the
-    // question. Text files ride as `<attached-file>` text parts, which reach
-    // every provider as plain text.
+    // question.
     const parts: UIMessage["parts"] = [
-      ...images.map((image) => image.part),
-      ...textFiles.map((file) => ({
-        type: "text" as const,
-        text: wrapAttachedFile(file.filename, file.content),
-      })),
+      ...attachmentParts(sendable),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
+    const sizeError = messagePartsError(parts);
+    if (sizeError) {
+      staged.setErrors([sizeError]);
+      return;
+    }
     if (onSubmit(parts) === false) return;
-    setImages([]);
-    setTextFiles([]);
-    setAttachmentError(undefined);
+    staged.clear();
   };
 
   const frame = (
     <div className="border border-rule transition-colors duration-150 focus-within:border-accent">
-      {images.length > 0 || textFiles.length > 0 ? (
+      {attachments.length > 0 ? (
         <ul className="flex flex-wrap gap-2 px-3 pt-3">
-          {images.map((image) => (
-            <li key={image.id} className="relative">
-              <ImageThumb src={image.part.url} alt={image.part.filename ?? "Attached image"} />
-              <button
-                type="button"
-                onClick={() => removeImage(image.id)}
-                title="Remove image"
-                aria-label="Remove image"
-                className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          {attachments.map((attachment) => {
+            const name = attachmentName(attachment);
+            return (
+              <StagedTile
+                key={attachment.id}
+                removeLabel={attachment.kind === "image" ? "Remove image" : `Remove ${name}`}
+                busy={attachment.kind === "reading"}
+                onRemove={() => staged.remove(attachment.id)}
               >
-                ×
-              </button>
-            </li>
-          ))}
-          {textFiles.map((file) => (
-            <li key={file.id} className="relative">
-              <FileThumb filename={file.filename} />
-              <button
-                type="button"
-                onClick={() => removeTextFile(file.id)}
-                title={`Remove ${file.filename}`}
-                aria-label={`Remove ${file.filename}`}
-                className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                ×
-              </button>
-            </li>
-          ))}
+                {attachment.kind === "image" ? (
+                  <ImageThumb src={attachment.part.url} alt={name} />
+                ) : (
+                  <FileThumb filename={name} />
+                )}
+              </StagedTile>
+            );
+          })}
         </ul>
       ) : null}
       <Textarea
@@ -214,22 +189,20 @@ export function MessageComposer({
       />
       {/* Failures get a row of their own, above the toolbar, so a long
           message never pushes the controls about. */}
-      {[attachmentError, error]
-        .filter((message): message is string => message !== undefined)
-        .map((message) => (
-          <p
-            key={message}
-            role="alert"
-            className="border-t border-rule px-2 py-2 font-mono text-status-failed text-xs"
-          >
-            {message}
-          </p>
-        ))}
+      {[...staged.errors, ...(error === undefined ? [] : [error])].map((message) => (
+        <p
+          key={message}
+          role="alert"
+          className="border-t border-rule px-2 py-2 font-mono text-status-failed text-xs"
+        >
+          {message}
+        </p>
+      ))}
       <div className="flex flex-wrap items-center gap-3 border-t border-rule px-2 py-2">
         <input
           ref={fileInputRef}
           type="file"
-          accept={acceptsImages ? ATTACHMENT_ACCEPT : TEXT_ATTACHMENT_ACCEPT}
+          accept={attachmentAccept({ images: acceptsImages, documents: acceptsDocuments })}
           multiple
           hidden
           onChange={onPickFiles}
@@ -260,4 +233,34 @@ export function MessageComposer({
     );
   }
   return frame;
+}
+
+// One staged attachment in the composer's row: its thumbnail with a remove
+// control pinned to the corner. `busy` — its file is still being read — dims
+// the thumbnail; it can still be removed.
+function StagedTile({
+  removeLabel,
+  busy,
+  onRemove,
+  children,
+}: {
+  removeLabel: string;
+  busy: boolean;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <li className="relative" aria-busy={busy}>
+      <div className={busy ? "opacity-50" : undefined}>{children}</div>
+      <button
+        type="button"
+        onClick={onRemove}
+        title={removeLabel}
+        aria-label={removeLabel}
+        className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        ×
+      </button>
+    </li>
+  );
 }

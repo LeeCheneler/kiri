@@ -6,13 +6,20 @@ import { APICallError, type LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
+import { describedModel } from "../../../tests/support/described-model.ts";
+import {
+  resumeTurn,
+  runTurn,
+  runWakeTurn,
+  turnCanceller,
+} from "../../../tests/support/turn-runner.ts";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
 import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
-import { createCancelRegistry } from "../runner/cancel-registry.ts";
 import { savedContextCalibration } from "./context-calibration.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
@@ -27,8 +34,7 @@ import {
   updateSessionEffort,
   updateSessionModel,
 } from "./store.ts";
-import { createStreamRegistry } from "./stream-registry.ts";
-import { resumeTurn, runTurn, runWakeTurn } from "./turn.ts";
+import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -50,8 +56,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 // Capturing event bus: records every published event, never delivers.
@@ -113,6 +118,27 @@ const parkedStream = (
   });
 
 // A model whose stream emits a little then stays open: only an abort ends it.
+// What a reader holding the transcript at `revision` is sent on rejoining the
+// session's live turn: read until `until` shows up, or the stream ends.
+async function replayOf(
+  streamRegistry: StreamRegistry,
+  sessionId: string,
+  revision: number,
+  until: string,
+): Promise<string> {
+  const reader = streamRegistry.subscribe(sessionId, revision)?.stream.getReader();
+  if (!reader) throw new Error(`no live turn for session "${sessionId}"`);
+  const decoder = new TextDecoder();
+  let replayed = "";
+  while (!replayed.includes(until)) {
+    const next = await reader.read();
+    if (next.done) break;
+    replayed += decoder.decode(next.value);
+  }
+  await reader.cancel();
+  return replayed;
+}
+
 const pendingModel = (): LlmModel =>
   new MockLanguageModelV3({
     doStream: async ({ abortSignal }) => ({
@@ -329,7 +355,7 @@ describe("runTurn", () => {
         { role: "user", parts: [{ type: "text", text: "Discard this" }] },
         { id: "u-after" },
       );
-      expect(deleteMessagesFrom(db, "s1", `u-${boundary}`)).toBe(true);
+      expect(deleteMessagesFrom(db, "s1", `u-${boundary}`)).toBeGreaterThan(0);
       const capture: { prompt?: unknown } = {};
       await (
         await runTurn(
@@ -351,7 +377,7 @@ describe("runTurn", () => {
     async (ending) => {
       let calls = 0;
       let executions = 0;
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
           calls += 1;
@@ -397,7 +423,7 @@ describe("runTurn", () => {
               ],
               options.abortSignal,
             );
-            queueMicrotask(() => cancelRegistry.requestCancel("s1"));
+            queueMicrotask(() => canceller.cancel("s1"));
             return { stream };
           }
           const parts: LanguageModelV3StreamPart[] = [];
@@ -428,7 +454,7 @@ describe("runTurn", () => {
           db,
           llmClients: clientsFor(model),
           bus: recordingBus(events),
-          cancelRegistry,
+          canceller,
           buildSystemPrompt: (current) => `Current directory: ${current.cwd}`,
           tools: {
             echo: tool({
@@ -468,14 +494,15 @@ describe("runTurn", () => {
         ...(ending !== "cancel" ? { error: { code: "step_limit" } } : {}),
         finishedAt: expect.any(Date),
       });
-      expect(events).toContainEqual({ type: "session.finished", id: "s1", status });
+      expect(events).toContainEqual({
+        type: "session.finished",
+        id: "s1",
+        status,
+        projectId: null,
+        parentSessionId: null,
+      });
       expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-        {
-          type: "session.turn.settled",
-          id: "s1",
-          messageId: rows[1]?.id,
-          outcome: ending === "cancel" ? "cancelled" : "incomplete",
-        },
+        { type: "session.turn.settled", id: "s1", status, projectId: null, parentSessionId: null },
       ]);
       if (ending === "summary") {
         expect(sse).toContain("Saved 128 results. More work remains.");
@@ -536,7 +563,7 @@ describe("runTurn", () => {
         (p) => p.state === "output-available",
       ),
     ).toHaveLength(128);
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it.each(["answer", "approval", "cancel"] as const)(
@@ -544,7 +571,7 @@ describe("runTurn", () => {
     async (ending) => {
       let calls = 0;
       let executions = 0;
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       const model = new MockLanguageModelV3({
         doStream: async () => {
           calls += 1;
@@ -578,14 +605,14 @@ describe("runTurn", () => {
         {
           db,
           llmClients: clientsFor(model),
-          cancelRegistry,
+          canceller,
           tools: {
             echo: tool({
               inputSchema: z.object({ value: z.string() }),
               needsApproval: () => calls === 128 && ending === "approval",
               execute: ({ value }) => {
                 executions += 1;
-                if (calls === 128 && ending === "cancel") cancelRegistry.requestCancel("s1");
+                if (calls === 128 && ending === "cancel") canceller.cancel("s1");
                 return { echoed: value };
               },
             }),
@@ -624,13 +651,12 @@ describe("runTurn", () => {
         };
       },
     }) as unknown as LlmModel;
-    const askedFor: { id?: string; effort?: string } = {};
+    const askedFor: string[] = [];
     const llmClients: LlmClients = {
       ...clientsFor(model),
-      reasoningOptionsFor: async (id, effort) => {
-        askedFor.id = id;
-        askedFor.effort = effort;
-        return { anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } } };
+      describeModel: async (id) => {
+        askedFor.push(id);
+        return describedModel(id, { reasoning: true });
       },
     };
     const session = createSession(db, MODEL, { id: "s1", effort: "high" });
@@ -642,12 +668,35 @@ describe("runTurn", () => {
     await response.text();
     await done;
 
-    // The mapping is asked for this session's model at its stored effort, and
-    // what it returns rides the model call unchanged.
-    expect(askedFor).toEqual({ id: MODEL, effort: "high" });
-    expect(capture.providerOptions).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } },
-    });
+    // This session's model is described, and its stored effort rides the
+    // model call as that provider's reasoning parameters.
+    expect(askedFor).toEqual([MODEL]);
+    expect(capture.providerOptions).toEqual({ lmstudio: { reasoningEffort: "high" } });
+  });
+
+  it("cuts the wait on model discovery short when the turn is cancelled", async () => {
+    const canceller = turnCanceller();
+    const session = createSession(db, MODEL, { id: "s1" });
+    // Discovery that settles only once its caller's signal fires.
+    const llmClients: LlmClients = {
+      ...clientsFor(pendingModel()),
+      describeModel: (id, options) =>
+        new Promise((resolve) => {
+          options?.signal?.addEventListener("abort", () => resolve(describedModel(id)), {
+            once: true,
+          });
+          queueMicrotask(() => canceller.cancel("s1"));
+        }),
+    };
+
+    const { response, done } = await runTurn(
+      { db, llmClients, canceller },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
   });
 
   it("sends no provider options when the model has no reasoning support", async () => {
@@ -667,7 +716,7 @@ describe("runTurn", () => {
     }) as unknown as LlmModel;
     const session = createSession(db, MODEL, { id: "s1", effort: "high" });
 
-    // clientsFor's reasoningOptionsFor resolves undefined — a model the
+    // clientsFor describes a model without reasoning support — one the
     // listing doesn't mark reasoning-capable gets no parameters at all.
     const { response, done } = await runTurn(
       { db, llmClients: clientsFor(model) },
@@ -707,11 +756,29 @@ describe("runTurn", () => {
     const settled = getSession(db, "s1");
     expect(settled?.status).toBe("idle");
 
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "running",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(events.filter((e) => e.type === "session.message.added")).toHaveLength(2);
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "ended" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
   });
 
@@ -748,7 +815,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 272000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 272000 }),
           generateText: async () => {
             summaries += 1;
             return { text: "", usage: {} };
@@ -793,9 +860,9 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => {
+          describeModel: async (id) => {
             enqueueInboxItem(db, "s1", { source: "user", text: "Check the contracts too" });
-            return 20000;
+            return describedModel(id, { contextWindow: 20000 });
           },
           generateText: async ({ model, prompt }) => {
             summaries += 1;
@@ -883,7 +950,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 8192,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
           generateText: async () => {
             summaries += 1;
             return { text: "A changed request", usage: {} };
@@ -909,9 +976,23 @@ describe("runTurn", () => {
     let actions = 0;
     let summaries = 0;
     let system = "Original standing rules";
+    const streamRegistry = createStreamRegistry();
+    // A reader rejoining as the first summary lands: retried, since the save
+    // commits a moment before the stream's buffer moves up to it.
+    let rejoined: Promise<string> | undefined;
+    const rejoin = async (): Promise<string> => {
+      for (let i = 0; i < 100; i += 1) {
+        const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+        const replayed = await replayOf(streamRegistry, "s1", revision, '"toolCallId":"c2"');
+        if (replayed !== "") return replayed;
+        await Bun.sleep(1);
+      }
+      return "";
+    };
     const model = new MockLanguageModelV3({
       doStream: async (options) => {
         calls += 1;
+        if (calls === 2) rejoined = rejoin();
         const sent = JSON.stringify(options.prompt);
         if (calls >= 2) {
           expect(sent).toContain(`Checkpoint ${Math.min(calls - 1, 2)}`);
@@ -954,10 +1035,11 @@ describe("runTurn", () => {
     const { response, done } = await runTurn(
       {
         db,
+        streamRegistry,
         buildSystemPrompt: () => system,
         llmClients: {
           ...clientsFor(model),
-          contextWindowFor: async () => 8192,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
           generateText: async ({ prompt }) => {
             summaries += 1;
             expect(prompt).toContain(`Action ${summaries} completed`);
@@ -1000,6 +1082,11 @@ describe("runTurn", () => {
     expect(calls).toBe(4);
     expect(actions).toBe(3);
     expect(summaries).toBe(2);
+    // The summary and the action behind it were saved: the rejoin carries neither.
+    const replayed = await rejoined;
+    expect(replayed).toContain('"toolCallId":"c2"');
+    expect(replayed).not.toContain("data-checkpoint");
+    expect(replayed).not.toContain("x".repeat(1000));
     expect(pendingInboxItems(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
     const capture: { prompt?: unknown } = {};
@@ -1041,7 +1128,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 8192,
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
           generateText: async ({ prompt }) => {
             summaries += 1;
             expect(prompt).toContain("Approved action completed");
@@ -1073,50 +1160,6 @@ describe("runTurn", () => {
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(JSON.stringify(capture.prompt)).toContain("Approved action completed once");
     expect(JSON.stringify(capture.prompt)).not.toContain("x".repeat(1000));
-  });
-
-  it("keeps unanswered approvals out of compaction when only one verdict is submitted", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    appendMessage(db, "s1", {
-      role: "assistant",
-      parts: [
-        { type: "text", text: "x".repeat(48000) },
-        ...["c1", "c2"].map((id) => ({
-          type: "tool-echo" as const,
-          toolCallId: id,
-          state: "approval-requested" as const,
-          input: { value: "hi" },
-          approval: { id: `ap-${id}` },
-        })),
-      ],
-    });
-    setSessionStatus(db, "s1", "waiting");
-    const resumed = await resumeTurn(
-      {
-        db,
-        tools: gatedEchoTools,
-        llmClients: {
-          ...clientsFor(capturingModel({})),
-          contextWindowFor: async () => 20000,
-          generateText: async () => {
-            throw new Error("Pending approvals must not be summarized");
-          },
-        },
-      },
-      { session, approvals: [{ toolCallId: "c1", approved: true }] },
-    );
-    await resumed.done;
-    // The SDK rejects a partial verdict's unpaired call. Compaction must not
-    // hide that pending approval inside a summary and make it unrecoverable.
-    expect(getSession(db, "s1")).toMatchObject({
-      status: "failed",
-      error: { message: "Tool result is missing for tool call c2." },
-    });
-    const parts = getSessionMessages(db, "s1")[0].parts as UIMessage["parts"];
-    expect(parts.filter(isCheckpointPart)).toHaveLength(0);
-    expect(parts).toContainEqual(
-      expect.objectContaining({ toolCallId: "c2", state: "approval-requested" }),
-    );
   });
 
   it("keeps the work-step limit and uses compacted context for its final handoff", async () => {
@@ -1162,7 +1205,7 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(model),
-          contextWindowFor: async () => 20000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 20000 }),
           generateText: async () => {
             summaries += 1;
             return { text: "Goal retained in checkpoint", usage: {} };
@@ -1195,7 +1238,7 @@ describe("runTurn", () => {
     "preserves completed work when compaction ends with %s",
     async (ending) => {
       const session = createSession(db, MODEL, { id: "s1" });
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       let calls = 0;
       let actions = 0;
       let summaries = 0;
@@ -1227,15 +1270,15 @@ describe("runTurn", () => {
       const { response, done } = await runTurn(
         {
           db,
-          cancelRegistry,
+          canceller,
           llmClients: {
             ...clientsFor(model),
-            contextWindowFor: async () => 8192,
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
             generateText: async ({ abortSignal }) => {
               summaries += 1;
               if (ending === "error") throw new Error("compaction provider unavailable");
               if (ending === "cancel") {
-                cancelRegistry.requestCancel("s1");
+                canceller.cancel("s1");
                 abortSignal?.throwIfAborted();
               }
               return {
@@ -1289,7 +1332,10 @@ describe("runTurn", () => {
       const { response, done } = await runTurn(
         {
           db,
-          llmClients: { ...clientsFor(model), contextWindowFor: async () => window },
+          llmClients: {
+            ...clientsFor(model),
+            describeModel: async (id) => describedModel(id, { contextWindow: window }),
+          },
           bus: recordingBus(events),
         },
         {
@@ -1312,7 +1358,7 @@ describe("runTurn", () => {
         "Keep this decision.",
       );
       expect(events).toContainEqual(
-        expect.objectContaining({ type: "session.turn.settled", outcome: "incomplete" }),
+        expect.objectContaining({ type: "session.turn.settled", status: "failed" }),
       );
     },
   );
@@ -1322,7 +1368,7 @@ describe("runTurn", () => {
     async (ending) => {
       let calls = 0;
       let actions = 0;
-      const cancelRegistry = createCancelRegistry();
+      const canceller = turnCanceller();
       const events: KiriEvent[] = [];
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
@@ -1341,7 +1387,7 @@ describe("runTurn", () => {
           );
           if (ending === "error") throw new Error("handoff unavailable");
           if (ending === "cancel") {
-            cancelRegistry.requestCancel("s1");
+            canceller.cancel("s1");
             options.abortSignal?.throwIfAborted();
           }
           return {
@@ -1358,9 +1404,12 @@ describe("runTurn", () => {
       const { response, done } = await runTurn(
         {
           db,
-          cancelRegistry,
+          canceller,
           bus: recordingBus(events),
-          llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+          llmClients: {
+            ...clientsFor(model),
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
+          },
           tools: {
             run_command: tool({
               inputSchema: z.object({}),
@@ -1387,7 +1436,7 @@ describe("runTurn", () => {
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "session.turn.settled",
-          outcome: ending === "cancel" ? "cancelled" : "incomplete",
+          status: ending === "cancel" ? "cancelled" : "failed",
         }),
       );
     },
@@ -1403,7 +1452,7 @@ describe("runTurn", () => {
           db,
           llmClients: {
             ...clientsFor(capturingModel(capture)),
-            contextWindowFor: async () => 8192,
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
             generateText: async () => {
               summaries += 1;
               return { text: "summary", usage: {} };
@@ -1442,7 +1491,10 @@ describe("runTurn", () => {
     const { response, done } = await runTurn(
       {
         db,
-        llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+        llmClients: {
+          ...clientsFor(model),
+          describeModel: async (id) => describedModel(id, { contextWindow: 8192 }),
+        },
         tools: {
           large: tool({
             description: "schema explanation".repeat(2000),
@@ -1515,7 +1567,8 @@ describe("runTurn", () => {
     const llmClients: LlmClients = {
       ...clientsFor(base),
       resolveModel: () => base,
-      contextWindowFor: async (id) => (id === "test:small" ? 8192 : 65536),
+      describeModel: async (id) =>
+        describedModel(id, { contextWindow: id === "test:small" ? 8192 : 65536 }),
     };
     const session = createSession(db, "test:large", { id: "s1" });
     appendMessage(db, "s1", {
@@ -1616,9 +1669,7 @@ describe("runTurn", () => {
       let session = createSession(db, MODEL, { id: "s1" });
       const clients: LlmClients = {
         ...clientsFor(model),
-        contextWindowFor: async () => contextWindow,
-        reasoningOptionsFor: async () =>
-          highEffort ? { openai: { reasoningEffort: "high" } } : undefined,
+        describeModel: async (id) => describedModel(id, { contextWindow, reasoning: highEffort }),
         generateText: async ({ prompt }) => {
           summaries += 1;
           expect(prompt).not.toContain("data-context-calibration");
@@ -1715,7 +1766,7 @@ describe("runTurn", () => {
       db,
       llmClients: {
         ...clientsFor(model),
-        contextWindowFor: async () => 100000,
+        describeModel: async (id: string) => describedModel(id, { contextWindow: 100000 }),
         generateText: async () => {
           summaries += 1;
           return { text: "summary", usage: {} };
@@ -1816,7 +1867,10 @@ describe("runTurn", () => {
       const turn = await runTurn(
         {
           db,
-          llmClients: { ...clientsFor(model), contextWindowFor: async () => 32000 },
+          llmClients: {
+            ...clientsFor(model),
+            describeModel: async (id) => describedModel(id, { contextWindow: 32000 }),
+          },
           tools: {
             search: tool({ inputSchema: z.object({}), execute: () => "r".repeat(outputLength) }),
           },
@@ -1835,62 +1889,6 @@ describe("runTurn", () => {
       );
     },
   );
-
-  it("re-encodes a JSON tool result as TOON for the model, leaving storage as JSON", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    // A uniform record array — TOON's sweet spot, so the compact form wins.
-    appendMessage(
-      db,
-      "s1",
-      { role: "user", parts: [{ type: "text", text: "search" }] },
-      { id: "u0" },
-    );
-    appendMessage(
-      db,
-      "s1",
-      {
-        role: "assistant",
-        parts: [
-          {
-            type: "tool-search",
-            toolCallId: "c1",
-            state: "output-available",
-            input: { query: "q" },
-            output: {
-              rows: [
-                { id: 1, tag: "ZULU" },
-                { id: 2, tag: "YANKEE" },
-                { id: 3, tag: "XRAY" },
-              ],
-            },
-          },
-        ] as UIMessage["parts"],
-      },
-      { id: "a1" },
-    );
-
-    const capture: { prompt?: unknown } = {};
-    const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(capturingModel(capture)) },
-      {
-        session,
-        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
-      },
-    );
-    await response.text();
-    await done;
-
-    // The model receives the TOON form — a tabular header naming the fields,
-    // which the JSON encoding (quoted keys per row) never produces.
-    const sent = JSON.stringify(capture.prompt);
-    expect(sent).toContain("rows[3]{id,tag}");
-    expect(sent).not.toContain('"tag":"ZULU"');
-
-    // Storage is untouched: the stored result keeps its JSON, not the TOON.
-    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
-    expect(stored).toContain('"tag":"ZULU"');
-    expect(stored).not.toContain("rows[3]{id,tag}");
-  });
 
   it("drops a write result's diff for the model, leaving it in storage", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
@@ -1944,6 +1942,94 @@ describe("runTurn", () => {
     expect(stored).toContain("@@ -1,1");
   });
 
+  it("drops a generated image's data for the model though its tool is no longer offered", async () => {
+    // No image model on the session and no tools on the turn: the projection
+    // rides the recorded tool name, not what this turn can call.
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "paint" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generate_image",
+            toolCallId: "c1",
+            state: "output-available",
+            input: { prompt: "a heron" },
+            output: { model: "test:paint", image: "data:image/png;base64,PIXELDATA" },
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "a1" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("test:paint");
+    expect(sent).not.toContain("PIXELDATA");
+
+    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
+    expect(stored).toContain("PIXELDATA");
+  });
+
+  it("sends a failed tool call's error text to the model as it was recorded", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "edit" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-edit_file",
+            toolCallId: "c1",
+            state: "output-error",
+            input: { path: "/ws/a.md", old_string: "x", new_string: "y" },
+            errorText: "old_string not found in /ws/a.md",
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "a1" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain('"type":"error-text","value":"old_string not found in /ws/a.md"');
+  });
+
   it("rejects before persisting anything when the model cannot be resolved", async () => {
     const llmClients: LlmClients = {
       resolveModel: () => {
@@ -1957,8 +2043,7 @@ describe("runTurn", () => {
       },
       generateText: async () => ({ text: "", usage: {} }),
       listModels: async () => ({ models: [], failures: [] }),
-      contextWindowFor: async () => undefined,
-      reasoningOptionsFor: async () => undefined,
+      describeModel: async (id) => describedModel(id),
     };
     const session = createSession(db, MODEL, { id: "s1" });
 
@@ -1989,12 +2074,24 @@ describe("runTurn", () => {
     expect(settled?.status).toBe("failed");
     expect(settled?.error).toEqual({ message: "rate limited" });
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(settled?.finishedAt).toBeInstanceOf(Date);
     // The user message persisted; no assistant message was appended.
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "failed" });
+    expect(events).toContainEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it.each([
@@ -2031,19 +2128,19 @@ describe("runTurn", () => {
   });
 
   it("cancels an in-flight turn when the registry requests it", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(pendingModel()), bus: recordingBus(events), cancelRegistry },
+      { db, llmClients: clientsFor(pendingModel()), bus: recordingBus(events), canceller },
       { session, userMessage: USER_MESSAGE },
     );
     // The stream never closes on its own; the cancel aborts it, ending the turn.
     // Let the opening delta flow through first — as it has by the time a user
     // reaches for cancel.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -2060,32 +2157,80 @@ describe("runTurn", () => {
     ]);
     // No footprint: the aborted stream never settles its usage.
     expect(rows[1]?.contextTokens).toBeNull();
-    expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
+    expect(events).toContainEqual({
+      type: "session.message.added",
+      sessionId: "s1",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events).toContainEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "cancelled",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "cancelled" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "cancelled",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
   });
 
   it("holds the resumable stream while a turn is in flight and drops it when it settles", async () => {
     const streamRegistry = createStreamRegistry();
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(pendingModel()), streamRegistry, cancelRegistry },
+      { db, llmClients: clientsFor(pendingModel()), streamRegistry, canceller },
       { session, userMessage: USER_MESSAGE },
     );
-    // The turn parks; its stream is registered so a reconnecting client can rejoin.
-    expect(streamRegistry.has("s1")).toBe(true);
+    // The turn parks; its stream is registered so a reconnecting client can
+    // rejoin, under the identity the turn's own response carries.
+    const turnId = response.headers.get(TURN_ID_HEADER);
+    expect(turnId).not.toBeNull();
+    expect(streamRegistry.turnOf("s1")).toBe(turnId);
 
-    cancelRegistry.requestCancel("s1");
+    // A reader holding the transcript the turn opened on is served the turn so far.
+    const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+    const replayed = await replayOf(streamRegistry, "s1", revision, "Hel");
+    expect(replayed).toStartWith('data: {"type":"start"');
+    expect(replayed).toContain('"type":"text-delta","id":"t1","delta":"Hel"');
+
+    canceller.cancel("s1");
     await response.text();
     await done;
 
     // Settling drops the entry in step with persistence, so a client that loads
     // the now-settled turn from storage gets a 204 and can't replay a duplicate.
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
+  });
+
+  it("sends the client that started the turn every frame, from its start to its finish", async () => {
+    const model = streamingModel([
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Hello" },
+      { type: "text-end", id: "t1" },
+      { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+    ]);
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const sse = await response.text();
+    await done;
+    // The turn settles before its stream's last frame is forwarded; the
+    // response outlives the settle to carry it.
+    expect(sse).toStartWith('data: {"type":"start"');
+    expect(sse).toContain('"delta":"Hello"');
+    expect(sse).toEndWith('data: {"type":"finish","finishReason":"stop"}\n\n');
   });
 
   it("completes and persists when the client never reads the response", async () => {
@@ -2113,7 +2258,13 @@ describe("runTurn", () => {
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe("Hello");
     expect(getSession(db, "s1")?.status).toBe("idle");
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it("reports settlement after final persistence fails, retaining the last successful checkpoint", async () => {
@@ -2137,13 +2288,19 @@ describe("runTurn", () => {
     });
     expect(saved?.role).toBe("assistant");
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: saved?.id ?? null, outcome: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it("releases the old turn before an idle event starts another cancellable turn", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const streamRegistry = createStreamRegistry();
     const session = createSession(db, MODEL, { id: "s1" });
     let next: ReturnType<typeof runTurn> | undefined;
@@ -2151,29 +2308,29 @@ describe("runTurn", () => {
       subscribe: () => () => {},
       publish: (event: KiriEvent) => {
         if (event.type === "session.turn.settled") {
-          expect(getSessionMessages(db, "s1").at(-1)?.id ?? null).toBe(event.messageId);
-          expect(streamRegistry.has("s1")).toBe(false);
-          expect(cancelRegistry.requestCancel("s1")).toBe(false);
+          expect(getSessionMessages(db, "s1").at(-1)?.role).toBe("assistant");
+          expect(streamRegistry.turnOf("s1")).toBeNull();
+          expect(canceller.cancel("s1")).toBe(false);
         }
         if (event.type !== "session.updated" || event.status !== "idle" || next) return;
         next = runTurn(
-          { db, llmClients: clientsFor(pendingModel()), cancelRegistry, streamRegistry },
+          { db, llmClients: clientsFor(pendingModel()), canceller, streamRegistry },
           { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
         );
       },
     };
     const first = await runTurn(
-      { db, llmClients: clientsFor(capturingModel({})), cancelRegistry, streamRegistry, bus },
+      { db, llmClients: clientsFor(capturingModel({})), canceller, streamRegistry, bus },
       { session, userMessage: USER_MESSAGE },
     );
     await first.done;
     const second = await next;
     expect(second).toBeDefined();
-    expect(streamRegistry.has("s1")).toBe(true);
-    expect(cancelRegistry.requestCancel("s1")).toBe(true);
+    expect(streamRegistry.turnOf("s1")).not.toBeNull();
+    expect(canceller.cancel("s1")).toBe(true);
     await second?.done;
     expect(getSession(db, "s1")?.status).toBe("cancelled");
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it("resumes a session after a failed turn, clearing the prior error", async () => {
@@ -2279,7 +2436,13 @@ describe("runTurn", () => {
     expect(settled?.error).toEqual({ message: "tool construction broke" });
     // The user message persisted; no assistant message was appended.
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "failed" });
+    expect(events).toContainEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it("persists a failed tool call's real message as its errorText", async () => {
@@ -2330,8 +2493,22 @@ describe("runTurn", () => {
     // The session is waiting — blocked on the user's decision, not resting —
     // and the bus said so, so lists flip amber live.
     expect(getSession(db, "s1")?.status).toBe("waiting");
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "waiting" });
-    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([]);
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "waiting",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "waiting",
+        projectId: null,
+        parentSessionId: null,
+      },
+    ]);
   });
 
   it("runs the tool and answers when a paused turn is resumed with approval", async () => {
@@ -2361,7 +2538,20 @@ describe("runTurn", () => {
     const rows = getSessionMessages(db, "s1");
     // The continuation extended the same two rows — no extra assistant message.
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "ended" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "waiting",
+        projectId: null,
+        parentSessionId: null,
+      },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     const toolPart = toolPartOf(rows[1]);
@@ -2372,6 +2562,49 @@ describe("runTurn", () => {
     // The context footprint is the resumed step's alone (3+4), replacing the
     // paused step's.
     expect(rows[1]?.contextTokens).toBe(7);
+  });
+
+  it("rejoins a resumed approval behind the approved action's saved result", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const first = await runTurn(
+      { db, llmClients: clientsFor(toolLoopModel()), tools: gatedEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    const paused = getSessionMessages(db, "s1")[1];
+
+    const streamRegistry = createStreamRegistry();
+    const canceller = turnCanceller();
+    const second = await resumeTurn(
+      {
+        db,
+        llmClients: clientsFor(pendingModel()),
+        tools: gatedEchoTools,
+        streamRegistry,
+        canceller,
+      },
+      {
+        session,
+        approvals: [{ toolCallId: toolPartOf(paused).toolCallId as string, approved: true }],
+      },
+    );
+    for (let i = 0; i < 100; i += 1) {
+      if (toolPartOf(getSessionMessages(db, "s1")[1]).state === "output-available") break;
+      await Bun.sleep(5);
+    }
+
+    // The result is saved on the paused message, so a reader holding that
+    // save continues the same message from the model's reply alone.
+    const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+    const replayed = await replayOf(streamRegistry, "s1", revision, "Hel");
+    expect(replayed).toStartWith(`data: {"type":"start","messageId":"${paused?.id}"`);
+    expect(replayed).not.toContain("tool-output-available");
+    expect(await replayOf(streamRegistry, "s1", revision - 1, "never")).toBe("");
+
+    canceller.cancel("s1");
+    await second.response.text();
+    await second.done;
   });
 
   it("refuses the tool and lets the model continue when resumed with a denial", async () => {
@@ -2482,7 +2715,7 @@ describe("runTurn", () => {
         { db, llmClients: clientsFor(streamingModel([])) },
         { session, approvals: [{ toolCallId: "does-not-exist", approved: true }] },
       ),
-    ).rejects.toThrow(/no pending tool approval matching/);
+    ).rejects.toThrow(/"does-not-exist" is not awaiting approval/);
   });
 
   it("sends the composed system prompt to the model when a builder is provided", async () => {
@@ -2698,7 +2931,15 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("running");
-      expect(streamRegistry.messagesBeforeTurn("s1")?.map((m) => m.role)).toEqual(["user"]);
+      // A reader holding the saved step rejoins behind it: the action is in
+      // its transcript, so the replay carries only the step still streaming.
+      const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+      const replayed = await replayOf(streamRegistry, "s1", revision, "The action completed.");
+      expect(replayed).toStartWith('data: {"type":"start"');
+      expect(replayed).not.toContain('"toolCallId":"c1"');
+      // One holding the transcript from before that save would run the action's
+      // frames into a message that already has them, so it is turned away.
+      expect(await replayOf(streamRegistry, "s1", revision - 1, "never")).toBe("");
       fail();
       await started.done;
 
@@ -2715,7 +2956,7 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("failed");
-      expect(streamRegistry.messagesBeforeTurn("s1")).toBeNull();
+      expect(streamRegistry.turnOf("s1")).toBeNull();
 
       const capture: { prompt?: unknown } = {};
       const resumed = await runTurn(
@@ -2812,7 +3053,7 @@ describe("failed turns keep their progress", () => {
       WHEN NEW.role = 'assistant'
       BEGIN SELECT RAISE(FAIL, 'checkpoint unavailable'); END;
     `);
-    const cancelRegistry = createCancelRegistry();
+    const canceller = turnCanceller();
     const streamRegistry = createStreamRegistry();
     const session = createSession(db, MODEL, { id: "s1" });
     const started = await runTurn(
@@ -2820,7 +3061,7 @@ describe("failed turns keep their progress", () => {
         db,
         llmClients: clientsFor(toolLoopModel()),
         tools: echoTools,
-        cancelRegistry,
+        canceller,
         streamRegistry,
       },
       { session, userMessage: USER_MESSAGE },
@@ -2828,8 +3069,8 @@ describe("failed turns keep their progress", () => {
     await started.done;
     expect(getSession(db, "s1")?.status).toBe("failed");
     expect(JSON.stringify(getSession(db, "s1")?.error)).toContain("checkpoint unavailable");
-    expect(streamRegistry.has("s1")).toBe(false);
-    expect(cancelRegistry.requestCancel("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
+    expect(canceller.cancel("s1")).toBe(false);
   });
 });
 
@@ -2876,16 +3117,16 @@ describe("cancelled turns keep their progress", () => {
     ) as ToolPart & { errorText?: string };
 
   it("persists a tool call cancelled mid-execution as a cancelled result", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(slowCallModel()), cancelRegistry, tools: slowTools },
+      { db, llmClients: clientsFor(slowCallModel()), canceller, tools: slowTools },
       { session, userMessage: USER_MESSAGE },
     );
     // Give the loop a tick to issue the call and start the tool before cancelling.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -2905,15 +3146,15 @@ describe("cancelled turns keep their progress", () => {
   });
 
   it("sends the interrupted work back to the model on the next turn", async () => {
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
 
     const first = await runTurn(
-      { db, llmClients: clientsFor(slowCallModel()), cancelRegistry, tools: slowTools },
+      { db, llmClients: clientsFor(slowCallModel()), canceller, tools: slowTools },
       { session, userMessage: USER_MESSAGE },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await first.response.text();
     await first.done;
 
@@ -2950,16 +3191,16 @@ describe("cancelled turns keep their progress", () => {
         stream: parkedStream([{ type: "text-start", id: "t1" }], abortSignal),
       }),
     }) as unknown as LlmModel;
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
 
     const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(silentModel), bus: recordingBus(events), cancelRegistry },
+      { db, llmClients: clientsFor(silentModel), bus: recordingBus(events), canceller },
       { session, userMessage: USER_MESSAGE },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -2976,12 +3217,12 @@ describe("cancelled turns keep their progress", () => {
     const gatedSlowTools = {
       slow: tool({ ...slowTools.slow, needsApproval: true }),
     };
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const session = createSession(db, MODEL, { id: "s1" });
     const clients = clientsFor(slowCallModel());
 
     const first = await runTurn(
-      { db, llmClients: clients, cancelRegistry, tools: gatedSlowTools },
+      { db, llmClients: clients, canceller, tools: gatedSlowTools },
       { session, userMessage: USER_MESSAGE },
     );
     await first.response.text();
@@ -2991,11 +3232,11 @@ describe("cancelled turns keep their progress", () => {
     expect(paused?.contextTokens).toBe(6);
 
     const second = await resumeTurn(
-      { db, llmClients: clients, cancelRegistry, tools: gatedSlowTools },
+      { db, llmClients: clients, canceller, tools: gatedSlowTools },
       { session, approvals: [{ toolCallId: "c1", approved: true }] },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await second.response.text();
     await second.done;
 
@@ -3210,6 +3451,26 @@ describe("session inbox in turns", () => {
     expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
   });
 
+  it("leaves the backlog queued when the turn's opening messages cannot all be saved", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+    // The opening message's id is already taken, so saving it fails after the
+    // backlog has been written ahead of it.
+    appendMessage(db, "s1", { role: "user", parts: USER_MESSAGE.parts }, { id: USER_MESSAGE.id });
+    const queued = enqueueInboxItem(db, "s1", { source: "user", text: "queued while idle" });
+
+    await expect(
+      runTurn(
+        { db, llmClients: clientsFor(capturingModel({})), bus: recordingBus(events) },
+        { session, userMessage: USER_MESSAGE },
+      ),
+    ).rejects.toThrow();
+
+    expect(pendingInboxItems(db, "s1").map((row) => row.id)).toEqual([queued.id]);
+    expect(getSessionMessages(db, "s1")).toHaveLength(1);
+    expect(events).not.toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+  });
+
   it("keeps a delivered mid-turn message in failed history without redelivering it", async () => {
     let step = 0;
     const failingSecondStep = new MockLanguageModelV3({
@@ -3280,7 +3541,7 @@ describe("session inbox in turns", () => {
         return { stream: parkedStream([], abortSignal) };
       },
     }) as unknown as LlmModel;
-    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const canceller = turnCanceller();
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
 
@@ -3289,13 +3550,13 @@ describe("session inbox in turns", () => {
         db,
         llmClients: clientsFor(cancelledSecondStep),
         bus: recordingBus(events),
-        cancelRegistry,
+        canceller,
         tools: enqueueingTools("s1"),
       },
       { session, userMessage: USER_MESSAGE },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    cancelRegistry.requestCancel("s1");
+    canceller.cancel("s1");
     await response.text();
     await done;
 
@@ -3311,7 +3572,7 @@ describe("session inbox in turns", () => {
 
   it("rolls back the checkpoint if acknowledging its inbox delivery fails", async () => {
     db.$client.exec(`
-      CREATE TRIGGER reject_inbox_ack BEFORE DELETE ON session_inbox
+      CREATE TRIGGER reject_inbox_ack BEFORE UPDATE ON session_inbox
       BEGIN SELECT RAISE(FAIL, 'inbox unavailable'); END;
     `);
     const session = createSession(db, MODEL, { id: "s1" });
@@ -3402,8 +3663,19 @@ describe("runWakeTurn", () => {
     expect(pendingInboxItems(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
-    expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
+    expect(events).toContainEqual({
+      type: "session.message.added",
+      sessionId: "s1",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "running",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it("returns null and touches nothing when the backlog is already drained", async () => {
@@ -3433,7 +3705,7 @@ describe("runWakeTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 20000,
+          describeModel: async (id) => describedModel(id, { contextWindow: 20000 }),
           generateText: async ({ prompt }) => {
             summaries += 1;
             expect(prompt).toContain(evidence);

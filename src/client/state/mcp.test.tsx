@@ -5,17 +5,18 @@ import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useMcpServers, useMcpServersLive, useMcpTools, useMcpToolsLive } from "./mcp.ts";
+import { useLiveInvalidation } from "./live-sync.tsx";
+import { useMcpServers, useMcpTools } from "./mcp.ts";
 import { createQueryClient } from "./query-client.ts";
 
 const Probe = () => {
-  useMcpServersLive();
+  useLiveInvalidation();
   const servers = useMcpServers().data?.servers ?? [];
   return <p>servers:{servers.length}</p>;
 };
 
 const ToolsProbe = () => {
-  useMcpToolsLive();
+  useLiveInvalidation();
   const servers = useMcpTools().data?.servers ?? [];
   return <p>tools-servers:{servers.length}</p>;
 };

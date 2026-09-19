@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type * as systemApi from "../../shared/api/system.ts";
 
 export interface SystemRoutesDeps {
   /** Resolved version string surfaced on `GET /api/version`. */
@@ -12,9 +13,9 @@ export interface SystemRoutesDeps {
 export function systemRoutes(deps: SystemRoutesDeps): Hono {
   const app = new Hono();
 
-  app.get("/health", (c) => c.json({ status: "ok" }));
+  app.get("/health", (c) => c.json({ status: "ok" } satisfies systemApi.HealthResult));
 
-  app.get("/version", (c) => c.json({ version: deps.version }));
+  app.get("/version", (c) => c.json({ version: deps.version } satisfies systemApi.VersionInfo));
 
   return app;
 }

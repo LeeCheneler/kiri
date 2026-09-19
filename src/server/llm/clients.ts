@@ -1,6 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModelV3 } from "@ai-sdk/provider";
 import {
   type ImageModel,
   type ImagePart,
@@ -9,10 +10,16 @@ import {
   type TranscriptionModel,
   generateText,
 } from "ai";
+import { type ModelCatalogue, createModelCatalogue } from "./catalogue.ts";
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
-import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
-import { type LlmModelsResult, listLlmModels } from "./models.ts";
-import type { LlmProviderRegistry } from "./registry.ts";
+import { endpointFor } from "./endpoint.ts";
+import {
+  type LlmModelsResult,
+  type ModelDescription,
+  buildModelDescription,
+} from "./model-description.ts";
+import { createOpenRouterModel } from "./openrouter-model.ts";
+import { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
 
 /**
@@ -33,12 +40,6 @@ export type LlmImageModel = ImageModel;
  * `resolveTranscriptionModel` and handed to the AI SDK's `transcribe`.
  */
 export type LlmTranscriptionModel = TranscriptionModel;
-
-// How long a fetched model listing is reused for context-window lookups. A
-// model's window is effectively constant, so a few minutes' cache spares a
-// per-turn caller (the context budget check) from refetching every provider's
-// listing on each turn, while staying short enough to pick up provider changes.
-const MODEL_LISTING_TTL_MS = 5 * 60_000;
 
 /** Token counts from a completed generation; a field is undefined when the provider omits it. */
 export interface LlmUsage {
@@ -88,31 +89,28 @@ export interface LlmClients {
     abortSignal?: AbortSignal;
   }): Promise<GenerateLlmTextResult>;
   /**
-   * List the models every configured provider currently offers, namespaced as
-   * `provider:model` ids ready to hand back to `resolveModel`. A provider that
-   * is down or unauthorised is collected as a failure, never fatal. Lives here
+   * Describe the models every configured provider currently offers, namespaced
+   * as `provider:model` ids ready to hand back to `resolveModel`. A provider that
+   * is down or unauthorised is collected as a failure, never fatal. Each call
+   * discovers afresh and refreshes the cache execution reads, so a turn runs on
+   * the facts the picker just showed. Lives here
    * so callers list models off the same object they resolve them through,
    * without touching the registry or AI SDK directly.
    */
   listModels(): Promise<LlmModelsResult>;
   /**
-   * The context window (max input tokens) for a `provider:model` id, or
-   * undefined when the model isn't listed or its provider doesn't report one.
-   * Reads the same provider listings as `listModels`, cached briefly so a
-   * per-turn caller doesn't refetch every provider each turn. A provider whose
-   * listing fails simply contributes no models, so its windows read as unknown
-   * rather than failing the lookup.
-   */
-  contextWindowFor(id: string): Promise<number | undefined>;
-  /**
-   * The provider options that run a `provider:model` id at `effort`, or
-   * undefined for a model without reasoning support (per the same cached
-   * listings as `contextWindowFor`) or whose generation takes no effort
-   * parameter — reasoning parameters are only ever sent where the model
-   * takes them, never blind. Throws for an id that doesn't resolve, matching
+   * Describe a `provider:model` id: the model's facts, the transport that
+   * carries requests to it, and what its endpoint parses for it. Reads the
+   * model's own provider's listing — no other provider is asked — cached
+   * briefly and refreshed by `listModels`, with discovery bounded so a hung
+   * endpoint can't hold a turn. A model the listing doesn't carry — or whose
+   * listing failed, or whose wait `signal` cut short — is described from its
+   * id alone (`listed: false`) rather than failing. Registry replacement
+   * starts a fresh cache; in-flight lookups retain their starting
+   * configuration. Rejects for an id that doesn't resolve, matching
    * `resolveModel`.
    */
-  reasoningOptionsFor(id: string, effort: Effort): Promise<EffortProviderOptions | undefined>;
+  describeModel(id: string, options?: { signal?: AbortSignal }): Promise<ModelDescription>;
 }
 
 /**
@@ -124,14 +122,38 @@ export function createLlmClients(
   registry: LlmProviderRegistry,
   env: Record<string, string | undefined>,
 ): LlmClients {
-  // Cache the listing for context-window lookups only; `listModels` stays
-  // uncached so the model picker always reflects the configured providers.
-  let listingCache: { at: number; promise: Promise<LlmModelsResult> } | undefined;
-  const cachedListing = (): Promise<LlmModelsResult> => {
-    if (listingCache === undefined || Date.now() - listingCache.at >= MODEL_LISTING_TTL_MS) {
-      listingCache = { at: Date.now(), promise: listLlmModels(registry, env) };
+  interface MetadataSnapshot {
+    revision: number;
+    registry: LlmProviderRegistry;
+    catalogue: ModelCatalogue;
+  }
+  let metadata: MetadataSnapshot | undefined;
+  const metadataSnapshot = (): MetadataSnapshot => {
+    const revision = registry.revision();
+    if (metadata === undefined || metadata.revision !== revision) {
+      // Keep old lookups and already-built models on their original endpoints,
+      // and start the new configuration on an empty catalogue.
+      const snapshot = createLlmProviderRegistry();
+      snapshot.replace(
+        new Map(registry.listProviders().map((provider) => [provider.name, provider])),
+      );
+      metadata = { revision, registry: snapshot, catalogue: createModelCatalogue(env) };
     }
-    return listingCache.promise;
+    return metadata;
+  };
+  // Describe a model from its own provider's listing — no other provider is asked.
+  const describe = async (
+    snapshot: MetadataSnapshot,
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<ModelDescription> => {
+    const { provider, modelId } = resolveProvider(snapshot.registry, id);
+    const { models } = await snapshot.catalogue.listing(provider, { signal });
+    return buildModelDescription(
+      provider,
+      modelId,
+      models.find((model) => model.id === id),
+    );
   };
 
   const clients: LlmClients = {
@@ -147,23 +169,38 @@ export function createLlmClients(
         abortSignal: options.abortSignal,
       });
     },
-    listModels() {
-      return listLlmModels(registry, env);
+    async listModels() {
+      const { registry: providers, catalogue } = metadataSnapshot();
+      const settled = await Promise.all(
+        providers.listProviders().map(async (provider) => ({
+          provider,
+          listing: await catalogue.refresh(provider),
+        })),
+      );
+      const result: LlmModelsResult = { models: [], failures: [] };
+      for (const { provider, listing } of settled) {
+        if (listing.reason !== undefined) {
+          result.failures.push({ provider: provider.name, reason: listing.reason });
+        }
+        for (const listed of listing.models) {
+          const modelId = listed.id.slice(provider.name.length + 1);
+          result.models.push(buildModelDescription(provider, modelId, listed));
+        }
+      }
+      return result;
     },
-    async contextWindowFor(id) {
-      const { models } = await cachedListing();
-      return models.find((model) => model.id === id)?.contextWindow;
-    },
-    async reasoningOptionsFor(id, effort) {
-      const { models } = await cachedListing();
-      const model = models.find((model) => model.id === id);
-      if (model?.reasoning !== true) return undefined;
-      const { provider, modelId } = resolveProvider(registry, id);
-      return effortProviderOptions(provider, modelId, effort, model.reasoningLevels);
+    async describeModel(id, { signal } = {}) {
+      return describe(metadataSnapshot(), id, signal);
     },
     resolveModel(id) {
-      const { provider, modelId } = resolveProvider(registry, id);
-      return buildModel(provider, modelId, env);
+      const snapshot = metadataSnapshot();
+      const { provider, modelId } = resolveProvider(snapshot.registry, id);
+      const model = buildModel(provider, modelId, env);
+      // Endpoint-specific request shaping wraps the generic model here, where
+      // the model's description is in reach.
+      return endpointFor(provider).kind === "openrouter"
+        ? createOpenRouterModel(model, () => describe(snapshot, id))
+        : model;
     },
     resolveImageModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);
@@ -207,7 +244,7 @@ function buildModel(
   provider: LlmProvider,
   modelId: string,
   env: Record<string, string | undefined>,
-): LlmModel {
+): LanguageModelV3 {
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   switch (provider.type) {
     case "openai-codex":
@@ -220,11 +257,12 @@ function buildModel(
       // lowest common denominator for plain text completion.
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).chat(modelId);
     case "openai-compatible":
-      // The schema requires `base_url` for this type, so it is always present.
-      // `includeUsage` opts into `stream_options: { include_usage: true }` so
-      // streamed turns (sessions) report token usage — unlike the `openai`
-      // provider, this one omits it by default, which otherwise leaves every
-      // streamed session turn with zero token counts.
+      // The schema requires `base_url` for an openai-compatible provider, so
+      // it is always present. `includeUsage` opts into `stream_options: {
+      // include_usage: true }` so streamed turns (sessions) report token
+      // usage — unlike the `openai` provider, this one omits it by default,
+      // which otherwise leaves every streamed session turn with zero token
+      // counts.
       return createOpenAICompatible({
         name: provider.name,
         baseURL: provider.baseUrl as string,

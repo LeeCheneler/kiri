@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { renderHealth } from "../launch-screen.ts";
-import type { LlmClients } from "../llm/index.ts";
+import { type LlmClients, buildModelDescription } from "../llm/index.ts";
 import type { LlmProvider } from "../llm/schema.ts";
 import type { McpServer } from "../mcp/schema.ts";
 import {
@@ -13,6 +14,7 @@ import {
   evaluateProviderAuthHealth,
 } from "./health.ts";
 import type { KiriConfigLoadResult } from "./loader.ts";
+import type { ConfigSnapshot } from "./service.ts";
 
 const providerMap = (...providers: LlmProvider[]): Map<string, LlmProvider> =>
   new Map(providers.map((p) => [p.name, p]));
@@ -20,13 +22,25 @@ const providerMap = (...providers: LlmProvider[]): Map<string, LlmProvider> =>
 const mcpMap = (...servers: McpServer[]): Map<string, McpServer> =>
   new Map(servers.map((s) => [s.name, s]));
 
-const result = (overrides: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
+// A snapshot as the config service would serve it for this load result.
+const result = ({
+  failure,
+  warning,
+  mcpUnresolved = [],
+  ...sections
+}: Partial<
+  Pick<
+    KiriConfigLoadResult,
+    "providers" | "mcp" | "models" | "failure" | "warning" | "mcpUnresolved"
+  >
+> = {}): ConfigSnapshot => ({
+  revision: 1,
   providers: new Map(),
   mcp: new Map(),
-  mcpUnresolved: [],
   models: { shortcuts: {}, delegates: {} },
-  allowedDirectories: [],
-  ...overrides,
+  filesystem: { allowedDirectories: [] },
+  ...sections,
+  diagnostics: { failure, warning, mcpUnresolved },
 });
 
 const find = (checks: ConfigCheck[], area: ConfigCheck["area"]): ConfigCheck[] =>
@@ -272,14 +286,19 @@ describe("evaluateModelListingHealth", () => {
     },
     generateText: async () => ({ text: "", usage: {} }),
     listModels: async () => ({
-      models: models.map((m) => ({ ...m, output: "text" as const, reasoning: false })),
+      models: models.map(({ id, provider }) =>
+        buildModelDescription(
+          { name: provider, type: "openai-compatible", baseUrl: "http://x" },
+          id.slice(provider.length + 1),
+          { id, provider, output: "text", reasoning: false },
+        ),
+      ),
       failures,
     }),
-    contextWindowFor: async () => undefined,
-    reasoningOptionsFor: async () => undefined,
+    describeModel: async (id) => describedModel(id),
   });
 
-  const configured = (models: KiriConfigLoadResult["models"]): KiriConfigLoadResult =>
+  const configured = (models: KiriConfigLoadResult["models"]): ConfigSnapshot =>
     result({
       providers: providerMap({ name: "a", type: "openai-compatible", baseUrl: "http://x" }),
       models,

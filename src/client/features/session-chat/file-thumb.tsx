@@ -1,3 +1,4 @@
+import type { FileUIPart } from "ai";
 import { useState } from "react";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
 
@@ -23,6 +24,25 @@ export function FileThumb({ filename }: { filename: string }) {
       </div>
       <span className="truncate font-mono text-[10px] text-ink-muted leading-none">{filename}</span>
     </div>
+  );
+}
+
+/**
+ * A sent document (PDF, Office) in the transcript: a tile that hands the file
+ * back to the browser on click — there is nothing to preview inline, and the
+ * data URL it rides as already holds the whole file.
+ */
+export function AttachedDocument({ part }: { part: FileUIPart }) {
+  const filename = part.filename ?? "Attached document";
+  return (
+    <a
+      href={part.url}
+      download={filename}
+      title={`Download ${filename}`}
+      className="block outline-none focus-visible:outline-1 focus-visible:outline-accent"
+    >
+      <FileThumb filename={filename} />
+    </a>
   );
 }
 

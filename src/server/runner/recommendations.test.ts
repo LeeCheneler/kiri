@@ -23,7 +23,7 @@ describe("ingestStepRecommendations", () => {
         workflowName: "wf",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
   });

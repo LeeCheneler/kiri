@@ -3,54 +3,59 @@ import {
   type ModelMessage,
   type ToolSet,
   type UIMessage,
+  type UIMessageChunk,
   type UIMessageStreamWriter,
+  UI_MESSAGE_STREAM_HEADERS,
   asSchema,
   convertToModelMessages,
   createUIMessageStream,
-  createUIMessageStreamResponse,
+  getToolName,
   isToolUIPart,
   streamText,
 } from "ai";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
 import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
-import type { EventBus, SessionStatus } from "../events/index.ts";
-import type { LlmClients } from "../llm/index.ts";
-import type { CancelRegistry } from "../runner/cancel-registry.ts";
+import type { EventBus } from "../events/index.ts";
+import { type LlmClients, type LlmModel, effortProviderOptions } from "../llm/index.ts";
 import { compactContext } from "./compact-context.ts";
 import {
   type ContextCalibration,
+  applicableCalibration,
   contextSnapshot,
   measuredContextTokens,
   savedContextCalibration,
   withContextCalibration,
   withoutContextCalibration,
 } from "./context-calibration.ts";
+import { contextLimits, decideHandoff, decideStep, decideSummary } from "./context-policy.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
-import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type InboxDelivery,
   type SenderLabelResolver,
-  deleteInboxItems,
+  acknowledgeInboxItems,
   expandInboxMessages,
   inboxUIPart,
   insertInboxModelMessages,
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
-import { contextBudget, estimateContextTokens, historySinceCheckpoint } from "./session-context.ts";
+import { createPersistenceBarrier } from "./persistence-barrier.ts";
+import { estimateContextTokens, historySinceCheckpoint } from "./session-context.ts";
 import {
   type Message,
   type Session,
   appendMessage,
+  getLastMessage,
   getSession,
   getSessionLabels,
   getSessionMessages,
-  setSessionStatus,
+  sessionOwners,
   updateMessage,
 } from "./store.ts";
-import type { StreamRegistry, StreamSink } from "./stream-registry.ts";
-import { toonEncodeToolResults } from "./toon-tool-results.ts";
-import { stripWriteToolDiffs } from "./write-tool-diffs.ts";
+import type { StreamSink } from "./stream-registry.ts";
+import { historyProjectionTools, withLiveProjection } from "./tool-output-projection.ts";
+import type { TurnLease, TurnSettlement } from "./turn-lifecycle.ts";
 
 export interface RunTurnDeps {
   /** Shared by the prompt builder and mutation tools; receipts survive approval pauses. */
@@ -58,16 +63,8 @@ export interface RunTurnDeps {
   db: KiriDb;
   /** Resolves the session's `provider:model` into a callable model. */
   llmClients: LlmClients;
-  /** When supplied, session lifecycle events are published as the turn progresses. */
-  bus?: EventBus;
-  /** When supplied, the turn is registered so it can be cancelled mid-stream. */
-  cancelRegistry?: CancelRegistry;
-  /**
-   * When supplied, the turn's stream is captured here so a client that reconnects
-   * mid-turn (a reload, a second tab) can rejoin the live response. Omit for a
-   * turn with no resumable stream.
-   */
-  streamRegistry?: StreamRegistry;
+  /** Carries the transcript and inbox changes the turn makes; its lease publishes the status changes. */
+  bus: EventBus;
   /**
    * Resolves the system prompt before each model step and the final handoff,
    * using the current working directory and the turn's original model/effort.
@@ -84,6 +81,13 @@ export interface RunTurnDeps {
    * parts into the response while it runs.
    */
   tools?: ToolSet | ((context: { writer: UIMessageStreamWriter }) => ToolSet);
+}
+
+/** A session made ready for a turn, with the dependencies that turn runs against. */
+export interface PreparedTurn {
+  /** The session as it stands after preparation — run the turn with this one. */
+  session: Session;
+  turnDeps: RunTurnDeps;
 }
 
 // Upper bound on model⇄tool round-trips in a single turn. With tools, a turn
@@ -112,6 +116,14 @@ const CONTEXT_HANDOFF_PROMPT =
   "because of the context budget. Do not claim unfinished work is complete or suggest repeating " +
   "completed actions. If an action's outcome is unknown, say it needs verification.";
 
+/** Why a turn stopped short of finishing its work; doubles as the settled error's code. */
+type StopReason = "step_limit" | "context_limit";
+
+const STOPS: Record<StopReason, { notice: string; handoffPrompt: string }> = {
+  step_limit: { notice: STEP_LIMIT_NOTICE, handoffPrompt: HANDOFF_PROMPT },
+  context_limit: { notice: CONTEXT_LIMIT_NOTICE, handoffPrompt: CONTEXT_HANDOFF_PROMPT },
+};
+
 const UNKNOWN_TOOL_RESULT =
   "The turn failed before this tool's result was recorded. Its action may have completed. " +
   "Verify the current state before deciding whether to retry; do not automatically repeat it.";
@@ -122,8 +134,12 @@ const UNKNOWN_TOOL_RESULT =
 type InboxChunk = Parameters<UIMessageStreamWriter["write"]>[0];
 
 export interface RunTurnArgs {
-  /** The target session; must not have a turn in flight (the caller rejects a concurrent turn). */
+  /** The target session, held by `lease`. */
   session: Session;
+  /** This execution's hold on the session: its cancellation signal, its resumable stream, and its status writes. */
+  lease: TurnLease;
+  /** The session's model, resolved before the session was prepared so a bad id rejects the start with nothing written. */
+  model: LlmModel;
   /** The incoming user message, persisted before the assistant response streams. */
   userMessage: UIMessage;
 }
@@ -139,10 +155,39 @@ export interface ToolApprovalDecision {
 }
 
 export interface ResumeTurnArgs {
-  /** The session paused awaiting tool approval; its last message is the assistant turn to resume. */
+  /** The session paused awaiting tool approval, held by `lease`; its last message is the assistant turn to resume. */
   session: Session;
-  /** Verdicts for the pending tool-approval requests on that assistant message. */
-  approvals: ToolApprovalDecision[];
+  /** This execution's hold on the session (see `RunTurnArgs.lease`). */
+  lease: TurnLease;
+  /** The session's model (see `RunTurnArgs.model`). */
+  model: LlmModel;
+  /** The user's verdicts, applied to the assistant message they answer (see `applyPendingApprovals`). */
+  approved: AppliedApprovals;
+}
+
+/** A pending tool call a verdict settled, described from the stored call rather than the request. */
+export interface ResolvedApproval {
+  toolCallId: string;
+  toolName: string;
+  /** The input the model issued the call with. */
+  input: unknown;
+  approved: boolean;
+}
+
+/** A paused assistant message with the user's verdicts applied, ready to be saved as its turn resumes. */
+export interface AppliedApprovals {
+  messageId: string;
+  parts: UIMessage["parts"];
+  /** Each call the verdicts settled, in transcript order. */
+  resolved: ResolvedApproval[];
+}
+
+/** Thrown when verdicts don't answer exactly the tool calls a session is paused on. */
+export class ApprovalCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalCommandError";
+  }
 }
 
 export interface StartedTurn {
@@ -156,13 +201,10 @@ export interface StartedTurn {
   done: Promise<void>;
 }
 
-// Drizzle types the JSON `parts` column as `unknown`; the cast re-establishes
-// the AI SDK part type the rows always hold.
-
 const toUiMessage = (row: Message): UIMessage => ({
   id: row.id,
-  role: row.role as UIMessage["role"],
-  parts: row.parts as UIMessage["parts"],
+  role: row.role,
+  parts: row.parts,
 });
 
 const errorMessage = (cause: unknown): string => {
@@ -179,47 +221,81 @@ const errorMessage = (cause: unknown): string => {
   }
 };
 
-// Read a turn's SSE stream to completion, mirroring each frame into `sink` when
-// one is given. Draining server-side guarantees the turn reaches `onFinish` —
-// and so persists and settles — even when no client is reading the response (the
-// user navigated away, reloaded, or dropped the connection). A turn is only ever
-// cancelled by an explicit request through the `CancelRegistry`, never by a lost
-// consumer. The sink captures the frames for a client that reconnects mid-turn;
-// the turn's `onFinish` closes it — in step with persistence — not the stream's
-// end. Any failure is recorded via the stream's own error handling, so it's
+// What saving a finished step committed: the transcript revision, or nothing
+// when the step held nothing worth keeping or its save failed.
+type StepSave = number | undefined;
+
+// Read a turn's stream to completion, mirroring each chunk into `sink`.
+// Draining server-side guarantees the turn reaches `onFinish` — and so persists
+// and settles — even when no client is reading the response (the user navigated
+// away, reloaded, or dropped the connection). A turn is only ever cancelled by
+// an explicit request through its lease, never by a lost consumer. The sink
+// fans the chunks out to the turn's readers; the lease closes it to new ones as
+// the turn settles — in step with persistence — and the pump ends the readers
+// it has once the stream runs out, the turn's closing frames delivered.
+// The stream saves each step before it forwards the `finish-step` that ends
+// it, so `saves` lines up with those chunks one for one: a save's revision is
+// the transcript a reader can continue from once that chunk has been pushed.
+// Any failure is recorded via the stream's own error handling, so it's
 // swallowed here; the pump just has to not raise.
-async function pumpStream(stream: ReadableStream<string>, sink?: StreamSink): Promise<void> {
+async function pumpStream(
+  stream: ReadableStream<UIMessageChunk>,
+  sink: StreamSink,
+  saves: StepSave[],
+): Promise<void> {
   const reader = stream.getReader();
   try {
     for (let next = await reader.read(); !next.done; next = await reader.read()) {
-      sink?.push(next.value);
+      sink.push(next.value);
+      if (next.value.type !== "finish-step") continue;
+      const revision = saves.shift();
+      if (revision !== undefined) sink.checkpoint(revision);
     }
   } catch {
     // settled through the stream's error path
   } finally {
     reader.releaseLock();
+    sink.end();
   }
 }
 
-// Drain everything queued while the session was out of a turn: each item
-// becomes its own user-role message ahead of the turn, so the model reads the
-// backlog in arrival order. Rows are deleted only after their messages are
-// appended — a crash between the two redelivers rather than loses. Returns
-// how many items drained.
-function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string): number {
-  const backlog = pendingInboxItems(db, sessionId);
-  for (const item of backlog) {
-    appendMessage(db, sessionId, {
-      role: "user",
-      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
-    });
-  }
-  deleteInboxItems(
-    db,
-    backlog.map((item) => item.id),
-  );
-  if (backlog.length > 0) bus?.publish({ type: "session.inbox.delivered", sessionId });
-  return backlog.length;
+// Write a turn's opening messages: everything queued while the session was
+// out of a turn — each item its own user-role message, so the model reads the
+// backlog in arrival order — then the message that starts the turn, if one
+// does. One transaction moves the backlog into the transcript and acknowledges
+// it, so an interruption can neither lose a queued message nor deliver it
+// twice. Returns how many messages the turn opens on.
+function openTurn(db: KiriDb, bus: EventBus, session: Session, userMessage?: UIMessage): number {
+  const sessionId = session.id;
+  const backlog = db.transaction(() => {
+    const backlog = pendingInboxItems(db, sessionId);
+    for (const item of backlog) {
+      appendMessage(db, sessionId, {
+        role: "user",
+        parts: [inboxUIPart(item) as UIMessage["parts"][number]],
+      });
+    }
+    acknowledgeInboxItems(
+      db,
+      backlog.map((item) => item.id),
+    );
+    // Persist under the message's own id so the client and server agree on
+    // it — edit-and-resend truncates the transcript by this id, which only
+    // works if the stored row carries the id the client holds rather than a
+    // fresh one.
+    if (userMessage) {
+      appendMessage(
+        db,
+        sessionId,
+        { role: "user", parts: userMessage.parts },
+        { id: userMessage.id },
+      );
+    }
+    return backlog;
+  });
+  if (backlog.length > 0) bus.publish({ type: "session.inbox.delivered", sessionId });
+  bus.publish({ type: "session.message.added", sessionId, ...sessionOwners(session) });
+  return backlog.length + (userMessage ? 1 : 0);
 }
 
 /**
@@ -228,38 +304,23 @@ function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string):
  * output on interruption. Returns the AI SDK's streamed response for the route to hand
  * straight to the client, and a `done` promise that settles after persistence.
  *
- * Cancellation rides the shared registry: a cancel aborts the in-flight stream
- * (there is no child process), which lands the turn as `cancelled`. A provider
+ * Cancellation rides the lease: a cancel aborts its signal and with it the
+ * in-flight stream, which lands the turn as `cancelled`. A provider
  * error lands it as `failed`. Either way the session leaves `running`. A dropped
  * client connection does *not* cancel: the stream is drained server-side, so the
  * turn runs to completion and persists whether or not anyone is reading it.
  *
- * Resolving the model can throw (bad id, unknown provider); it does so before
- * any state changes, so the route surfaces it as a clean error with nothing
- * half-persisted.
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus } = deps;
-  const { session, userMessage } = args;
-
-  // Resolve before any writes so a bad id rejects with nothing half-persisted.
-  const model = llmClients.resolveModel(session.model);
+  const { db, bus } = deps;
+  const { session, userMessage, lease, model } = args;
 
   // Anything queued while the session was idle drains ahead of the message
   // that starts the turn.
-  const incomingMessageCount = drainBacklog(db, bus, session.id) + 1;
+  const incomingMessageCount = openTurn(db, bus, session, userMessage);
+  lease.begin();
 
-  // Persist under the message's own id so the client and server agree on it —
-  // edit-and-resend truncates the transcript by this id, which only works if the
-  // stored row carries the id the client holds rather than a fresh one.
-  appendMessage(db, session.id, { role: "user", parts: userMessage.parts }, { id: userMessage.id });
-  bus?.publish({ type: "session.message.added", sessionId: session.id });
-  // Clear any prior terminal markers: a session resumed after a failed or
-  // cancelled turn starts the new turn clean.
-  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
-  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
-
-  return streamCore(deps, session, model, incomingMessageCount);
+  return streamCore(deps, session, lease, model, incomingMessageCount);
 }
 
 /**
@@ -268,60 +329,77 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
  * user-role message (framed at send time by its source) and the model's turn
  * opens on those, with no fresh user message. Clears any prior terminal
  * markers, so a failed session woken by a worker's report starts clean.
- * Returns null without touching the session when nothing is queued — the wake
- * raced an earlier drain. The caller checks the session is out of a turn; the
- * preamble here runs synchronously to the `running` write, so two wakes on
- * one tick can't both start a turn.
+ * The caller has checked something is queued. The preamble here runs
+ * synchronously to the `running` write, so a second wake on the same tick
+ * finds the backlog already drained.
  */
 export async function runWakeTurn(
   deps: RunTurnDeps,
-  args: { session: Session },
-): Promise<StartedTurn | null> {
-  const { db, llmClients, bus } = deps;
-  const { session } = args;
+  args: Omit<RunTurnArgs, "userMessage">,
+): Promise<StartedTurn> {
+  const { db, bus } = deps;
+  const { session, lease, model } = args;
 
-  // Resolve before any writes so a bad id rejects with nothing half-persisted.
-  const model = llmClients.resolveModel(session.model);
+  const incomingMessageCount = openTurn(db, bus, session);
+  lease.begin();
 
-  const incomingMessageCount = drainBacklog(db, bus, session.id);
-  if (incomingMessageCount === 0) return null;
-  bus?.publish({ type: "session.message.added", sessionId: session.id });
-  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
-  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
-
-  return streamCore(deps, session, model, incomingMessageCount);
+  return streamCore(deps, session, lease, model, incomingMessageCount);
 }
 
 /**
- * Resume a turn paused awaiting tool approval. Applies the user's verdicts to the
- * session's last (assistant) message — each pending tool call flipped to allowed
- * or denied — then streams the continuation: the AI SDK runs the allowed tools,
- * tells the model the denied ones were refused, and the model carries on. The
- * continuation extends that same assistant message in place rather than starting
- * a new one.
- *
- * Throws (before any write) if the session isn't actually awaiting approval, or
- * if no verdict matches a pending request — the route maps either to a 4xx.
+ * Apply the user's verdicts to the session's last (assistant) message — each
+ * pending tool call flipped to allowed or denied. Reads only. The verdicts
+ * must answer exactly the calls the session is paused on, once each: a call
+ * left unanswered would reach the model without a result, and a verdict for
+ * anything else has nothing to settle. Throws `ApprovalCommandError` otherwise.
+ */
+export function applyPendingApprovals(
+  db: KiriDb,
+  session: Session,
+  approvals: ToolApprovalDecision[],
+): AppliedApprovals {
+  const last = getLastMessage(db, session.id);
+  const pendingIds = new Set(
+    last?.role === "assistant"
+      ? last.parts.flatMap((part) =>
+          isToolUIPart(part) && part.state === "approval-requested" ? [part.toolCallId] : [],
+        )
+      : [],
+  );
+  if (!last || pendingIds.size === 0) {
+    throw new ApprovalCommandError(`session "${session.id}" has no turn awaiting tool approval`);
+  }
+  const answered = new Set(approvals.map((approval) => approval.toolCallId));
+  if (answered.size !== approvals.length) {
+    throw new ApprovalCommandError("each tool call takes one verdict");
+  }
+  const stray = approvals.find((approval) => !pendingIds.has(approval.toolCallId));
+  if (stray) {
+    throw new ApprovalCommandError(`tool call "${stray.toolCallId}" is not awaiting approval`);
+  }
+  const unanswered = [...pendingIds].find((id) => !answered.has(id));
+  if (unanswered !== undefined) {
+    throw new ApprovalCommandError(
+      `tool call "${unanswered}" is awaiting approval and has no verdict`,
+    );
+  }
+  return { messageId: last.id, ...applyApprovals(last.parts, approvals) };
+}
+
+/**
+ * Resume a turn paused awaiting tool approval: save the applied verdicts, then
+ * stream the continuation — the AI SDK runs the allowed tools, tells the model
+ * the denied ones were refused, and the model carries on. The continuation
+ * extends that same assistant message in place rather than starting a new one.
  */
 export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus } = deps;
-  const { session, approvals } = args;
+  const { db } = deps;
+  const { session, approved, lease, model } = args;
 
-  const model = llmClients.resolveModel(session.model);
+  updateMessage(db, session.id, approved.messageId, { parts: approved.parts });
+  lease.begin();
 
-  const last = getSessionMessages(db, session.id).at(-1);
-  if (!last || last.role !== "assistant") {
-    throw new Error(`session "${session.id}" has no turn awaiting tool approval`);
-  }
-  const { parts, applied } = applyApprovals(last.parts as UIMessage["parts"], approvals);
-  if (applied === 0) {
-    throw new Error(`session "${session.id}" has no pending tool approval matching the response`);
-  }
-  updateMessage(db, session.id, last.id, { parts });
-  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
-  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
-
-  return streamCore(deps, session, model);
+  return streamCore(deps, session, lease, model);
 }
 
 // Reason handed to the model when a tool call is denied, so it understands the
@@ -333,19 +411,23 @@ const DENIAL_REASON =
 // carrying the matching verdict and keeping the approval id the request was
 // issued under. A denial with no explicit reason gets a standing one so the
 // model is told why. Parts with no matching verdict (and non-tool parts) pass
-// through untouched. Returns the rewritten parts and how many verdicts landed,
-// so the caller can reject a resume that matched nothing.
+// through untouched. Returns the rewritten parts and the calls they settled.
 function applyApprovals(
   parts: UIMessage["parts"],
   approvals: ToolApprovalDecision[],
-): { parts: UIMessage["parts"]; applied: number } {
+): Pick<AppliedApprovals, "parts" | "resolved"> {
   const byToolCallId = new Map(approvals.map((a) => [a.toolCallId, a]));
-  let applied = 0;
+  const resolved: ResolvedApproval[] = [];
   const next = parts.map((part) => {
     if (!isToolUIPart(part) || part.state !== "approval-requested") return part;
     const decision = byToolCallId.get(part.toolCallId);
     if (!decision) return part;
-    applied += 1;
+    resolved.push({
+      toolCallId: part.toolCallId,
+      toolName: getToolName(part),
+      input: part.input,
+      approved: decision.approved,
+    });
     const reason = decision.approved ? decision.reason : (decision.reason ?? DENIAL_REASON);
     return {
       ...part,
@@ -353,7 +435,7 @@ function applyApprovals(
       approval: { ...part.approval, approved: decision.approved, reason },
     };
   });
-  return { parts: next, applied };
+  return { parts: next, resolved };
 }
 
 // Approval continuations and later checkpoints update the same assistant row.
@@ -384,32 +466,22 @@ function persistAssistantMessage(
 async function streamCore(
   deps: RunTurnDeps,
   session: Session,
-  model: ReturnType<LlmClients["resolveModel"]>,
+  lease: TurnLease,
+  model: LlmModel,
   incomingMessageCount = 0,
 ): Promise<StartedTurn> {
-  const {
-    db,
-    llmClients,
-    bus,
-    cancelRegistry,
-    streamRegistry,
-    buildSystemPrompt,
-    tools,
-    instructionContext,
-  } = deps;
+  const { db, llmClients, bus, buildSystemPrompt, tools, instructionContext } = deps;
 
-  // A cancel aborts the controller; the registry treats it like any child
-  // process, so a cancel that arrives before the stream starts still fires.
-  const controller = new AbortController();
-  cancelRegistry?.register(session.id);
-  cancelRegistry?.setChild(session.id, { kill: () => controller.abort() });
+  // The lease's signal carries a cancel, including one that arrived before
+  // the stream starts. A failed checkpoint stops the turn the same way
+  // without being a cancel.
+  const checkpointAbort = new AbortController();
+  const signal = AbortSignal.any([lease.signal, checkpointAbort.signal]);
 
   const rows = getSessionMessages(db, session.id);
+  const transcriptRevision = getSession(db, session.id)?.transcriptRevision ?? 0;
   const history = rows.map(toUiMessage);
   const last = history.at(-1);
-  const hasPendingApprovals =
-    last?.role === "assistant" &&
-    last.parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
   instructionContext?.restore(
     session.status === "waiting" && last?.role === "assistant" ? last.parts : [],
   );
@@ -421,13 +493,16 @@ async function streamCore(
     if (!senderLabels.has(id)) senderLabels.set(id, getSessionLabels(db, [id]).get(id));
     return senderLabels.get(id);
   };
-  const contextWindow = await llmClients.contextWindowFor(session.model);
+  // A cancel cuts the wait on discovery short; the stream then opens on an
+  // aborted signal and the turn lands as cancelled.
+  const description = await llmClients.describeModel(session.model, { signal });
+  const contextWindow = description.model.contextWindow;
 
   // The session's effort as this turn's provider reasoning parameters —
   // undefined for a model without reasoning support, which leaves the call
   // without provider options rather than sending parameters blind. Resolved
   // per turn like the model, so a mid-session change applies next turn.
-  const providerOptions = await llmClients.reasoningOptionsFor(session.model, session.effort);
+  const providerOptions = effortProviderOptions(description, session.effort);
   // Inbox items that arrive while the turn runs are delivered at the next
   // step boundary: `prepareStep` (inside `execute` below) injects them into
   // the step's model messages and mirrors each one into the UI stream as its
@@ -440,17 +515,7 @@ async function streamCore(
   const deliveries: InboxDelivery[] = [];
   const deliveredIds = new Set<string>();
 
-  // Assigned synchronously by the executor below, before any await can run.
-  let settle!: () => void;
-  const done = new Promise<void>((resolve) => {
-    settle = resolve;
-  });
-
-  // Open the resumable-stream sink up front so a near-instant reconnect finds it.
-  // The turn captures into it as it drains, and `onFinish` closes it in step with
-  // persistence — so a client that loads the just-settled turn from storage gets a
-  // 204 on resume and never replays it into a duplicate.
-  const sink = streamRegistry?.open(session.id, rows);
+  const saves: StepSave[] = [];
 
   // Assigned synchronously by `execute` below (the SDK invokes it as the stream
   // is created); `onFinish` reads the settled usage off it. Left unassigned only
@@ -459,16 +524,18 @@ async function streamCore(
   let streamError: unknown;
   let checkpointed = false;
   let checkpointFailed = false;
-  let stepLimitReached = false;
-  let contextLimitReached = false;
+  // At most one: the step limit ends the loop before another boundary could
+  // meet the context limit, and the context limit ends it outright.
+  let stopReason: StopReason | undefined;
   const contextLimitError = new Error(CONTEXT_LIMIT_NOTICE);
   let contextHandoffMessages: ModelMessage[] = [];
   let lastContextTokens: number | undefined;
-  let savedCalibration = savedContextCalibration(history);
-  let savedSteps = 0;
-  let savingWorkStep = false;
-  let checkpointReady: (() => void) | undefined;
-  let checkpointFinished: (() => void) | undefined;
+  let calibration = savedContextCalibration(history);
+  // The model loop and the saving of its progress run on different timelines;
+  // every boundary written into the stream is announced here first, and
+  // whatever must not outrun saved work waits here for it. An abort ends every
+  // wait, so a wait ending is followed by a check of the signal.
+  const barrier = createPersistenceBarrier(signal);
   const resumedApprovals = new Set(
     last?.role === "assistant"
       ? last.parts
@@ -477,7 +544,7 @@ async function streamCore(
           .map((part) => part.toolCallId)
       : [],
   );
-  let approvalsSaved: (() => void) | undefined;
+  const resumedApprovalCount = resumedApprovals.size;
   const acknowledgedIds = new Set<string>();
 
   // The stream can already contain an inbox delivery for the next model step.
@@ -488,21 +555,23 @@ async function streamCore(
       .filter(isInboxPart)
       .map((part) => part.id)
       .filter((id) => deliveredIds.has(id) && !acknowledgedIds.has(id));
-    db.transaction(() => {
+    const revision = db.transaction(() => {
       persistAssistantMessage(
         db,
         session.id,
         message.id,
-        withContextCalibration(message, savedCalibration).parts,
+        withContextCalibration(message, calibration).parts,
         isContinuation || checkpointed,
         contextTokens,
       );
-      deleteInboxItems(db, inboxIds);
+      acknowledgeInboxItems(db, inboxIds);
+      return getSession(db, session.id)?.transcriptRevision;
     });
     checkpointed = true;
     for (const id of inboxIds) acknowledgedIds.add(id);
     if (inboxIds.length > 0)
-      bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
+      bus.publish({ type: "session.inbox.delivered", sessionId: session.id });
+    return revision;
   };
 
   const stream = createUIMessageStream<UIMessage>({
@@ -529,17 +598,10 @@ async function streamCore(
         // tools, the turn runs as a multi-step loop (call a tool, feed the
         // result back, continue) capped at MAX_TURN_STEPS. An empty set leaves
         // the call tool-less, a single-step plain chat.
-        const turnTools = typeof tools === "function" ? tools({ writer }) : tools;
+        const offeredTools = typeof tools === "function" ? tools({ writer }) : tools;
+        const turnTools = offeredTools === undefined ? undefined : withLiveProjection(offeredTools);
         const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
-        const thinking = providerOptions?.anthropic?.thinking;
-        const reasoningTokens =
-          thinking &&
-          typeof thinking === "object" &&
-          !Array.isArray(thinking) &&
-          typeof thinking.budgetTokens === "number"
-            ? thinking.budgetTokens
-            : 0;
-        const budget = contextBudget(contextWindow, reasoningTokens);
+        const limits = contextLimits(contextWindow, providerOptions);
         const toolSchemas = await Promise.all(
           Object.entries(turnTools ?? {}).map(async ([name, t]) => ({
             name,
@@ -547,13 +609,10 @@ async function streamCore(
             inputSchema: await asSchema(t.inputSchema).jsonSchema,
           })),
         );
-        const modelHistory = toonEncodeToolResults(
-          stripWriteToolDiffs(
-            stripImageToolResults(withoutContextCalibration(historySinceCheckpoint(history))),
-          ),
-        );
+        const modelHistory = withoutContextCalibration(historySinceCheckpoint(history));
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),
+          { tools: historyProjectionTools(modelHistory) },
         );
         const incomingMessages =
           incomingMessageCount > 0 ? history.slice(-incomingMessageCount) : [];
@@ -561,11 +620,9 @@ async function streamCore(
           expandInboxMessages(incomingMessages, senderLabelFor),
         );
         const previousMessageCount = modelMessages.length - incomingModelMessages.length;
-        let calibration = savedCalibration;
         let previousRequest: Omit<ContextCalibration, "inputTokens"> | undefined;
         let checkpointMessages: ModelMessage[] = [];
         let compactedThrough = 0;
-        const compactionThreshold = Math.floor(budget.workInputTokens * 0.85);
         const prepareContext = (
           messages: ModelMessage[],
           system: string | undefined,
@@ -579,13 +636,11 @@ async function streamCore(
             messages,
             tools: handoff ? [] : toolSchemas,
           });
-          const tokens = measuredContextTokens(snapshot, calibration);
           return {
             messages,
             snapshot,
             estimate: snapshot.estimate,
-            tokens,
-            fits: tokens <= (handoff ? budget.handoffInputTokens : budget.workInputTokens),
+            tokens: measuredContextTokens(snapshot, calibration),
           };
         };
         result = streamText({
@@ -600,7 +655,6 @@ async function streamCore(
               usage.inputTokens > 0
             ) {
               calibration = { ...previousRequest, inputTokens: usage.inputTokens };
-              savedCalibration = calibration;
             }
           },
           ...(providerOptions !== undefined ? { providerOptions } : {}),
@@ -611,8 +665,9 @@ async function streamCore(
                 // continue. A final answer or pending approval at the boundary
                 // therefore never spends the handoff allowance.
                 stopWhen: ({ steps }) => {
-                  stepLimitReached = steps.length >= MAX_TURN_STEPS;
-                  return stepLimitReached;
+                  const reached = steps.length >= MAX_TURN_STEPS;
+                  if (reached) stopReason = "step_limit";
+                  return reached;
                 },
               }
             : {}),
@@ -626,17 +681,11 @@ async function streamCore(
           prepareStep: async ({ messages, stepNumber }) => {
             // Resumed approvals execute before step zero, without an SDK step
             // boundary. Wait for their results to reach the transcript too.
-            if (resumedApprovals.size > 0)
-              await new Promise<void>((resolve) => {
-                approvalsSaved = resolve;
-              });
+            await barrier.processed("approval-result", resumedApprovalCount);
             // The SDK can prepare its next call before the UI stream has saved
             // the previous step. Summaries must never outrun saved action results.
-            if (savedSteps < stepNumber)
-              await new Promise<void>((resolve) => {
-                checkpointReady = resolve;
-              });
-            controller.signal.throwIfAborted();
+            await barrier.processed("work-step", stepNumber);
+            signal.throwIfAborted();
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt
             // so rules from a directory we left do not linger.
@@ -653,20 +702,21 @@ async function streamCore(
             let delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
             let current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
             let prepared = prepareContext(current, system, false);
-            // Before any work, summarize only the history preceding the incoming
-            // messages. Later boundaries summarize completed tool steps as well.
-            const beforeTurn = stepNumber === 0 && incomingMessageCount > 0;
-            const summaryMessages = beforeTurn ? current.slice(0, previousMessageCount) : current;
-            // An unanswered approval must remain a real tool part for its later resume.
-            // Summarizing history cannot bring fixed instructions/tools below the
-            // target. In that case, keep working while the full request still fits.
-            if (
-              !hasPendingApprovals &&
-              summaryMessages.length > 0 &&
-              estimateContextTokens({ system, messages: [], tools: toolSchemas }) <
-                compactionThreshold &&
-              prepared.tokens >= compactionThreshold
-            ) {
+            // Reads the request as it stands when asked: a summary replaces it.
+            const decide = (compacted: boolean) =>
+              decideStep({
+                limits,
+                requestTokens: prepared.tokens,
+                fixedTokens: estimateContextTokens({ system, messages: [], tools: toolSchemas }),
+                stepNumber,
+                incomingMessageCount,
+                previousMessageCount,
+                messageCount: current.length,
+                compacted,
+              });
+            let decision = decide(false);
+            if (decision.action === "compact") {
+              const summaryMessages = current.slice(0, decision.summarise);
               writer.write({
                 type: "data-compaction",
                 data: { status: "started" },
@@ -679,15 +729,10 @@ async function streamCore(
                   model: session.model,
                   messages: summaryMessages,
                   system,
-                  inputBudget: budget.handoffInputTokens,
-                  summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
-                  calibration:
-                    calibration?.version === prepared.snapshot.version &&
-                    calibration.model === prepared.snapshot.model &&
-                    calibration.optionsHash === prepared.snapshot.optionsHash
-                      ? calibration
-                      : undefined,
-                  abortSignal: controller.signal,
+                  inputBudget: limits.handoffInputTokens,
+                  summaryBudget: limits.summaryBudget,
+                  calibration: applicableCalibration(calibration, prepared.snapshot),
+                  abortSignal: signal,
                 });
               } finally {
                 writer.write({
@@ -696,7 +741,7 @@ async function streamCore(
                   transient: true,
                 });
               }
-              if (checkpoint && beforeTurn) {
+              if (checkpoint && decision.carryIncoming) {
                 // Save the excluded inputs with the checkpoint so reloads and
                 // approval continuations retain the same request boundary.
                 checkpoint.data.pendingMessages = [
@@ -721,33 +766,32 @@ async function streamCore(
                     ),
                   )
                 : [];
-              const summaryEstimate = estimateContextTokens({
-                system,
-                messages: summarized,
-                tools: toolSchemas,
+              const summary = decideSummary({
+                limits,
+                produced: checkpoint !== null,
+                summaryEstimate: estimateContextTokens({
+                  system,
+                  messages: summarized,
+                  tools: toolSchemas,
+                }),
+                previousEstimate: prepared.estimate,
               });
-              if (
-                !checkpoint ||
-                summaryEstimate >= compactionThreshold ||
-                summaryEstimate >= prepared.estimate
-              ) {
-                contextLimitReached = true;
+              // The policy already stops without a summary; the null check narrows the type.
+              if (!checkpoint || summary === "stop") {
+                stopReason = "context_limit";
                 contextHandoffMessages = current;
                 throw contextLimitError;
               }
               // This boundary is part of the same transcript, and must be durable
               // before the model can take actions using only its summary.
-              const summarySaved = new Promise<void>((resolve) => {
-                checkpointFinished = resolve;
-              });
+              const summarySaved = barrier.expect("summary");
               // Clear the old measurement in the same durable boundary as its
               // replaced history, even if the turn stops before another call.
               calibration = undefined;
-              savedCalibration = undefined;
               writer.write(checkpoint);
               writer.write({ type: "finish-step" });
               await summarySaved;
-              controller.signal.throwIfAborted();
+              signal.throwIfAborted();
               checkpointMessages = summarized;
               compactedThrough = delivered.length;
               system = buildSystemPrompt?.({
@@ -764,6 +808,7 @@ async function streamCore(
               delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
               current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
               prepared = prepareContext(current, system, false);
+              decision = decide(true);
             }
             const receipt = instructionContext?.receipt();
             if (receipt) {
@@ -773,15 +818,15 @@ async function streamCore(
                 data: receipt,
               });
             }
-            if (!prepared.fits) {
-              contextLimitReached = true;
+            if (decision.action === "stop") {
+              stopReason = "context_limit";
               contextHandoffMessages = current;
               throw contextLimitError;
             }
             previousRequest = prepared.snapshot;
             return { system, messages: prepared.messages };
           },
-          abortSignal: controller.signal,
+          abortSignal: signal,
           onError: ({ error }) => {
             if (error !== contextLimitError) streamError ??= error;
           },
@@ -796,19 +841,13 @@ async function streamCore(
         })) {
           if (
             chunk.type === "error" &&
-            contextLimitReached &&
+            stopReason === "context_limit" &&
             chunk.errorText === CONTEXT_LIMIT_NOTICE
           )
             continue;
-          let checkpoint: Promise<void> | undefined;
-          if (chunk.type === "finish-step") {
-            savingWorkStep = true;
-            checkpoint = new Promise<void>((resolve) => {
-              checkpointFinished = resolve;
-            });
-          }
+          const stepSaved = chunk.type === "finish-step" ? barrier.expect("work-step") : undefined;
           writer.write(chunk);
-          if (checkpoint) await checkpoint;
+          if (stepSaved) await stepSaved;
           if (
             (chunk.type === "tool-output-available" ||
               chunk.type === "tool-output-error" ||
@@ -816,17 +855,14 @@ async function streamCore(
             !(chunk.type === "tool-output-available" && chunk.preliminary) &&
             resumedApprovals.has(chunk.toolCallId)
           ) {
-            const approvalSaved = new Promise<void>((resolve) => {
-              checkpointFinished = resolve;
-            });
+            const approvalSaved = barrier.expect("approval-result");
             writer.write({ type: "finish-step" });
             await approvalSaved;
             resumedApprovals.delete(chunk.toolCallId);
-            if (resumedApprovals.size === 0) approvalsSaved?.();
           }
         }
-        if (controller.signal.aborted || streamError !== undefined) return;
-        if (!stepLimitReached && !contextLimitReached) {
+        if (signal.aborted || streamError !== undefined) return;
+        if (stopReason === undefined) {
           writer.write({ type: "finish", finishReason: await result.finishReason });
           return;
         }
@@ -839,18 +875,16 @@ async function streamCore(
         writer.write({
           type: "text-delta",
           id: noticeId,
-          delta: `${contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE}\n\n`,
+          delta: `${STOPS[stopReason].notice}\n\n`,
         });
         writer.write({ type: "text-end", id: noticeId });
-        const noticeSaved = new Promise<void>((resolve) => {
-          checkpointFinished = resolve;
-        });
+        const noticeSaved = barrier.expect("notice");
         writer.write({ type: "finish-step" });
         await noticeSaved;
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
 
         let handoffMessages = contextHandoffMessages;
-        if (!contextLimitReached) {
+        if (stopReason === "step_limit") {
           const delivered = insertInboxModelMessages(
             [...modelMessages, ...(await result.response).messages],
             deliveries,
@@ -867,13 +901,13 @@ async function streamCore(
             ...handoffMessages,
             {
               role: "user",
-              content: contextLimitReached ? CONTEXT_HANDOFF_PROMPT : HANDOFF_PROMPT,
+              content: STOPS[stopReason].handoffPrompt,
             },
           ],
           system,
           true,
         );
-        if (!handoff.fits) {
+        if (decideHandoff({ limits, handoffTokens: handoff.tokens }) === "stop") {
           writer.write({ type: "finish", finishReason: "stop" });
           return;
         }
@@ -889,7 +923,7 @@ async function streamCore(
           // provider ignores the prompt and emits a tool call. No retry can
           // spend another call beyond this one reserved handoff.
           maxRetries: 0,
-          abortSignal: controller.signal,
+          abortSignal: signal,
           onError: ({ error }) => {
             streamError ??= error;
           },
@@ -904,33 +938,35 @@ async function streamCore(
       }
     },
     onStepFinish: ({ responseMessage, isContinuation }) => {
+      let saved: StepSave;
       try {
         if (finaliseInterruptedParts(responseMessage.parts) === null) return;
-        persistProgress(responseMessage, isContinuation);
+        saved = persistProgress(responseMessage, isContinuation);
       } catch (cause) {
         // The SDK reports checkpoint errors without stopping its tool loop.
         // Abort here so further actions cannot outrun failed persistence.
         checkpointFailed = true;
         streamError = cause;
-        controller.abort();
+        checkpointAbort.abort();
         throw cause;
       } finally {
-        // Synthetic summary/approval boundaries save progress without consuming a work step.
-        if (savingWorkStep) savedSteps += 1;
-        savingWorkStep = false;
-        checkpointReady?.();
-        checkpointReady = undefined;
-        checkpointFinished?.();
-        checkpointFinished = undefined;
+        saves.push(saved);
+        // A failed save has already aborted the turn, which ended every wait.
+        barrier.settle();
       }
     },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
-      let finalStatus: Exclude<SessionStatus, "running"> | undefined;
       let messagePersisted = checkpointed;
-      try {
-        const aborted = !checkpointFailed && (isAborted || controller.signal.aborted);
+      // An empty failed turn must not point at an older reply. Approval
+      // continuations retain the same assistant row as their saved work.
+      const saved = () => ({
+        messageId: messagePersisted ? responseMessage.id : null,
+        incomplete: stopReason !== undefined,
+      });
+      // Persist what the turn produced and say where that leaves the session.
+      const finish = (): TurnSettlement => {
+        const aborted = !checkpointFailed && (isAborted || signal.aborted);
         if (aborted || streamError !== undefined) {
-          const status = aborted ? "cancelled" : "failed";
           // Both failure and cancellation retain completed work. An unfinished
           // call's outcome is unknown on failure; recording an error pairs the
           // call for the next model turn without authorising its replay.
@@ -944,20 +980,18 @@ async function streamCore(
             persistProgress({ ...responseMessage, parts: kept }, isContinuation);
             messagePersisted = true;
           }
-          setSessionStatus(db, session.id, status, {
-            finishedAt: new Date(),
-            error:
-              streamError === undefined
-                ? undefined
-                : {
+          return {
+            ...saved(),
+            status: aborted ? "cancelled" : "failed",
+            ...(streamError !== undefined
+              ? {
+                  error: {
                     message: errorMessage(streamError),
-                    ...(!aborted && (contextLimitReached || stepLimitReached)
-                      ? { code: contextLimitReached ? "context_limit" : "step_limit" }
-                      : {}),
+                    ...(!aborted && stopReason !== undefined ? { code: stopReason } : {}),
                   },
-          });
-          finalStatus = status;
-          return;
+                }
+              : {}),
+          };
         }
         // The context fill the gauge reads is the last model call's total
         // tokens — not the per-step sum, which over-counts a multi-step tool
@@ -965,87 +999,51 @@ async function streamCore(
         // preserve the most recent recorded footprint rather than inventing usage.
         persistProgress(responseMessage, isContinuation, lastContextTokens);
         messagePersisted = true;
-        if (contextLimitReached || stepLimitReached) {
-          setSessionStatus(db, session.id, "failed", {
-            finishedAt: new Date(),
-            error: {
-              code: contextLimitReached ? "context_limit" : "step_limit",
-              message: contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE,
-            },
-          });
-          finalStatus = "failed";
-          return;
+        if (stopReason !== undefined) {
+          return {
+            ...saved(),
+            status: "failed",
+            error: { code: stopReason, message: STOPS[stopReason].notice },
+          };
         }
         // A turn that stopped on tool-approval requests hasn't settled: the
         // session is blocked on the user's verdicts, and lists surface that
         // as `waiting` rather than the resting `idle`.
-        const settled = responseMessage.parts.some(
+        const paused = responseMessage.parts.some(
           (part) => isToolUIPart(part) && part.state === "approval-requested",
-        )
-          ? ("waiting" as const)
-          : ("idle" as const);
-        setSessionStatus(db, session.id, settled);
-        finalStatus = settled;
+        );
+        return { ...saved(), status: paused ? "waiting" : "idle" };
+      };
+
+      let settlement: TurnSettlement;
+      try {
+        settlement = finish();
       } catch (cause) {
         // Final persistence can fail after a successful step checkpoint. The
         // turn still stopped: record that failure before notifying its parent.
-        setSessionStatus(db, session.id, "failed", {
-          finishedAt: new Date(),
-          error: { message: errorMessage(cause) },
-        });
-        finalStatus = "failed";
+        lease.settle({ ...saved(), status: "failed", error: { message: errorMessage(cause) } });
         throw cause;
-      } finally {
-        // Close the resumable stream as the turn settles, in step with persisting
-        // the message above, so a client reconnecting now replays nothing.
-        sink?.close();
-        cancelRegistry?.release(session.id);
-        if (finalStatus !== undefined && finalStatus !== "waiting") {
-          bus?.publish({
-            type: "session.turn.settled",
-            id: session.id,
-            // An empty failed turn must not point at an older reply. Approval
-            // continuations retain the same assistant row as their saved work.
-            messageId: messagePersisted ? responseMessage.id : null,
-            outcome:
-              finalStatus === "idle"
-                ? "ended"
-                : finalStatus === "failed" && (stepLimitReached || contextLimitReached)
-                  ? "incomplete"
-                  : finalStatus,
-          });
-        }
-        // An idle event can synchronously wake another turn. Release this
-        // turn's resources first so cleanup cannot cancel its replacement.
-        if (messagePersisted)
-          bus?.publish({ type: "session.message.added", sessionId: session.id });
-        if (finalStatus !== undefined) {
-          bus?.publish({
-            type:
-              finalStatus === "failed" || finalStatus === "cancelled"
-                ? "session.finished"
-                : "session.updated",
-            id: session.id,
-            status: finalStatus,
-          });
-        }
-        settle();
       }
+      // The lease closes the resumable stream as it settles, in step with the
+      // message persisted above, so a client reconnecting now replays nothing.
+      lease.settle(settlement);
     },
   });
 
-  const response = createUIMessageStreamResponse({
-    stream,
-    // Drive the stream server-side so the turn always reaches `onFinish` —
-    // persisting and settling — even if the client never reads the response — and
-    // mirror its frames into the stream registry so a client that reconnects
-    // mid-turn (a reload, a second tab) rejoins the live response. A turn is
-    // cancelled only by an explicit request (the `CancelRegistry`), never by a
-    // dropped connection.
-    consumeSseStream: ({ stream }) => {
-      void pumpStream(stream, sink);
-    },
+  // Drive the stream server-side so the turn always reaches `onFinish` —
+  // persisting and settling — even if the client never reads the response — and
+  // fan its chunks out through the stream registry: to the client that started
+  // the turn, and to any that reconnects mid-turn (a reload, a second tab). A
+  // turn is cancelled only by an explicit request (through its lease's signal),
+  // never by a dropped connection. The sink opens in the same breath as the
+  // pump starts, so a near-instant reconnect finds it and an open sink is
+  // always one being drained; `onFinish` closes it in step with persistence, so
+  // a client that loads the just-settled turn from storage gets a 204 on resume.
+  const sink = lease.openStream(transcriptRevision);
+  const response = new Response(sink.reader(), {
+    headers: { ...UI_MESSAGE_STREAM_HEADERS, [TURN_ID_HEADER]: lease.turnId },
   });
+  void pumpStream(stream, sink, saves);
 
-  return { response, done };
+  return { response, done: lease.done };
 }

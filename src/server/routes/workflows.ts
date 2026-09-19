@@ -1,5 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
+import type * as errorsApi from "../../shared/api/errors.ts";
+import type * as runsApi from "../../shared/api/runs.ts";
+import type * as workflowsApi from "../../shared/api/workflows.ts";
 import { resolveArticleName } from "../../shared/article-name.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -56,7 +59,11 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
   const { db, registry, config, bus, cancelRegistry, llmClients } = deps;
   const app = new Hono();
 
-  app.get("/", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
+  app.get("/", (c) =>
+    c.json(
+      registry.listWorkflows().map(summarizeWorkflow) satisfies workflowsApi.WorkflowSummary[],
+    ),
+  );
 
   app.post(
     "/:name/runs",
@@ -65,11 +72,19 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
     async (c) => {
       const { name } = c.req.valid("param");
       const wf = registry.getWorkflow(name);
-      if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
+      if (!wf)
+        return c.json(
+          { error: `workflow "${name}" not found` } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
 
       const { inputs = {} } = c.get("invokeBody");
       const check = buildInputSchema(wf).safeParse(inputs);
-      if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
+      if (!check.success)
+        return c.json(
+          zodErrorBody(check.error, "invalid inputs") satisfies errorsApi.ApiErrorBody,
+          400,
+        );
 
       const { runId, done } = runWorkflow(db, wf, {
         config,
@@ -84,7 +99,7 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
       done.catch((cause) => {
         log.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
       });
-      return c.json({ runId, status: "running" }, 202);
+      return c.json({ runId, status: "running" } satisfies runsApi.RunStartResult, 202);
     },
   );
 

@@ -64,13 +64,19 @@ function ToolRow({
   );
 }
 
-// The built-in tools grouped by what they touch, in listing order. Each group
-// heads its rows with a line of context; the shell and delegation lines carry
-// the permission behaviour that isn't self-evident from a row — a delegated
-// worker runs under these same permissions, so an Ask tool pauses the worker
-// for the user's approval rather than being withheld; and Auto needs a
-// utility model to judge with.
+// The built-in tools grouped by what they touch. Each group heads its rows
+// with a line of context; the shell and delegation lines carry the permission
+// behaviour that isn't self-evident from a row — a delegated worker runs under
+// these same permissions, so an Ask tool pauses the worker for the user's
+// approval rather than being withheld; and Auto needs a utility model to
+// judge with.
 const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly string[] }[] = [
+  {
+    title: "Knowledge",
+    blurb:
+      "Prior work the session can search and read back — articles, sessions, memories, run summaries, and workflows, in its project or across the workspace.",
+    tools: ["search_knowledge", "open_knowledge"],
+  },
   {
     title: "Articles",
     blurb:
@@ -161,8 +167,9 @@ const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly s
 
 // The built-in kiri tools: every first-party session tool, each carrying the
 // same standing permission control as an MCP tool, grouped under subheaders
-// by what the tools touch. A tool the server lists that no group claims still
-// renders, in a trailing group, so it is never silently hidden. Collapsed by
+// by what the tools touch — groups in alphabetical order, as are the tools
+// within each. A tool the server lists that no group claims still renders, in
+// a trailing group, so it is never silently hidden. Collapsed by
 // default — the card is always present and most of its tools sit on sensible
 // defaults, so it opens on demand rather than pushing the MCP servers down
 // the page.
@@ -180,9 +187,14 @@ function BuiltinCard({
       title: group.title,
       blurb: group.blurb as string | undefined,
       tools: group.tools.flatMap((name) => byName.get(name) ?? []),
-    })),
+    })).sort((a, b) => a.title.localeCompare(b.title)),
     { title: "Other", blurb: undefined, tools: tools.filter((tool) => !claimed.has(tool.name)) },
-  ].filter((group) => group.tools.length > 0);
+  ]
+    .filter((group) => group.tools.length > 0)
+    .map((group) => ({
+      ...group,
+      tools: [...group.tools].sort((a, b) => a.name.localeCompare(b.name)),
+    }));
   return (
     <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
       <Disclosure
@@ -285,7 +297,7 @@ function ServerCard({
  * state, revealing under each connected one its tools, each carrying an
  * Always allow / Ask / Off control. Setting a permission persists it and is
  * enforced from the next turn — an "Off" tool is never offered to the model.
- * Live-refreshes via `useMcpToolsLive`, so a completed sign-in fills a
+ * Live-refreshes via `<LiveSync>`, so a completed sign-in fills a
  * server's tools in.
  */
 export function McpTools() {

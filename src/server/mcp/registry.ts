@@ -1,24 +1,12 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolSet } from "ai";
+import type { McpServerStatus } from "../../shared/api/mcp.ts";
 import { boundMcpTool } from "./bound-tool.ts";
 import type { McpClient } from "./connect.ts";
 import type { McpServer, McpServerType } from "./schema.ts";
 
-/** Runtime status of a configured MCP server. */
-export interface McpServerStatus {
-  name: string;
-  type: McpServerType;
-  /**
-   * `needs-sign-in` is an OAuth server with no valid tokens — an expected state
-   * surfaced as a Connect prompt, distinct from a `failed` connection.
-   */
-  state: "connected" | "failed" | "needs-sign-in";
-  /** Tools discovered, when connected. */
-  toolCount?: number;
-  /** Failure reason, when the connection or tool discovery failed. */
-  error?: string;
-}
+export type { McpServerStatus } from "../../shared/api/mcp.ts";
 
 /** One tool a connected MCP server exposes. */
 export interface McpToolInfo {
@@ -57,12 +45,15 @@ export interface McpRegistry {
   status(): McpServerStatus[];
   /** Per-server tool listing, for connected servers — the tools grouped under the server that exposes them. */
   catalog(): McpServerCatalog[];
-  /** Connect the given servers, replacing and closing any current connections. */
+  /** Install only the latest replacement; displaced clients close after their active calls settle. */
   replace(
     servers: ReadonlyMap<string, McpServer>,
     env: Record<string, string | undefined>,
   ): Promise<void>;
-  /** Close all connections and clear the registry. */
+  /**
+   * Permanently stop replacements and clear the registry, waiting for pending connection
+   * attempts to finish cleanup. Active calls retain clients until they settle.
+   */
   close(): Promise<void>;
 }
 
@@ -106,10 +97,27 @@ export function createMcpRegistry(
   let statuses: McpServerStatus[] = [];
   let catalogs: McpServerCatalog[] = [];
 
+  let revision = 0;
+  let closed = false;
+  let closing: Promise<void> | undefined;
+  const pending = new Set<ConnectionGeneration>();
+  const replacements = new Set<Promise<void>>();
+  const closingClients = new WeakMap<McpClient, Promise<void>>();
+
+  // Discovery failure, supersession, and shutdown can all dispose the same client.
+  const closeClient = (client: McpClient): Promise<void> => {
+    let promise = closingClients.get(client);
+    if (!promise) {
+      promise = Promise.allSettled([Promise.resolve().then(() => client.close())]).then(
+        () => undefined,
+      );
+      closingClients.set(client, promise);
+    }
+    return promise;
+  };
+
   const closeGeneration = (target: ConnectionGeneration): Promise<void> => {
-    target.closing ??= Promise.allSettled(target.clients.map((client) => client.close())).then(
-      () => undefined,
-    );
+    target.closing ??= Promise.allSettled(target.clients.map(closeClient)).then(() => undefined);
     return target.closing;
   };
 
@@ -186,93 +194,118 @@ export function createMcpRegistry(
     status: () => statuses,
     catalog: () => catalogs,
 
-    replace: async (servers, env) => {
-      const previous = generation;
-
-      const results = await Promise.all(
-        [...servers.values()].map(async (server) => {
-          let client: McpClient | undefined;
-          try {
-            client = await connect(server, env);
-            const tools = await client.tools();
-            return { server, client, tools } as const;
-          } catch (cause) {
-            // Close a client that connected but failed to list its tools.
-            if (client) await Promise.allSettled([client.close()]);
-            return {
-              server,
-              error: reasonOf(cause),
-              unauthorized: cause instanceof UnauthorizedError,
-            } as const;
-          }
-        }),
-      );
-
-      const nextClients: McpClient[] = [];
-      const nextTools: ToolSet = {};
-      const nextExecutions = new Map<string, LiveExecution>();
-      const nextStatuses: McpServerStatus[] = [];
-      const nextCatalogs: McpServerCatalog[] = [];
+    replace: (servers, env) => {
+      if (closed) return Promise.resolve();
+      const requested = ++revision;
+      for (const attempt of pending) void retire(attempt);
       const nextGeneration: ConnectionGeneration = {
-        clients: nextClients,
+        clients: [],
         activeCalls: 0,
         retired: false,
       };
-      for (const result of results) {
-        if ("error" in result) {
-          // An OAuth server with no valid tokens isn't a failure — it needs sign-in.
-          nextStatuses.push(
-            result.unauthorized
-              ? { name: result.server.name, type: result.server.type, state: "needs-sign-in" }
-              : {
-                  name: result.server.name,
-                  type: result.server.type,
-                  state: "failed",
-                  error: result.error,
-                },
-          );
-          continue;
-        }
-        nextClients.push(result.client);
-        const names = Object.keys(result.tools);
-        const toolInfos: McpToolInfo[] = [];
-        for (const name of names) {
-          const namespacedName = `${result.server.name}__${name}`;
-          const bound = boundMcpTool(result.tools[name]);
-          if (bound.execute) {
-            nextExecutions.set(namespacedName, {
-              execute: bound.execute,
-              generation: nextGeneration,
-            });
-          }
-          nextTools[namespacedName] = liveTool(bound, result.server.name, namespacedName);
-          toolInfos.push({ name, namespacedName, description: result.tools[name].description });
-        }
-        nextStatuses.push({
-          name: result.server.name,
-          type: result.server.type,
-          state: "connected",
-          toolCount: names.length,
-        });
-        nextCatalogs.push({ name: result.server.name, tools: toolInfos });
-      }
+      pending.add(nextGeneration);
+      const isCurrent = () => !closed && requested === revision;
+      const replacement = (async () => {
+        const results = await Promise.all(
+          [...servers.values()].map(async (server) => {
+            let client: McpClient | undefined;
+            try {
+              client = await connect(server, env);
+              if (!isCurrent()) {
+                await closeClient(client);
+                return;
+              }
+              nextGeneration.clients.push(client);
+              const tools = await client.tools();
+              return { server, client, tools } as const;
+            } catch (cause) {
+              // Close a client that connected but failed to list its tools.
+              if (client) await closeClient(client);
+              return {
+                server,
+                error: reasonOf(cause),
+                unauthorized: cause instanceof UnauthorizedError,
+              } as const;
+            }
+          }),
+        );
 
-      generation = nextGeneration;
-      executions = nextExecutions;
-      toolSet = nextTools;
-      statuses = nextStatuses;
-      catalogs = nextCatalogs;
-      await retire(previous);
+        if (!isCurrent()) {
+          await retire(nextGeneration);
+          return;
+        }
+        const nextTools: ToolSet = {};
+        const nextExecutions = new Map<string, LiveExecution>();
+        const nextStatuses: McpServerStatus[] = [];
+        const nextCatalogs: McpServerCatalog[] = [];
+        for (const result of results) {
+          if (!result) continue;
+          if ("error" in result) {
+            // An OAuth server with no valid tokens isn't a failure — it needs sign-in.
+            nextStatuses.push(
+              result.unauthorized
+                ? { name: result.server.name, type: result.server.type, state: "needs-sign-in" }
+                : {
+                    name: result.server.name,
+                    type: result.server.type,
+                    state: "failed",
+                    error: result.error,
+                  },
+            );
+            continue;
+          }
+          const names = Object.keys(result.tools);
+          const toolInfos: McpToolInfo[] = [];
+          for (const name of names) {
+            const namespacedName = `${result.server.name}__${name}`;
+            const bound = boundMcpTool(result.tools[name]);
+            if (bound.execute) {
+              nextExecutions.set(namespacedName, {
+                execute: bound.execute,
+                generation: nextGeneration,
+              });
+            }
+            nextTools[namespacedName] = liveTool(bound, result.server.name, namespacedName);
+            toolInfos.push({ name, namespacedName, description: result.tools[name].description });
+          }
+          nextStatuses.push({
+            name: result.server.name,
+            type: result.server.type,
+            state: "connected",
+            toolCount: names.length,
+          });
+          nextCatalogs.push({ name: result.server.name, tools: toolInfos });
+        }
+
+        pending.delete(nextGeneration);
+        const previous = generation;
+        generation = nextGeneration;
+        executions = nextExecutions;
+        toolSet = nextTools;
+        statuses = nextStatuses;
+        catalogs = nextCatalogs;
+        await retire(previous);
+      })().finally(async () => {
+        if (pending.delete(nextGeneration)) await retire(nextGeneration);
+        replacements.delete(replacement);
+      });
+      replacements.add(replacement);
+      return replacement;
     },
 
-    close: async () => {
+    close: () => {
+      if (closing) return closing;
+      closed = true;
       const toClose = generation;
       generation = { clients: [], activeCalls: 0, retired: false };
       executions = new Map();
       toolSet = {};
       statuses = [];
       catalogs = [];
-      await closeGeneration(toClose);
+      closing = Promise.all([retire(toClose), ...[...pending].map(retire), ...replacements]).then(
+        () => undefined,
+      );
+      return closing;
     },
   };
 }

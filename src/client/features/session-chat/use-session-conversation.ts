@@ -8,52 +8,67 @@ import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TURN_ID_HEADER } from "../../../shared/api/sessions.ts";
+import {
+  MESSAGE_BODY_LIMIT_BYTES,
+  MESSAGE_SIZE_ERROR,
+  jsonBytes,
+} from "../../../shared/message-limits.ts";
 import {
   type SessionInboxItem,
   cancelSession,
-  queueSessionMessage,
   sessionStreamEndpoint,
   sessionTurnEndpoint,
   setToolPermission,
   truncateSessionMessages,
   withdrawQueuedMessage,
 } from "../../api.ts";
-import { usePatchSessionInbox, useTruncateSessionDetail } from "../../state/sessions.ts";
+import {
+  usePatchSessionInbox,
+  useRefreshSessionDetail,
+  useTruncateSessionDetail,
+} from "../../state/sessions.ts";
 import { compactionStatusOf } from "./compaction-status.ts";
 import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./live-console.ts";
+import { submitQueuedMessage } from "./queue-submission.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
+
+// How many times in a row a view re-reads the transcript and rejoins the turn
+// whose stream ended under it. A rejoin that keeps ending is not going to
+// take; the view then shows the session as busy until the turn settles.
+const MAX_REJOINS = 3;
 
 // Tool-call states that mean a call is still running.
 const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
 
-// Total parts across a transcript. A turn that finished elsewhere can grow an
-// existing message in place rather than add a new one — an approval resume
-// extends the paused assistant message, and a delegated child's single
-// assistant turn gains a part per inner tool call — so the fold-in below
-// compares parts, not just the message count.
-const totalParts = (messages: UIMessage[]): number =>
-  messages.reduce((sum, message) => sum + message.parts.length, 0);
-
-const sessionTurnMessage = (message: UIMessage | undefined): UIMessage | undefined => {
-  if (message?.role !== "assistant") return message;
-  const approvals = message.parts.filter(
-    (part) => isToolUIPart(part) && part.state === "approval-responded",
-  );
-  return approvals.length > 0 ? { ...message, parts: approvals } : message;
+// An answered assistant turn resumes on its verdicts alone, each naming its
+// call by id: the server holds the calls themselves, so nothing of the paused
+// turn — which can dwarf the API body limit — travels back.
+const sessionTurnBody = (message: UIMessage | undefined) => {
+  const approvals =
+    message?.role === "assistant"
+      ? message.parts.flatMap((part) =>
+          isToolUIPart(part) && part.state === "approval-responded"
+            ? [{ toolCallId: part.toolCallId, approved: part.approval.approved }]
+            : [],
+        )
+      : [];
+  return approvals.length > 0 ? { approvals } : { message };
 };
 
-/** Build a compact turn body for approval resumes without changing user turns. */
-export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] }) => ({
-  body: { message: sessionTurnMessage(messages.at(-1)) },
-});
+/** Build an approval or user-turn body; reject requests over the wire limit. */
+export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] }) => {
+  const body = sessionTurnBody(messages.at(-1));
+  if (jsonBytes(body) > MESSAGE_BODY_LIMIT_BYTES) throw new Error(MESSAGE_SIZE_ERROR);
+  return { body };
+};
 
 // Rewrite any still-running tool call to a terminal cancelled state. Cancelling
 // a turn stops a call mid-flight, which otherwise leaves its part on "working"
 // in the transcript; this marks it cancelled instead. Other parts pass through.
 // The server persists the cancelled turn the same way (a call still streaming
 // its input is dropped there rather than marked — the model never finished
-// issuing it — but it stays marked here: shrinking the local transcript would
-// let the fold-in below re-expand it from the stale snapshot).
+// issuing it — but it stays marked here until the committed snapshot arrives).
 function cancelInFlightTools(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) =>
     message.role === "assistant"
@@ -96,13 +111,22 @@ export interface SessionConversation {
   /** Start a turn from composed parts. */
   sendMessage: ReturnType<typeof useChat<UIMessage>>["sendMessage"];
   /**
-   * Queue `text` for the in-flight turn, delivered at its next step boundary.
-   * The queue lives server-side (it rides the session detail as `inbox`); the
-   * cached detail is patched optimistically so the chip renders at once. A
-   * failed queue (usually the 409 of racing the turn's settle) degrades to a
-   * normal send, so the message is never silently lost.
+   * Queue `text` for the session; the server schedules its delivery. The
+   * queue lives server-side (it rides the session detail as `inbox`). Until
+   * the server confirms the message it shows in `submitting`, and a submission
+   * whose outcome never arrived is repeated under the same id, so it is never
+   * queued twice. Rejects when the message was refused or could not be
+   * confirmed — the caller still holds the text.
    */
   queueMessage: (text: string) => Promise<void>;
+  /** Messages this view has submitted to the queue and not yet had confirmed. */
+  submitting: SessionInboxItem[];
+  /**
+   * Withdraw a queued message before a turn takes it. Delivery wins the race:
+   * a message already taken stays in the transcript, and its chip resolves
+   * either way.
+   */
+  withdrawMessage: (itemId: string) => Promise<void>;
   /** Replace the local transcript (used by cancel and resubmit). */
   setMessages: ReturnType<typeof useChat<UIMessage>>["setMessages"];
   /** Resend an edited user message, truncating the transcript back to it first. */
@@ -117,9 +141,10 @@ export interface SessionConversation {
 
 /**
  * Drive one session's live conversation: wires `useChat` to the session's turn
- * endpoint, rejoins an in-flight turn's stream on mount, reconciles a turn
- * that finished or ran elsewhere while this view wasn't streaming, and exposes
- * the send / resubmit / cancel / tool-approval handlers. The page chat and the
+ * endpoint, joins the stream of any turn it is not already attached to — one
+ * in flight as the view mounts, or one the server starts later — reconciles a
+ * turn that finished while this view wasn't streaming, and exposes the send /
+ * resubmit / cancel / tool-approval handlers. The page chat and the
  * embedded child-session view share this engine; each renders its own chrome
  * around it.
  */
@@ -127,15 +152,36 @@ export function useSessionConversation(opts: {
   session: { id: string; status: string };
   /** The persisted transcript to seed once; `useChat` owns the live state after mount. */
   initialMessages: UIMessage[];
-  /**
-   * The session's undelivered inbox, from the same detail payload as `session`
-   * — status and backlog always describe the same moment, which is what makes
-   * the settle-time reconcile below race-free. Omit in views that never queue
-   * (the embedded child session).
-   */
-  pendingInbox?: SessionInboxItem[];
+  /** Revision belonging to initialMessages, including a stream replay baseline. */
+  transcriptRevision: number;
+  /** The turn streaming for the session as of that read, or null when none was. */
+  turnId: string | null;
 }): SessionConversation {
-  const { session, initialMessages, pendingInbox = [] } = opts;
+  const { session, initialMessages, transcriptRevision, turnId } = opts;
+  const entered = (): {
+    id: string;
+    revision: number;
+    generation: number;
+    protected: boolean;
+    rejoins: number;
+    /** The turn whose stream this view last attached to, or set out to. */
+    turnId: string | null;
+  } => ({
+    id: session.id,
+    revision: transcriptRevision,
+    generation: 0,
+    protected: false,
+    rejoins: 0,
+    turnId: null,
+  });
+  const sync = useRef(entered());
+  if (sync.current.id !== session.id) sync.current = entered();
+  const transcript = sync.current;
+  const refreshDetail = useRefreshSessionDetail(session.id);
+  const protectTranscript = useCallback(() => {
+    transcript.generation += 1;
+    transcript.protected = true;
+  }, [transcript]);
 
   const transport = useMemo(() => {
     const { url, headers } = sessionTurnEndpoint(session.id);
@@ -145,11 +191,27 @@ export function useSessionConversation(opts: {
       // Send only the new message; the server loads the prior turns. Approval
       // resumes need only the verdict-bearing parts — retransmitting earlier
       // tool outputs from the paused turn can exceed the API body limit.
-      prepareSendMessagesRequest: prepareSessionTurnRequest,
-      // Resume reconnects to the GET stream endpoint, not the POST turn `api`.
-      prepareReconnectToStreamRequest: () => ({ api: sessionStreamEndpoint(session.id) }),
+      prepareSendMessagesRequest: (request) => {
+        protectTranscript();
+        return prepareSessionTurnRequest(request);
+      },
+      // Resume reconnects to the GET stream endpoint, not the POST turn `api`,
+      // naming the transcript this view holds: the server replays only what
+      // follows that revision, so a rejoin can never duplicate a saved step.
+      prepareReconnectToStreamRequest: () => ({
+        api: sessionStreamEndpoint(session.id, sync.current.revision),
+      }),
+      // Every stream this view attaches through names its turn. A rejoin can
+      // land on a newer turn than the one it set out for, so the response,
+      // not the request, says which turn the view now holds.
+      fetch: (async (input, init) => {
+        const response = await fetch(input, init);
+        const attached = response.headers.get(TURN_ID_HEADER);
+        if (attached !== null && sync.current.id === session.id) sync.current.turnId = attached;
+        return response;
+      }) as typeof fetch,
     });
-  }, [session.id]);
+  }, [session.id, protectTranscript]);
 
   // Live tool consoles for the in-flight turn. One store per mounted engine,
   // cleared on session entry (below) and again when a turn settles, so a
@@ -159,17 +221,21 @@ export function useSessionConversation(opts: {
 
   const {
     messages,
-    sendMessage,
+    sendMessage: sendChatMessage,
     status,
     stop,
     error,
     setMessages,
     addToolApprovalResponse,
     resumeStream,
-  } = useChat({
+  } = useChat<UIMessage>({
     id: session.id,
     messages: initialMessages,
     transport,
+    // A stream this view did not stop may have ended short of the turn.
+    onFinish: ({ isAbort }) => {
+      void refreshTranscript({ rejoin: !isAbort });
+    },
     // Cap transcript re-renders to ~16/s. A fast provider otherwise delivers
     // deltas quicker than a grown transcript can re-render, and the backlog
     // pins the main thread until the tab freezes; 60 ms still reads as live
@@ -190,27 +256,67 @@ export function useSessionConversation(opts: {
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
-  // Reconnect to an in-flight turn's stream once per session, so a page refresh
-  // (or a second tab) rejoins the live response — tokens and tool-call state —
-  // and carries it to completion; a 204 when no turn is running makes it a no-op.
-  // Guarded by session id so it fires once per session even though StrictMode
-  // double-invokes effects in dev — two reconnects would replay the buffer twice
-  // and duplicate the turn — and so it re-fires when the session changes.
-  const resumedFor = useRef<string | null>(null);
+  // A read begun after streaming ended can release local protection. A turn
+  // streaming then is joined from the fresh transcript when it is not the one
+  // this view was attached to — a wake that followed straight on. When it is
+  // the same turn, the stream ended short of it — this view held a transcript
+  // the live stream no longer continues from, or fell too far behind it — and
+  // only `rejoin` resumes it.
+  const refreshTranscript = useCallback(
+    async ({ rejoin = false } = {}): Promise<void> => {
+      const generation = transcript.generation;
+      let detail: Awaited<ReturnType<typeof refreshDetail>>;
+      try {
+        detail = await refreshDetail();
+      } catch {
+        // fetchQuery exposes the failure through useSession. Keep local work
+        // until a later successful refresh rather than applying an older cache.
+        return;
+      }
+      if (sync.current !== transcript || generation !== transcript.generation) return;
+      transcript.protected = false;
+      if (detail.turnId !== null) {
+        const attached = detail.turnId === transcript.turnId;
+        // Cancellation can finish the browser stream before the server settles
+        // that same turn: resuming would replay it into a duplicate, and the
+        // saved transcript must not erase the locally rendered tail.
+        if (attached && (!rejoin || transcript.rejoins >= MAX_REJOINS)) return;
+        transcript.rejoins = attached ? transcript.rejoins + 1 : 0;
+        transcript.turnId = detail.turnId;
+        transcript.revision = detail.transcriptRevision;
+        setMessages(detail.messages);
+        void resumeStream();
+        return;
+      }
+      transcript.rejoins = 0;
+      if (detail.transcriptRevision <= transcript.revision) return;
+      transcript.revision = detail.transcriptRevision;
+      setMessages(detail.messages);
+    },
+    [refreshDetail, resumeStream, setMessages, transcript],
+  );
+
+  const sendMessage = useCallback<SessionConversation["sendMessage"]>(
+    (...args) => {
+      protectTranscript();
+      return sendChatMessage(...args);
+    },
+    [protectTranscript, sendChatMessage],
+  );
+
+  // A newly-entered session starts with no live consoles; joining its
+  // in-flight stream replays any current ones straight back in.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs per session entered
   useEffect(() => {
-    if (resumedFor.current === session.id) return;
-    resumedFor.current = session.id;
-    // A newly-entered session starts with no live consoles; rejoining its
-    // in-flight stream below replays any current ones straight back in.
     liveConsoles.clear();
     setCompacting(false);
-    void resumeStream();
-  }, [session.id, resumeStream, liveConsoles]);
+  }, [session.id, liveConsoles]);
 
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
   // the session row reports `running` while `useChat` sits idle here.
   const streaming = status === "submitted" || status === "streaming";
+  if (streaming) transcript.protected = true;
   const busy = streaming || session.status === "running";
 
   // Transient progress is turn-scoped: once this view stops streaming, drop it —
@@ -233,126 +339,119 @@ export function useSessionConversation(opts: {
     );
   }, [messages]);
 
-  // The inbox lives server-side; these patch the cached detail so a queue or
-  // withdraw shows at once instead of waiting for the SSE echo's refetch.
+  // The inbox lives server-side; a confirmed message patches the cached
+  // detail so it shows at once instead of waiting for the SSE echo's refetch.
+  // Until then it is held here, where no refetch can drop it.
   const inboxCache = usePatchSessionInbox(session.id);
+  const [submitting, setSubmitting] = useState<SessionInboxItem[]>([]);
 
   const queueMessage = useCallback(
     async (text: string) => {
+      const item: SessionInboxItem = {
+        id: crypto.randomUUID(),
+        source: "user",
+        text,
+        fromSessionId: null,
+        createdAt: new Date().toISOString(),
+      };
+      setSubmitting((prev) => [...prev, item]);
       try {
-        const { item } = await queueSessionMessage(session.id, text);
-        inboxCache.append(item);
-      } catch {
-        // The queue failed — usually the 409 of racing the turn's settle,
-        // where the message is simply the next turn. Every failure degrades to
-        // a normal send: if the turn is genuinely still running the server
-        // rejects the concurrent turn and that error surfaces in the chat, so
-        // the message is never lost silently.
-        void sendMessage({ parts: [{ type: "text", text }] });
+        const result = await submitQueuedMessage(session.id, item.id, text);
+        // A repeat can find a turn has already taken the message: it is in
+        // the transcript, not the backlog.
+        if (!result.delivered) inboxCache.append(result.item);
+      } finally {
+        setSubmitting((prev) => prev.filter((pending) => pending.id !== item.id));
       }
     },
-    [session.id, sendMessage, inboxCache],
+    [session.id, inboxCache],
   );
 
-  // Promote what the settled turn left behind: with no turn in flight and no
-  // approval pause (a waiting turn still delivers on resume), a backlog can
-  // only be answered by a new turn. Withdraw the newest user message — the
-  // 204-vs-404 settles any race with delivery (and with another tab doing the
-  // same) authoritatively — and, if the withdraw won, resend the message as
-  // its own turn: older undelivered messages stay in the server's inbox and
-  // drain ahead of it, preserving arrival order. A 404 instead means it was
-  // delivered, so the chip just resolves; the effect's re-run then examines
-  // the next-newest, clearing any chips the refetched backlog has outrun.
-  // `pendingInbox` and `session.status` ride the same detail payload, so the
-  // backlog examined is the one the settled turn actually left.
+  const withdrawMessage = useCallback(
+    async (itemId: string) => {
+      await withdrawQueuedMessage(session.id, itemId);
+      inboxCache.remove(itemId);
+    },
+    [session.id, inboxCache],
+  );
+
+  // Revisions detect replacements and deletions as well as appended content.
+  // Never advance the accepted revision while local work owns the transcript.
   //
-  // Each item is examined at most once per view: the ref remembers every id
-  // withdrawn here, so no re-run — StrictMode's doubled effects, a settle
-  // flip, a backlog snapshot the refetch hasn't replaced yet — can withdraw
-  // one twice (the repeat would 404 against the first attempt and drop the
-  // promotion). There is deliberately no staleness abort — everything the
-  // continuation captures (the withdraw target, the cache patcher, the
-  // id-keyed chat) is scoped to the session it started for, so completing
-  // after a switch or unmount still promotes the message rather than losing
-  // it between the withdraw and the send.
-  const settled = !streaming && session.status !== "running" && session.status !== "waiting";
-  const examined = useRef(new Set<string>());
+  // The same read names the turn streaming for the session. One this view is
+  // not attached to — in flight as the view mounts, started in another tab, or
+  // a wake the server began — is joined from that transcript, so a page
+  // refresh or a second view carries the live response, tokens and tool-call
+  // state alike, to completion. The turn is recorded as it is joined, before
+  // any response: a second pass over the same read (StrictMode runs effects
+  // twice in dev) must not replay the buffer into a duplicate. A turn already
+  // attached to is never resumed from here — its stream ending is `onFinish`'s
+  // affair — and a read older than the transcript held joins nothing.
   useEffect(() => {
-    if (!settled) return;
-    const last = pendingInbox.filter((item) => item.source === "user").at(-1);
-    if (last === undefined || examined.current.has(last.id)) return;
-    examined.current.add(last.id);
-    void (async () => {
-      const wasQueued = await withdrawQueuedMessage(session.id, last.id).catch(() => false);
-      inboxCache.remove(last.id);
-      if (wasQueued) void sendMessage({ parts: [{ type: "text", text: last.text }] });
-    })();
-  }, [settled, pendingInbox, session.id, sendMessage, inboxCache]);
-
-  // A turn can finish while this view is unmounted (we navigated away) or be
-  // driven from elsewhere: it persists without `useChat` — which ignores
-  // re-seeds after mount — ever seeing it. When we're not the one streaming and
-  // the stored transcript has pulled ahead, fold it in so the finished turn
-  // shows up here. "Pulled ahead" is more messages or more parts: an approval
-  // answered elsewhere extends the paused assistant message in place, so a
-  // message-count check alone would never re-sync it.
-  // A local delete leaves `initialMessages` one commit behind: useChat's store
-  // notifies synchronously while the query cache batches its notification into
-  // a microtask, so the fold-in below would resurrect the dropped turns from
-  // the stale snapshot. Remember the cut message and skip folding in any
-  // snapshot that still carries it; the ref clears once a fresh one arrives.
-  const truncatedAt = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (streaming) return;
-    if (truncatedAt.current !== null) {
-      const id = truncatedAt.current;
-      if (initialMessages.some((message) => message.id === id)) return;
-      truncatedAt.current = null;
-    }
-    if (
-      initialMessages.length > messages.length ||
-      totalParts(initialMessages) > totalParts(messages)
-    )
+    if (streaming || transcript.protected) return;
+    if (transcriptRevision > transcript.revision) {
+      transcript.revision = transcriptRevision;
       setMessages(initialMessages);
-  }, [streaming, initialMessages, messages, setMessages]);
+    }
+    if (turnId === null || turnId === transcript.turnId) return;
+    if (transcriptRevision < transcript.revision) return;
+    transcript.turnId = turnId;
+    transcript.rejoins = 0;
+    void resumeStream();
+  }, [
+    streaming,
+    transcript,
+    transcriptRevision,
+    turnId,
+    initialMessages,
+    setMessages,
+    resumeStream,
+  ]);
 
   // Resend an edited user message, re-running the conversation from it. Truncate
   // the stored transcript back to the message first (so the turn's server-side
-  // append lands at the right index), then drop the local messages from that
-  // point and send the edited turn in the same tick — `sendMessage` flips
-  // `streaming` before the fold-in effect could re-expand them from a now-stale
-  // refetch. A failed truncate aborts the resend, leaving the transcript intact.
+  // append lands at the right index). A newer snapshot or local action may
+  // overtake the request; only mirror the cut if it is still current.
   const resubmit = useCallback(
     async (messageId: string, parts: UIMessage["parts"]) => {
       if (busy) return;
       const index = messages.findIndex((message) => message.id === messageId);
       if (index === -1) return;
-      await truncateSessionMessages(session.id, messageId);
-      setMessages(messages.slice(0, index));
+      const generation = transcript.generation;
+      const { transcriptRevision: revision } = await truncateSessionMessages(session.id, messageId);
+      if (sync.current !== transcript || generation !== transcript.generation) return;
+      if (revision >= transcript.revision) {
+        transcript.revision = revision;
+        setMessages(messages.slice(0, index));
+      }
       void sendMessage({ parts });
     },
-    [busy, messages, session.id, setMessages, sendMessage],
+    [busy, messages, session.id, setMessages, sendMessage, transcript],
   );
 
   // Delete a message without resending: truncate the stored transcript from it,
   // mirror the cut into the cached session detail, then drop the local messages
-  // from that point. Unlike resubmit, nothing flips `streaming` here, so the
-  // cached (longer) transcript must shrink before the fold-in effect above
-  // could re-expand the dropped turns from it. A failed truncate aborts,
-  // leaving the transcript intact.
+  // from that point. The committed revision prevents an older read from
+  // restoring deleted messages. A failed truncate leaves the transcript intact.
   const truncateDetail = useTruncateSessionDetail(session.id);
   const deleteMessage = useCallback(
     async (messageId: string) => {
       if (busy) return;
       const index = messages.findIndex((message) => message.id === messageId);
       if (index === -1) return;
-      await truncateSessionMessages(session.id, messageId);
-      truncatedAt.current = messageId;
-      truncateDetail(messageId);
+      const generation = transcript.generation;
+      const { transcriptRevision: revision } = await truncateSessionMessages(session.id, messageId);
+      truncateDetail(messageId, revision);
+      if (
+        sync.current !== transcript ||
+        generation !== transcript.generation ||
+        revision < transcript.revision
+      )
+        return;
+      transcript.revision = revision;
       setMessages(messages.slice(0, index));
     },
-    [busy, messages, session.id, truncateDetail, setMessages],
+    [busy, messages, session.id, truncateDetail, setMessages, transcript],
   );
 
   // Resolve a pending tool approval. Allow runs it once; Always allow also sets
@@ -366,19 +465,23 @@ export function useSessionConversation(opts: {
       // write just means we ask again next time — the safe default — and must not
       // block allowing the call now.
       if (decision === "always") void setToolPermission(getToolName(part), "allow").catch(() => {});
+      protectTranscript();
       void addToolApprovalResponse({ id: part.approval.id, approved: decision !== "deny" });
     },
-    [addToolApprovalResponse],
+    [addToolApprovalResponse, protectTranscript],
   );
 
   const cancel = useCallback(() => {
+    protectTranscript();
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
-    void cancelSession(session.id).catch(() => {});
+    void cancelSession(session.id)
+      .catch(() => {})
+      .then(() => refreshTranscript());
     // Stopping mid-call leaves the tool part on "working"; mark it cancelled so
     // the transcript reflects the stop rather than spinning forever.
     setMessages(cancelInFlightTools);
-  }, [stop, session.id, setMessages]);
+  }, [stop, session.id, setMessages, protectTranscript, refreshTranscript]);
 
   return {
     messages,
@@ -391,6 +494,8 @@ export function useSessionConversation(opts: {
     liveConsoles,
     sendMessage,
     queueMessage,
+    submitting,
+    withdrawMessage,
     setMessages,
     resubmit,
     deleteMessage,

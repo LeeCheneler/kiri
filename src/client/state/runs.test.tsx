@@ -5,16 +5,9 @@ import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
-import {
-  useRun,
-  useRunFeed,
-  useRunFeedsLive,
-  useRunWindowsLive,
-  useRunsLive,
-  useWorkflowRunFeed,
-  useWorkflowRunWindow,
-} from "./runs.ts";
+import { useRun, useRunFeed, useWorkflowRunFeed, useWorkflowRunWindow } from "./runs.ts";
 
 const runPayload = (id: string, workflowName: string) => ({
   run: {
@@ -34,7 +27,7 @@ const runPayload = (id: string, workflowName: string) => ({
 });
 
 const Probe = ({ id }: { id: string }) => {
-  useRunsLive();
+  useLiveInvalidation();
   const { data } = useRun(id);
   return <p>{data ? data.run.workflowName : "loading"}</p>;
 };
@@ -154,7 +147,7 @@ describe("runs state", () => {
 });
 
 const WindowProbe = ({ workflow }: { workflow: string }) => {
-  useRunWindowsLive();
+  useLiveInvalidation();
   const { data } = useWorkflowRunWindow(workflow, 14);
   return <p>{data ? `count:${data.length}` : "loading"}</p>;
 };
@@ -231,7 +224,7 @@ describe("run window state", () => {
 });
 
 const FeedProbe = ({ workflow }: { workflow: string }) => {
-  useRunFeedsLive();
+  useLiveInvalidation();
   const feed = useWorkflowRunFeed(workflow);
   return (
     <div>
@@ -337,7 +330,7 @@ describe("run feed state", () => {
 });
 
 const GlobalFeedProbe = () => {
-  useRunFeedsLive();
+  useLiveInvalidation();
   const feed = useRunFeed();
   return (
     <div>

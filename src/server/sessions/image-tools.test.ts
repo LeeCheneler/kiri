@@ -90,16 +90,4 @@ describe("imageTools", () => {
       /No image model is selected/,
     );
   });
-
-  it("gives the model the compact metadata, never the image payload", () => {
-    const toModelOutput = tools.generate_image?.toModelOutput as (args: {
-      output: unknown;
-    }) => unknown;
-
-    expect(
-      toModelOutput({
-        output: { model: "local:flux", mediaType: "image/png", image: "data:…" },
-      }),
-    ).toEqual({ type: "json", value: { model: "local:flux", mediaType: "image/png" } });
-  });
 });

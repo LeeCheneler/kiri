@@ -10,6 +10,7 @@ const make = (name: string, type: LlmProvider["type"] = "anthropic"): LlmProvide
 describe("llm provider registry", () => {
   it("starts empty", () => {
     const reg = createLlmProviderRegistry();
+    expect(reg.revision()).toBe(0);
     expect(reg.listProviders()).toEqual([]);
     expect(reg.getProvider("missing")).toBeUndefined();
   });
@@ -28,6 +29,18 @@ describe("llm provider registry", () => {
     expect(reg.getProvider("a")).toBe(a);
     expect(reg.getProvider("b")).toBe(b);
     expect(reg.listProviders()).toEqual([a, b]);
+  });
+
+  it("advances the revision even when a replacement reuses or empties the provider map", () => {
+    const reg = createLlmProviderRegistry();
+    const providers = new Map([["a", make("a")]]);
+    reg.replace(providers);
+    expect(reg.revision()).toBe(1);
+    reg.replace(providers);
+    expect(reg.revision()).toBe(2);
+    reg.replace(new Map());
+    expect(reg.revision()).toBe(3);
+    expect(reg.listProviders()).toEqual([]);
   });
 
   it("replace swaps contents wholesale", () => {

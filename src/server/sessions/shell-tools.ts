@@ -70,7 +70,7 @@ const tailCap = (value: string, max: number): { text: string; truncated: boolean
  * unless the call's `cwd` overrides it (absolute, or relative to the session's
  * working directory). Only the command's *working directory* is confined
  * (resolved to its real form and required to sit inside one of
- * `getAllowedDirectories()`, read live per call): what the command itself
+ * `getAllowedDirectories()`, which a session turn fixes when it starts): what the command itself
  * touches is not, which is why the tool's standing permission defaults to
  * asking per call. The command runs non-interactively (stdin closed) with the
  * kiri process's environment, must finish within its timeout (killed

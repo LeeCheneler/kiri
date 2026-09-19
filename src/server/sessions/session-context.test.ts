@@ -234,7 +234,7 @@ describe("contextBudget", () => {
             content: [
               {
                 type: "file",
-                mediaType: "application/pdf",
+                mediaType: "application/octet-stream",
                 data: "a".repeat(90000),
               },
             ],
@@ -242,6 +242,20 @@ describe("contextBudget", () => {
         ],
       }),
     ).toBeGreaterThan(22000);
+  });
+
+  it("charges documents for the text they yield, bounded like images", () => {
+    const document = (mediaType: string, bytes: number): ModelMessage[] => [
+      { role: "user", content: [{ type: "file", mediaType, data: "a".repeat(bytes) }] },
+    ];
+    const pdf = estimateContextTokens({ messages: document("application/pdf", 160000) });
+    expect(pdf).toBeGreaterThan(10000);
+    expect(pdf).toBeLessThan(11000);
+    const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    expect(estimateContextTokens({ messages: document(docx, 160000) })).toBe(pdf);
+    const huge = estimateContextTokens({ messages: document("application/pdf", 4_000_000) });
+    expect(huge).toBeGreaterThan(65536);
+    expect(huge).toBeLessThan(66000);
   });
 });
 

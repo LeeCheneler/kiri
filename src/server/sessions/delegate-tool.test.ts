@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import { describedModel } from "../../../tests/support/described-model.ts";
+import { turnStarter } from "../../../tests/support/turn-runner.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { projects } from "../db/schema.ts";
@@ -16,10 +18,12 @@ import {
   MESSAGE_PARENT_MAX_LENGTH,
   MESSAGE_PARENT_TOOL_NAME,
   MESSAGE_WORKER_TOOL_NAME,
+  type MessageParentToolDeps,
   delegateTool,
   messageParentTool,
 } from "./delegate-tool.ts";
-import { pendingInboxItems } from "./inbox.ts";
+import type { InboxMessage } from "./delegation-messaging.ts";
+import { enqueueInboxItem } from "./inbox.ts";
 import {
   createSession,
   getSession,
@@ -27,7 +31,6 @@ import {
   setSessionStatus,
   updateSessionCwd,
 } from "./store.ts";
-import type { RunTurnDeps } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -41,8 +44,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 const usage = (input: number, output: number) => ({
@@ -99,10 +101,18 @@ describe("delegate tool", () => {
     db,
     parentSessionId: "parent",
     bus,
-    childTurnDeps: (childSessionId): RunTurnDeps => {
-      capture.childId = childSessionId;
-      return { db, llmClients: clientsFor(model), bus };
+    sendMessage: () => {
+      throw new Error("no message is sent in this test");
     },
+    startTurn: turnStarter({
+      db,
+      bus,
+      llmClients: clientsFor(model),
+      prepareTurn: (child) => {
+        capture.childId = child.id;
+        return { session: child, turnDeps: { db, llmClients: clientsFor(model), bus } };
+      },
+    }),
   });
 
   // Waits for the spawned child's detached turn to settle, so no turn is
@@ -147,6 +157,45 @@ describe("delegate tool", () => {
     );
   };
 
+  it("runs the worker with the session and dependencies its preparation returns", async () => {
+    const prompted: (string | null)[] = [];
+    const capture: { childId?: string } = {};
+    const deps: DelegateToolDeps = {
+      db,
+      parentSessionId: "parent",
+      bus,
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
+      // A preparation that repairs the working directory before the turn.
+      startTurn: turnStarter({
+        db,
+        bus,
+        llmClients: clientsFor(reportingModel("done")),
+        prepareTurn: (child) => {
+          capture.childId = child.id;
+          return {
+            session: updateSessionCwd(db, child.id, dir),
+            turnDeps: {
+              db,
+              bus,
+              llmClients: clientsFor(reportingModel("done")),
+              buildSystemPrompt: (current) => {
+                prompted.push(current.cwd);
+                return "prompt";
+              },
+            },
+          };
+        },
+      }),
+    };
+
+    await invoke(deps, "look into it");
+    await settled(capture.childId);
+
+    expect(prompted[0]).toBe(dir);
+  });
+
   it("spawns a detached child session and resolves immediately with its id", async () => {
     const events: KiriEvent[] = [];
     bus.subscribe((e) => events.push(e));
@@ -167,7 +216,12 @@ describe("delegate tool", () => {
     expect(child?.parentSessionId).toBe("parent");
     expect(child?.parentToolCallId).toBe("call_1");
     expect(child?.model).toBe(MODEL);
-    expect(events).toContainEqual({ type: "session.started", id: child?.id ?? "" });
+    expect(events).toContainEqual({
+      type: "session.started",
+      id: child?.id ?? "",
+      projectId: null,
+      parentSessionId: "parent",
+    });
 
     // The turn runs on detached: the transcript fills in after the call has
     // already resolved.
@@ -430,15 +484,14 @@ describe("message_worker tool", () => {
   let dir: string;
   let db: KiriDb;
   let bus: EventBus;
-  let events: KiriEvent[];
+  let sent: { sessionId: string; message: InboxMessage }[];
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-send-delegate-"));
     db = openDatabase(join(dir, "state.db"));
     migrate(db);
     bus = createEventBus();
-    events = [];
-    bus.subscribe((e) => events.push(e));
+    sent = [];
     createSession(db, MODEL, { id: "parent" });
     createSession(db, MODEL, {
       id: "worker",
@@ -458,7 +511,19 @@ describe("message_worker tool", () => {
       db,
       parentSessionId: "parent",
       bus,
-      childTurnDeps: () => ({ db, llmClients: clientsFor(reportingModel("unused")) }),
+      sendMessage: (sessionId, message) => {
+        sent.push({ sessionId, message });
+        return enqueueInboxItem(db, sessionId, message);
+      },
+      startTurn: turnStarter({
+        db,
+        bus,
+        llmClients: clientsFor(reportingModel("unused")),
+        prepareTurn: (session) => ({
+          session,
+          turnDeps: { db, bus, llmClients: clientsFor(reportingModel("unused")) },
+        }),
+      }),
     });
     const sendTool = set[MESSAGE_WORKER_TOOL_NAME] as {
       execute: (
@@ -469,18 +534,19 @@ describe("message_worker tool", () => {
     return sendTool.execute({ sessionId, message }, { toolCallId: "call_s", messages: [] });
   };
 
-  it("queues a parent-sourced message for the worker and announces it", async () => {
+  it("sends the worker a parent-sourced message", async () => {
     setSessionStatus(db, "worker", "running");
 
     const result = await send("worker", "Also cover the dev dependencies.");
 
     expect(result).toContain("weaves in");
-    const [item] = pendingInboxItems(db, "worker");
-    expect(item?.source).toBe("parent");
-    expect(item?.text).toBe("Also cover the dev dependencies.");
     // The worker has exactly one parent, so the sender needs no id.
-    expect(item?.fromSessionId).toBeNull();
-    expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "worker" });
+    expect(sent).toEqual([
+      {
+        sessionId: "worker",
+        message: { source: "parent", text: "Also cover the dev dependencies." },
+      },
+    ]);
   });
 
   it("tells the parent how the message will land, by the worker's state", async () => {
@@ -501,23 +567,25 @@ describe("message_worker tool", () => {
 
     expect(send("foreign-worker", "hi")).rejects.toThrow("no delegated worker");
     expect(send("ghost", "hi")).rejects.toThrow("no delegated worker");
-    expect(pendingInboxItems(db, "foreign-worker")).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });
 
 describe("message_parent tool", () => {
   let dir: string;
   let db: KiriDb;
-  let bus: EventBus;
-  let events: KiriEvent[];
+  let sent: { sessionId: string; message: InboxMessage }[];
+  let sendMessage: MessageParentToolDeps["sendMessage"];
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-message-parent-"));
     db = openDatabase(join(dir, "state.db"));
     migrate(db);
-    bus = createEventBus();
-    events = [];
-    bus.subscribe((e) => events.push(e));
+    sent = [];
+    sendMessage = (sessionId, message) => {
+      sent.push({ sessionId, message });
+      return enqueueInboxItem(db, sessionId, message);
+    };
     createSession(db, MODEL, { id: "parent" });
     createSession(db, MODEL, {
       id: "worker",
@@ -533,7 +601,7 @@ describe("message_parent tool", () => {
   });
 
   const message = (childSessionId: string, text: string): Promise<string> => {
-    const set = messageParentTool({ db, childSessionId, bus });
+    const set = messageParentTool({ db, childSessionId, sendMessage });
     const messageTool = set[MESSAGE_PARENT_TOOL_NAME] as {
       execute: (
         input: { message: string },
@@ -543,7 +611,7 @@ describe("message_parent tool", () => {
     return messageTool.execute({ message: text }, { toolCallId: "call_m", messages: [] });
   };
 
-  it("queues a child-sourced message for the parent, carrying the sender's session id", async () => {
+  it("sends the parent a child-sourced message, carrying the sender's session id", async () => {
     const report = [
       "Incomplete: one compatibility check completed.",
       "Finding: the adapter uses a string message. Evidence: src/adapter.ts:42 (sendMessage).",
@@ -554,17 +622,15 @@ describe("message_parent tool", () => {
     const result = await message("worker", report);
 
     expect(result).toContain("Delivered");
-    const [item] = pendingInboxItems(db, "parent");
-    expect(item?.source).toBe("child");
     // The id, not a copied label: the delivery names the worker by its live
     // title wherever the message surfaces.
-    expect(item?.fromSessionId).toBe("worker");
-    expect(item?.text).toBe(report);
-    expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "parent" });
+    expect(sent).toEqual([
+      { sessionId: "parent", message: { source: "child", fromSessionId: "worker", text: report } },
+    ]);
   });
 
   it("caps the message size so an essay can't flood the parent", () => {
-    const set = messageParentTool({ db, childSessionId: "worker", bus });
+    const set = messageParentTool({ db, childSessionId: "worker", sendMessage });
     const schema = (
       set[MESSAGE_PARENT_TOOL_NAME] as {
         inputSchema: { safeParse: (v: unknown) => { success: boolean } };
@@ -580,6 +646,6 @@ describe("message_parent tool", () => {
   it("throws when the session is missing or has no parent", async () => {
     expect(message("ghost", "hi")).rejects.toThrow('session "ghost" not found');
     expect(message("parent", "hi")).rejects.toThrow("no parent to message");
-    expect(pendingInboxItems(db, "parent")).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { resolveArticleName } from "../../shared/article-name.ts";
+import { createArticle } from "../articles/store.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
@@ -582,19 +582,12 @@ export function runWorkflow(
         });
 
         if (envelope.status === "ok" && !cancelled) {
-          const name = resolveArticleName(entry.slug, entry.name);
-          const contentMd = envelope.output.trimEnd();
-          db.insert(articles)
-            .values({
-              id: crypto.randomUUID(),
-              runId,
-              slug: entry.slug,
-              name,
-              contentMd,
-              createdAt: new Date(),
-            })
-            .run();
-          articlesBySlug.set(entry.slug, contentMd);
+          const article = createArticle(
+            db,
+            { runId },
+            { slug: entry.slug, name: entry.name, contentMd: envelope.output },
+          );
+          articlesBySlug.set(entry.slug, article.contentMd);
         }
 
         if (cancelled && envelope.status === "failed") {

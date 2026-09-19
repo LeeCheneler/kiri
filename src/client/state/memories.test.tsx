@@ -7,13 +7,8 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import {
-  useDeleteMemory,
-  useMemories,
-  useMemoriesLive,
-  useMemory,
-  useUpdateMemory,
-} from "./memories.ts";
+import { useLiveInvalidation } from "./live-sync.tsx";
+import { useDeleteMemory, useMemories, useMemory, useUpdateMemory } from "./memories.ts";
 import { createQueryClient } from "./query-client.ts";
 
 const summary = (name: string, description = "A fact.") => ({
@@ -31,13 +26,13 @@ const detail = (name: string, contentMd = "# Fact\n\nBody.") => ({
 });
 
 const ListProbe = () => {
-  useMemoriesLive();
+  useLiveInvalidation();
   const memories = useMemories().data ?? [];
   return <p>memories:{memories.map((m) => m.name).join(",")}</p>;
 };
 
 const DetailProbe = ({ name }: { name: string }) => {
-  useMemoriesLive();
+  useLiveInvalidation();
   const memory = useMemory(name).data;
   return <p>body:{memory?.contentMd ?? "none"}</p>;
 };

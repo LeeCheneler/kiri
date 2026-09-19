@@ -7,6 +7,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import {
   useCreateProject,
   useDeleteProject,
@@ -15,7 +16,6 @@ import {
   useProjectArticle,
   useProjectMemory,
   useProjects,
-  useProjectsLive,
   useRenameProject,
   useUpdateProjectMemory,
 } from "./projects.ts";
@@ -55,7 +55,7 @@ const memory = (description = "Deploys land on Tuesdays.") => ({
 });
 
 const MemoryProbe = ({ id }: { id: string }) => {
-  useProjectsLive();
+  useLiveInvalidation();
   const data = useProjectMemory(id, "deploy-window").data;
   const update = useUpdateProjectMemory();
   const remove = useDeleteProjectMemory();
@@ -76,19 +76,19 @@ const MemoryProbe = ({ id }: { id: string }) => {
 };
 
 const ListProbe = () => {
-  useProjectsLive();
+  useLiveInvalidation();
   const projects = useProjects().data ?? [];
   return <p>projects:{projects.map((project) => project.name).join(",")}</p>;
 };
 
 const DetailProbe = ({ id }: { id: string }) => {
-  useProjectsLive();
+  useLiveInvalidation();
   const project = useProject(id).data;
   return <p>name:{project?.project.name ?? "none"}</p>;
 };
 
 const ArticleProbe = ({ id }: { id: string }) => {
-  useProjectsLive();
+  useLiveInvalidation();
   const data = useProjectArticle(id, "corpus-doc").data;
   return <p>body:{data?.contentMd ?? "none"}</p>;
 };
@@ -182,7 +182,7 @@ describe("projects state", () => {
     expect(await screen.findByText("body:New body.")).toBeDefined();
   });
 
-  it("refetches project queries when sessions start or die — their events carry no project id", async () => {
+  it("refetches a project's queries when one of its sessions starts or dies", async () => {
     let fetches = 0;
     server.use(
       http.get("*/api/projects/p1", () => {
@@ -194,12 +194,22 @@ describe("projects state", () => {
     expect(await screen.findByText("name:Fetch 1")).toBeDefined();
 
     act(() => {
-      sources[0]?.emit({ type: "session.started", id: "s1" });
+      sources[0]?.emit({
+        type: "session.started",
+        id: "s1",
+        projectId: "p1",
+        parentSessionId: null,
+      });
     });
     expect(await screen.findByText("name:Fetch 2")).toBeDefined();
 
     act(() => {
-      sources[0]?.emit({ type: "session.deleted", id: "s1" });
+      sources[0]?.emit({
+        type: "session.deleted",
+        id: "s1",
+        projectId: "p1",
+        parentSessionId: null,
+      });
     });
     expect(await screen.findByText("name:Fetch 3")).toBeDefined();
   });

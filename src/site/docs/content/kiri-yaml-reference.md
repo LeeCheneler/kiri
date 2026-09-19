@@ -1,8 +1,10 @@
 # kiri.yaml reference
 
 Every field of `kiri.yaml` — kiri's one structured config file, at the
-workspace root, kept in git. Edits apply live; an invalid edit keeps the
-last-known-good config and shows up in the health checks.
+workspace root, kept in git. Edits apply live. An invalid edit shows up in the
+health checks and keeps the last good providers, MCP servers, and models
+working — but [file access](#filesystem) is withheld until the file is valid
+again.
 
 Rules that hold throughout:
 
@@ -86,7 +88,10 @@ A server is one of two shapes, discriminated on `type`:
 ## `filesystem:`
 
 The directory sandbox for sessions' file and shell tools. Declaring it is
-what enables the tools — absent, they aren't offered at all. Guide:
+what enables the tools — absent, they aren't offered at all. A session turn
+uses the sandbox as it stood when the turn started, so an edit applies from the
+next turn. While `kiri.yaml` is invalid the sandbox counts as empty: nothing
+stays reachable on the strength of a file that no longer says so. Guide:
 [Sessions](/docs/sessions).
 
 | Field | Required | Description |

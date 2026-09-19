@@ -1,0 +1,1 @@
+ALTER TABLE `session_inbox` ADD `delivered_at` integer;

@@ -4,7 +4,10 @@ import { and, asc, count, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import type * as articlesApi from "../../shared/api/articles.ts";
+import type * as errorsApi from "../../shared/api/errors.ts";
+import type * as runsApi from "../../shared/api/runs.ts";
+import { articleSummariesByOwner, getArticle, listArticleSummaries } from "../articles/store.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
@@ -14,6 +17,8 @@ import { createLogger } from "../log.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow, wipeRunForRerun } from "../runner/index.ts";
 import { type Registry, buildInputSchema } from "../workflows/index.ts";
+import { serializeArticleSummary } from "./serializers/articles.ts";
+import { serializeRun, serializeRunStep } from "./serializers/runs.ts";
 import {
   articleParamSchema,
   onZodFail,
@@ -46,7 +51,7 @@ const runListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_RUN_LIMIT).default(DEFAULT_RUN_LIMIT),
   workflow: z.string().min(1).optional(),
-});
+}) satisfies z.ZodType<runsApi.RunsQuery>;
 
 const recommendationActionParamSchema = z.object({
   runId: z.string().min(1),
@@ -75,7 +80,11 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         .from(runs)
         .where(eq(runs.id, cursor))
         .get();
-      if (!found) return c.json({ error: `cursor "${cursor}" not found` }, 400);
+      if (!found)
+        return c.json(
+          { error: `cursor "${cursor}" not found` } satisfies errorsApi.ApiErrorBody,
+          400,
+        );
       anchor = found;
     }
 
@@ -101,45 +110,17 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
 
     const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
 
-    // Single aggregation across the page rather than per-row N+1. Empty page
-    // skips the query entirely so the common no-articles feed pays nothing.
-    // `content_md` is pulled to derive each entry's first-h1 byline but not
-    // echoed back — the body itself is fetched by the article page.
-    type ArticleProjection = {
-      slug: string;
-      name: string;
-      heading: string | null;
-      createdAt: Date;
-    };
-    // Key widened to `string | null` to match `articles.runId`'s nullable
-    // type; the `inArray` filter below means only this page's run ids appear.
-    const articlesByRunId = new Map<string | null, ArticleProjection[]>();
+    // Single aggregation across the page rather than per-row N+1. The bodies
+    // are read to derive each entry's first-h1 byline but not echoed back —
+    // the body itself is fetched by the article page.
+    const articlesByRunId = articleSummariesByOwner(
+      db,
+      "runId",
+      rows.map((r) => r.id),
+    );
     const recommendationCountByRunId = new Map<string, number>();
     if (rows.length > 0) {
       const runIds = rows.map((r) => r.id);
-      const allArticles = db
-        .select({
-          runId: articles.runId,
-          slug: articles.slug,
-          name: articles.name,
-          contentMd: articles.contentMd,
-          createdAt: articles.createdAt,
-        })
-        .from(articles)
-        .where(inArray(articles.runId, runIds))
-        .orderBy(asc(articles.createdAt))
-        .all();
-      for (const { runId, slug, name, contentMd, createdAt } of allArticles) {
-        const list = articlesByRunId.get(runId);
-        const entry: ArticleProjection = {
-          slug,
-          name,
-          heading: extractFirstHeading(contentMd),
-          createdAt,
-        };
-        if (list) list.push(entry);
-        else articlesByRunId.set(runId, [entry]);
-      }
       // Single grouped count across the page; runs with no recs are simply
       // absent from the map and fall back to 0 below.
       const recCounts = db
@@ -155,13 +136,13 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
 
     return c.json({
       runs: rows.map((row) => ({
-        ...row,
+        ...serializeRun(row),
         isInterrupted: !registry.getWorkflow(row.workflowName),
-        articles: articlesByRunId.get(row.id) ?? [],
+        articles: (articlesByRunId.get(row.id) ?? []).map(serializeArticleSummary),
         recommendationsCount: recommendationCountByRunId.get(row.id) ?? 0,
       })),
       nextCursor,
-    });
+    } satisfies runsApi.RunsPage);
   });
 
   app.get(
@@ -170,36 +151,37 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     (c) => {
       const { id, slug } = c.req.valid("param");
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
-      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-      const article = db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.runId, id), eq(articles.slug, slug)))
-        .get();
+      if (!run)
+        return c.json({ error: `run "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
+      const article = getArticle(db, { runId: id }, slug);
       if (!article) {
-        return c.json({ error: `article "${slug}" not found on run "${id}"` }, 404);
+        return c.json(
+          { error: `article "${slug}" not found on run "${id}"` } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       return c.json({
         id: article.id,
-        runId: article.runId,
+        runId: run.id,
         slug: article.slug,
         name: article.name,
         contentMd: article.contentMd,
-        createdAt: article.createdAt,
+        createdAt: article.createdAt.toISOString(),
         workflowName: run.workflowName,
-        heading: extractFirstHeading(article.contentMd),
+        heading: article.heading,
         gitSha: run.gitSha,
         gitDirty: run.gitDirty,
-        startedAt: run.startedAt,
-        finishedAt: run.finishedAt,
-      });
+        startedAt: run.startedAt.toISOString(),
+        finishedAt: run.finishedAt?.toISOString() ?? null,
+      } satisfies articlesApi.ArticleDetail);
     },
   );
 
   app.get("/:id", zValidator("param", runIdParamSchema, onZodFail("invalid run id")), (c) => {
     const { id } = c.req.valid("param");
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+    if (!run)
+      return c.json({ error: `run "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
     // Article and summary rows ship alongside pipeline steps; clients
     // separate them by the `isArticle` / `isSummary` flags. This is what
     // lets the run detail page render in-flight article indicators while
@@ -215,21 +197,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     // Lives on `run.articles` so every RunListEntry — list or detail —
     // shares the same shape; chip rendering and the articles-section row
     // both read from one place.
-    const articleRows = db
-      .select({
-        slug: articles.slug,
-        name: articles.name,
-        contentMd: articles.contentMd,
-        createdAt: articles.createdAt,
-      })
-      .from(articles)
-      .where(eq(articles.runId, id))
-      .orderBy(asc(articles.createdAt))
-      .all()
-      .map(({ contentMd, ...row }) => ({
-        ...row,
-        heading: extractFirstHeading(contentMd),
-      }));
+    const articleRows = listArticleSummaries(db, { runId: id });
     // Self-join `runs` aliased to the actioned target so a triggered
     // recommendation ships the destination run's status with it — the UI
     // renders it as a status-badged link without a follow-up round-trip.
@@ -254,24 +222,31 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       .all();
     return c.json({
       run: {
-        ...run,
+        ...serializeRun(run),
         isInterrupted: !registry.getWorkflow(run.workflowName),
-        articles: articleRows,
+        articles: articleRows.map(serializeArticleSummary),
         // Shared with the feed-list shape; derived for free from the rows we
         // already fetched, no second query.
         recommendationsCount: recommendationRows.length,
-        recommendations: recommendationRows,
+        recommendations: recommendationRows.map((row) => ({
+          ...row,
+          actionedAt: row.actionedAt?.toISOString() ?? null,
+        })),
       },
-      steps,
-    });
+      steps: steps.map(serializeRunStep),
+    } satisfies runsApi.RunDetail);
   });
 
   app.delete("/:id", zValidator("param", runIdParamSchema, onZodFail("invalid run id")), (c) => {
     const { id } = c.req.valid("param");
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+    if (!run)
+      return c.json({ error: `run "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
     if (run.status === "running") {
-      return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
+      return c.json(
+        { error: `run "${id}" is in flight; cancel it first` } satisfies errorsApi.ApiErrorBody,
+        409,
+      );
     }
     // Explicit cascade in a transaction: articles, step rows, and
     // recommendations all hold FKs to the parent run, so they go first.
@@ -303,21 +278,31 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     async (c) => {
       const { id } = c.req.valid("param");
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
-      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+      if (!run)
+        return c.json({ error: `run "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       if (run.status === "running") {
-        return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
+        return c.json(
+          { error: `run "${id}" is in flight; cancel it first` } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       const wf = registry.getWorkflow(run.workflowName);
       if (!wf) {
         return c.json(
-          { error: `workflow "${run.workflowName}" no longer exists; re-create it first` },
+          {
+            error: `workflow "${run.workflowName}" no longer exists; re-create it first`,
+          } satisfies errorsApi.ApiErrorBody,
           409,
         );
       }
 
       const { inputs = {} } = c.get("invokeBody");
       const check = buildInputSchema(wf).safeParse(inputs);
-      if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
+      if (!check.success)
+        return c.json(
+          zodErrorBody(check.error, "invalid inputs") satisfies errorsApi.ApiErrorBody,
+          400,
+        );
 
       wipeRunForRerun(db, config, id);
       const { done } = runWorkflow(db, wf, {
@@ -331,7 +316,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       done.catch((cause) => {
         log.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
       });
-      return c.json({ runId: id, status: "running" }, 202);
+      return c.json({ runId: id, status: "running" } satisfies runsApi.RunStartResult, 202);
     },
   );
 
@@ -347,22 +332,38 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         .where(and(eq(recommendations.id, recId), eq(recommendations.runId, runId)))
         .get();
       if (!rec) {
-        return c.json({ error: `recommendation "${recId}" not found on run "${runId}"` }, 404);
+        return c.json(
+          {
+            error: `recommendation "${recId}" not found on run "${runId}"`,
+          } satisfies errorsApi.ApiErrorBody,
+          404,
+        );
       }
       if (rec.actionedRunId !== null) {
-        return c.json({ error: `recommendation "${recId}" has already been actioned` }, 409);
+        return c.json(
+          {
+            error: `recommendation "${recId}" has already been actioned`,
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
       }
       const wf = registry.getWorkflow(rec.workflow);
       if (!wf) {
         return c.json(
-          { error: `workflow "${rec.workflow}" no longer exists; re-create it first` },
+          {
+            error: `workflow "${rec.workflow}" no longer exists; re-create it first`,
+          } satisfies errorsApi.ApiErrorBody,
           409,
         );
       }
 
       const { inputs = {} } = c.get("invokeBody");
       const check = buildInputSchema(wf).safeParse(inputs);
-      if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
+      if (!check.success)
+        return c.json(
+          zodErrorBody(check.error, "invalid inputs") satisfies errorsApi.ApiErrorBody,
+          400,
+        );
 
       const { runId: actionedRunId, done } = runWorkflow(db, wf, {
         config,
@@ -386,7 +387,10 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         recommendationId: recId,
         actionedRunId,
       });
-      return c.json({ runId: actionedRunId, status: "running" }, 202);
+      return c.json(
+        { runId: actionedRunId, status: "running" } satisfies runsApi.RunStartResult,
+        202,
+      );
     },
   );
 
@@ -397,17 +401,24 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       (c) => {
         const { id } = c.req.valid("param");
         const run = db.select().from(runs).where(eq(runs.id, id)).get();
-        if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+        if (!run)
+          return c.json({ error: `run "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
         if (run.status !== "running") {
-          return c.json({ error: `run "${id}" is not in flight` }, 409);
+          return c.json(
+            { error: `run "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
+            409,
+          );
         }
         // requestCancel returns false only if the registry has no entry — i.e.
         // the runner already released it in the small window between our DB
         // read above and this call. Treat as already-terminal.
         if (!cancelRegistry.requestCancel(id)) {
-          return c.json({ error: `run "${id}" is not in flight` }, 409);
+          return c.json(
+            { error: `run "${id}" is not in flight` } satisfies errorsApi.ApiErrorBody,
+            409,
+          );
         }
-        return c.json({ runId: id }, 202);
+        return c.json({ runId: id } satisfies runsApi.RunCancelResult, 202);
       },
     );
   }

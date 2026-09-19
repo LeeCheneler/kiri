@@ -1,58 +1,25 @@
 import { inArray } from "drizzle-orm";
+import type {
+  SearchArticleHit as ArticleHit,
+  SearchRunHit as RunHit,
+  SearchResults,
+  SearchSessionHit as SessionHit,
+  SearchSnippetSegment as SnippetSegment,
+  SearchWorkflowHit as WorkflowHit,
+} from "../../shared/api/search.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions } from "../db/schema.ts";
 import { getSessionPreviews } from "../sessions/store.ts";
 import type { Registry } from "../workflows/index.ts";
 
-/**
- * One piece of a result snippet. `match` marks the pieces that hit a query
- * term so the UI can highlight them.
- */
-export interface SnippetSegment {
-  text: string;
-  match: boolean;
-}
-
-export interface ArticleHit {
-  id: string;
-  slug: string;
-  name: string;
-  /** The article's owner — exactly one of the three is always set. */
-  runId: string | null;
-  sessionId: string | null;
-  projectId: string | null;
-  snippet: SnippetSegment[];
-}
-
-export interface SessionHit {
-  id: string;
-  /** The session's title, or null when untitled — results lead with it when set. */
-  title: string | null;
-  /** The session's feed label (first user message); empty when it has none. */
-  preview: string;
-  /** Snippet of the best-ranked matching message; empty when the hit matched the title alone. */
-  snippet: SnippetSegment[];
-}
-
-export interface RunHit {
-  id: string;
-  workflowName: string;
-  /** Snippet of the run's summary. */
-  snippet: SnippetSegment[];
-}
-
-export interface WorkflowHit {
-  name: string;
-  description?: string;
-  group?: string;
-}
-
-export interface SearchResults {
-  articles: ArticleHit[];
-  sessions: SessionHit[];
-  runs: RunHit[];
-  workflows: WorkflowHit[];
-}
+export type {
+  SearchSnippetSegment as SnippetSegment,
+  SearchArticleHit as ArticleHit,
+  SearchSessionHit as SessionHit,
+  SearchRunHit as RunHit,
+  SearchWorkflowHit as WorkflowHit,
+  SearchResults,
+} from "../../shared/api/search.ts";
 
 export interface SearchDeps {
   db: KiriDb;

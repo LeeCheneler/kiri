@@ -37,6 +37,7 @@ Use these sections: Objective and constraints; Completed work and findings; Pend
 Omit repetitive logs and incidental exploration. Be faithful: do not invent missing facts or turn a plan into completed work. Earlier messages and original tool results will not be retrievable. If knowledge is missing, the continuing model must review articles, inspect files, or search sources again; it must not repeat completed actions to recover their outputs. Current standing instructions and later user messages still govern continuation.`;
 
   const images: ImagePart[] = [];
+  let documents = 0;
   const transcript = messages.map(({ providerOptions: _options, ...message }) => {
     if (!Array.isArray(message.content)) return message;
     return {
@@ -59,6 +60,16 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
           return {
             type: "text",
             text: `[Image attachment ${images.length}; supplied after the transcript in numbered order]`,
+          };
+        }
+        // A document's bytes are for the session model, not the summariser:
+        // what it yielded already lives in the assistant's replies, which is
+        // what the checkpoint carries forward.
+        if (message.role !== "tool" && part.type === "file") {
+          documents += 1;
+          return {
+            type: "text",
+            text: `[Document attachment ${documents}${part.filename ? `: ${part.filename}` : ""}; its contents are not included here]`,
           };
         }
         return part;

@@ -7,7 +7,8 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useProjectTaskMutations, useProjectTasks, useProjectTasksLive } from "./project-tasks.ts";
+import { useLiveInvalidation } from "./live-sync.tsx";
+import { useProjectTaskMutations, useProjectTasks } from "./project-tasks.ts";
 import { useProjects } from "./projects.ts";
 import { createQueryClient } from "./query-client.ts";
 
@@ -30,7 +31,7 @@ const group = (id: string, name: string, titles: string[] = []) => ({
 });
 
 const ListProbe = ({ projectId = "p1" }: { projectId?: string }) => {
-  useProjectTasksLive();
+  useLiveInvalidation();
   const groups = useProjectTasks(projectId).data ?? [];
   const projects = useProjects().data ?? [];
   return (

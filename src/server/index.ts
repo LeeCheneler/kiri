@@ -2,12 +2,20 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
-import { loadKiriConfig } from "./config/loader.ts";
-import type { ModelsConfig } from "./config/schema.ts";
+import type { ApiErrorBody } from "../shared/api/errors.ts";
+import { TURN_ID_HEADER } from "../shared/api/sessions.ts";
+import { API_BODY_LIMIT_BYTES } from "../shared/message-limits.ts";
+import { type ConfigService, createConfigService } from "./config/service.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
-import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
+import {
+  type EventBus,
+  createEventBus,
+  mountEventsRoute,
+  mountRecommendationReflector,
+} from "./events/index.ts";
+import { type AppLifetime, createAppLifetime } from "./lifetime.ts";
 import type { LlmClients } from "./llm/index.ts";
 import { createLogger } from "./log.ts";
 import type { McpCredentialStore } from "./mcp/oauth-store.ts";
@@ -29,6 +37,7 @@ import {
   type StreamRegistry,
   createToolPermissionStore,
 } from "./sessions/index.ts";
+import { createSessionRuntime } from "./sessions/runtime.ts";
 import type { Registry } from "./workflows/index.ts";
 
 const log = createLogger("http");
@@ -53,6 +62,12 @@ export interface AppDeps {
   db: KiriDb;
   registry: Registry;
   config: ConfigStore;
+  /**
+   * The workspace's effective `kiri.yaml`. Defaults to a service built over
+   * `config` and `env`; supply the process's own so the app and the config
+   * watcher read the same snapshots.
+   */
+  configService?: ConfigService;
   staticRoot?: string;
   bus?: EventBus;
   eventsHeartbeatMs?: number;
@@ -75,6 +90,12 @@ export interface AppDeps {
    * mainly for tests.
    */
   commandLearning?: CommandLearning;
+  /**
+   * The application's lifetime. Turns, workflow runs, and background calls
+   * register with it, so its shutdown settles them before the caller closes
+   * what they depend on. Defaults to one nothing shuts down.
+   */
+  lifetime?: AppLifetime;
   /**
    * Completion client forwarded to the runner so `llm:` steps can execute.
    * Without it, llm steps fail cleanly with a not-configured error.
@@ -120,34 +141,7 @@ export interface AppDeps {
    * unknown-provider, matching a workspace with no providers configured.
    */
   getProviderNames?: () => ReadonlySet<string>;
-  /**
-   * Live sandbox for the session filesystem tools. Defaults to reading
-   * `filesystem.allowed_directories` from `kiri.yaml` on each turn — the
-   * same fresh-from-disk posture as `kiri.md` — so an edit applies on the
-   * next turn. Empty ⇒ the filesystem tools are withheld.
-   */
-  getAllowedDirectories?: () => readonly string[];
-  /**
-   * Live default working directory for new sessions. Defaults to reading
-   * `filesystem.default_working_directory` (falling back to the first
-   * allowed directory) from `kiri.yaml` at each session create, the same
-   * fresh-from-disk posture as the sandbox. Absent ⇒ new sessions start
-   * without a working directory.
-   */
-  getDefaultWorkingDirectory?: () => string | undefined;
-  /**
-   * Live models config for the session surface. Defaults to reading the
-   * `models:` section from `kiri.yaml` on each use, the same fresh-from-disk
-   * posture as the sandboxes. Empty ⇒ no shortcuts or delegates configured.
-   */
-  getModelsConfig?: () => ModelsConfig;
 }
-
-// Upper bound on request body size. Invoke bodies are
-// `Record<string, string>` headed for env vars — real-world inputs fit
-// comfortably below 1 KB, so 256 KB is generous insurance against a
-// runaway local client hammering `c.req.text()` with an unbounded payload.
-const BODY_LIMIT_BYTES = 256 * 1024;
 
 const ALLOWED_ORIGINS = [
   "https://local.kiri.build",
@@ -173,7 +167,9 @@ export function createApp(deps: AppDeps): Hono {
     deps;
   const version = deps.version ?? "dev";
   const env = deps.env ?? process.env;
+  const configService = deps.configService ?? createConfigService(config, env);
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
+  const lifetime = deps.lifetime ?? createAppLifetime();
   const app = new Hono();
 
   // One file-backed permission store shared by the session turn loop (which
@@ -191,6 +187,8 @@ export function createApp(deps: AppDeps): Hono {
       origin: ALLOWED_ORIGINS,
       allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", REQUIRED_CLIENT_HEADER],
+      // A cross-origin view reads the turn it has attached to off the response.
+      exposeHeaders: [TURN_ID_HEADER],
     }),
   );
 
@@ -198,14 +196,17 @@ export function createApp(deps: AppDeps): Hono {
   // with an unbounded payload. `bodyLimit` short-circuits on bodyless
   // requests (GET/HEAD/OPTIONS), so scoping to `/api/*` is for clarity, not
   // necessity. The custom `onError` keeps the 413 body on the same
-  // `{ error }` contract every other 4xx in the app honours. A push-to-talk
-  // recording is the one legitimately large body; that route carries its
-  // own, larger cap, so it is exempted here.
+  // `{ error }` contract every other 4xx in the app honours. Transcription and
+  // session message uploads carry their own larger, route-specific limits.
   const apiBodyLimit = bodyLimit({
-    maxSize: BODY_LIMIT_BYTES,
-    onError: (c) => c.json({ error: "request body too large" }, 413),
+    maxSize: API_BODY_LIMIT_BYTES,
+    onError: (c) => c.json({ error: "request body too large" } satisfies ApiErrorBody, 413),
   });
-  app.use("/api/*", (c, next) => (c.req.path === TRANSCRIBE_PATH ? next() : apiBodyLimit(c, next)));
+  app.use("/api/*", (c, next) => {
+    const messageUpload =
+      c.req.method === "POST" && /^\/api\/sessions\/[^/]+\/messages$/.test(c.req.path);
+    return c.req.path === TRANSCRIBE_PATH || messageUpload ? next() : apiBodyLimit(c, next);
+  });
 
   // Belt-and-braces CSRF defence layered on top of the CORS allow-list.
   // Custom headers force a CORS preflight; a cross-origin attacker can't
@@ -220,7 +221,10 @@ export function createApp(deps: AppDeps): Hono {
   app.use("*", async (c, next) => {
     if (SAFE_METHODS.has(c.req.method)) return next();
     if (!c.req.header(REQUIRED_CLIENT_HEADER)) {
-      return c.json({ error: `${REQUIRED_CLIENT_HEADER} header required` }, 403);
+      return c.json(
+        { error: `${REQUIRED_CLIENT_HEADER} header required` } satisfies ApiErrorBody,
+        403,
+      );
     }
     return next();
   });
@@ -232,18 +236,18 @@ export function createApp(deps: AppDeps): Hono {
   // (SQL fragments, stack frames) doesn't leak to the client.
   app.onError((err, c) => {
     if (err instanceof HTTPException) {
-      return c.json({ error: err.message }, err.status);
+      return c.json({ error: err.message } satisfies ApiErrorBody, err.status);
     }
     log.error("unhandled request error", err);
-    return c.json({ error: "internal server error" }, 500);
+    return c.json({ error: "internal server error" } satisfies ApiErrorBody, 500);
   });
 
-  app.notFound((c) => c.json({ error: "not found" }, 404));
+  app.notFound((c) => c.json({ error: "not found" } satisfies ApiErrorBody, 404));
 
   app.route("/api", systemRoutes({ version }));
   // Mounted unconditionally — it reports *why* the workspace may have no
   // providers, so it must answer even when the session surface is absent.
-  app.route("/api/config", configRoutes({ config, env, llmClients }));
+  app.route("/api/config", configRoutes({ configService, env, llmClients }));
   app.route(
     "/api/workflows",
     workflowsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }),
@@ -257,26 +261,31 @@ export function createApp(deps: AppDeps): Hono {
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
+    // A turn's wakes and worker notices travel over the bus, so the session
+    // surface always has one, shared with the app's when that is supplied.
+    const sessionBus = bus ?? createEventBus();
     app.route(
       "/api",
       sessionsRoutes({
         db,
-        config,
-        registry,
         llmClients,
-        bus,
-        cancelRegistry,
-        mcpRegistry,
-        toolPermissions,
-        streamRegistry: deps.streamRegistry,
-        commandLearning: deps.commandLearning,
-        getProviderNames: deps.getProviderNames,
-        getAllowedDirectories:
-          deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
-        getDefaultWorkingDirectory:
-          deps.getDefaultWorkingDirectory ??
-          (() => loadKiriConfig(config, env).defaultWorkingDirectory),
-        getModelsConfig: deps.getModelsConfig ?? (() => loadKiriConfig(config, env).models),
+        bus: sessionBus,
+        configService,
+        runtime: createSessionRuntime({
+          db,
+          config,
+          configService,
+          registry,
+          llmClients,
+          bus: sessionBus,
+          cancelRegistry,
+          mcpRegistry,
+          toolPermissions,
+          streamRegistry: deps.streamRegistry,
+          commandLearning: deps.commandLearning,
+          getProviderNames: deps.getProviderNames,
+          lifetime,
+        }),
       }),
     );
   }
@@ -288,7 +297,7 @@ export function createApp(deps: AppDeps): Hono {
     app.route(
       "/api/mcp",
       mcpRoutes({
-        config,
+        configService,
         env,
         registry: mcpRegistry,
         permissions: toolPermissions,
@@ -304,10 +313,15 @@ export function createApp(deps: AppDeps): Hono {
       app,
       eventsHeartbeatMs === undefined ? { bus } : { bus, heartbeatMs: eventsHeartbeatMs },
     );
-    // Reflect a spawned run's status back onto the recommendation that
-    // actioned it, so the producing run's detail refreshes its rec badge.
-    mountRecommendationReflector(db, bus);
   }
+  // Reflect a spawned run's status back onto the recommendation that
+  // actioned it, so the producing run's detail refreshes its rec badge.
+  const unmountReflector = bus ? mountRecommendationReflector(db, bus) : undefined;
+  // Unmounted after the runs: one cancelled by shutdown is still reflected.
+  lifetime.own("workflow runs", async () => {
+    await cancelRegistry?.drain();
+    unmountReflector?.();
+  });
 
   mountStaticRoutes(app, { staticRoot: deps.staticRoot, embeddedFiles });
 

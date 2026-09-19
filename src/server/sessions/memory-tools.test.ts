@@ -6,8 +6,9 @@ import type { ToolExecutionOptions, ToolSet } from "ai";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
+import { listMemories, listProjectMemories } from "../memories/store.ts";
 import { createProject } from "../projects/store.ts";
-import { getScopedMemory, listMemories, listProjectMemories, memoryTools } from "./memory-tools.ts";
+import { memoryTools } from "./memory-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
 // the union's `never` input so a test can call it plainly.
@@ -83,18 +84,6 @@ describe("memoryTools", () => {
       };
       expect(read.content_md).toBe("New body.");
     });
-
-    it("strips the diff from what the model receives via toModelOutput", async () => {
-      const result = await tools.save_memory.toModelOutput?.({
-        toolCallId: "c1",
-        input: { name: "prefers-bun", description: "d", content_md: "b" },
-        output: { name: "prefers-bun", saved: "updated", diff: "-a\n+b" },
-      });
-      expect(result).toEqual({
-        type: "json",
-        value: { name: "prefers-bun", saved: "updated" },
-      });
-    });
   });
 
   describe("read_memory", () => {
@@ -132,18 +121,6 @@ describe("memoryTools", () => {
       expect(run(tools.delete_memory, { name: "missing" })).rejects.toThrow(
         'No memory named "missing"',
       );
-    });
-  });
-
-  describe("listMemories", () => {
-    it("lists index entries alphabetically regardless of save order", async () => {
-      await save("zulu", "Last alphabetically.");
-      await save("alpha", "First alphabetically.");
-
-      const summaries = listMemories(db);
-
-      expect(summaries.map((s) => s.name)).toEqual(["alpha", "zulu"]);
-      expect(summaries[0]?.description).toBe("First alphabetically.");
     });
   });
 
@@ -228,16 +205,6 @@ describe("memoryTools", () => {
 
       expect(listMemories(db)).toHaveLength(0);
       expect(events).toContainEqual({ type: "memory.deleted", name: "stale-fact" });
-    });
-  });
-
-  describe("getScopedMemory", () => {
-    it("addresses one scope only", async () => {
-      createProject(db, "Kiri", { id: "project-1" });
-      await save("prefers-bun");
-
-      expect(getScopedMemory(db, null, "prefers-bun")?.name).toBe("prefers-bun");
-      expect(getScopedMemory(db, "project-1", "prefers-bun")).toBeUndefined();
     });
   });
 });

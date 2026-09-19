@@ -1,14 +1,18 @@
-import { type JSONValue, type ToolSet, tool } from "ai";
-import { and, asc, eq } from "drizzle-orm";
+import { type ToolSet, tool } from "ai";
 import { z } from "zod";
-import { resolveArticleName } from "../../shared/article-name.ts";
+import {
+  type Article,
+  createArticle,
+  deleteArticle,
+  getArticle,
+  listArticleSummaries,
+  sessionArticleOwner,
+  updateArticle,
+} from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles } from "../db/schema.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { articleSlugSchema } from "../workflows/schema.ts";
-import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
-
-type Article = typeof articles.$inferSelect;
+import { MAX_DIFF_LENGTH, unifiedDiff } from "./write-tool-diffs.ts";
 
 /**
  * First-party tools that let a session write and manage articles —
@@ -30,19 +34,12 @@ export function articleTools(
   projectId: string | null,
   publish: (event: KiriEvent) => void,
 ): ToolSet {
-  // One word of copy and one owner column separate the two scopes; every
-  // query and message below rides these three values.
+  // One word of copy and one owner separate the two scopes; every lookup and
+  // message below rides these two values.
   const scope = projectId !== null ? "project" : "session";
-  const ownerFilter =
-    projectId !== null ? eq(articles.projectId, projectId) : eq(articles.sessionId, sessionId);
-  const owner = projectId !== null ? { projectId } : { sessionId };
+  const owner = sessionArticleOwner({ id: sessionId, projectId });
 
-  const bySlug = (slug: string): Article | undefined =>
-    db
-      .select()
-      .from(articles)
-      .where(and(ownerFilter, eq(articles.slug, slug)))
-      .get();
+  const bySlug = (slug: string): Article | undefined => getArticle(db, owner, slug);
 
   const requireArticle = (slug: string): Article => {
     const row = bySlug(slug);
@@ -88,19 +85,10 @@ export function articleTools(
             `An article with slug "${slug}" already exists in this ${scope} — use edit_article for a targeted change or replace_article to rewrite it.`,
           );
         }
-        const resolved = resolveArticleName(slug, name);
-        db.insert(articles)
-          .values({
-            id: crypto.randomUUID(),
-            ...owner,
-            slug,
-            name: resolved,
-            contentMd: content_md.trimEnd(),
-            createdAt: new Date(),
-          })
-          .run();
+        const article = createArticle(db, owner, { slug, name, contentMd: content_md });
         written(slug);
-        return { slug, name: resolved };
+
+        return { slug, name: article.name };
       },
     }),
 
@@ -122,22 +110,18 @@ export function articleTools(
       }),
       execute: async ({ slug, name, content_md }) => {
         const row = requireArticle(slug);
-        const resolved = name ?? row.name;
-        const after = content_md.trimEnd();
-        db.update(articles)
-          .set({ contentMd: after, name: resolved })
-          .where(eq(articles.id, row.id))
-          .run();
+        const updated = updateArticle(db, row.id, { name, contentMd: content_md });
         written(slug);
+
         // The diff is app-only: the transcript renders the rewrite as the
-        // change it made, while toModelOutput and the send-time strip keep it
-        // out of what the model is paid for.
-        return { slug, name: resolved, ...unifiedDiff(row.contentMd, after, MAX_DIFF_LENGTH) };
+        // change it made, while the result's projection keeps it out
+        // of what the model is paid for.
+        return {
+          slug,
+          name: updated.name,
+          ...unifiedDiff(row.contentMd, updated.contentMd, MAX_DIFF_LENGTH),
+        };
       },
-      toModelOutput: ({ output }) => ({
-        type: "json" as const,
-        value: compactWriteOutput(output) as JSONValue,
-      }),
     }),
 
     edit_article: tool({
@@ -172,11 +156,10 @@ export function articleTools(
             `old_string appears ${count} times in article "${slug}" — include more surrounding context to pin down one occurrence, or set replace_all to change every one.`,
           );
         }
-        db.update(articles)
-          .set({ contentMd: row.contentMd.replaceAll(old_string, new_string) })
-          .where(eq(articles.id, row.id))
-          .run();
+
+        updateArticle(db, row.id, { contentMd: row.contentMd.replaceAll(old_string, new_string) });
         written(slug);
+
         return { slug, replacements: count };
       },
     }),
@@ -188,7 +171,7 @@ export function articleTools(
       }),
       execute: async ({ slug }) => {
         const row = requireArticle(slug);
-        db.delete(articles).where(eq(articles.id, row.id)).run();
+        deleteArticle(db, row.id);
         publish({
           type: "article.deleted",
           sessionId,
@@ -206,17 +189,11 @@ export function articleTools(
           : "List the articles this session has written so far — slug, display name, and creation time. Articles produced by workflow runs are not included.",
       inputSchema: z.object({}),
       execute: async () =>
-        db
-          .select({ slug: articles.slug, name: articles.name, createdAt: articles.createdAt })
-          .from(articles)
-          .where(ownerFilter)
-          .orderBy(asc(articles.createdAt))
-          .all()
-          .map((row) => ({
-            slug: row.slug,
-            name: row.name,
-            created_at: row.createdAt.toISOString(),
-          })),
+        listArticleSummaries(db, owner).map((row) => ({
+          slug: row.slug,
+          name: row.name,
+          created_at: row.createdAt.toISOString(),
+        })),
     }),
 
     read_article: tool({
@@ -233,11 +210,7 @@ export function articleTools(
       }),
       execute: async ({ slug, run_id }) => {
         if (run_id !== undefined) {
-          const row = db
-            .select()
-            .from(articles)
-            .where(and(eq(articles.runId, run_id), eq(articles.slug, slug)))
-            .get();
+          const row = getArticle(db, { runId: run_id }, slug);
           if (!row) {
             throw new Error(
               `No article with slug "${slug}" on run "${run_id}" — a run_workflow outcome lists its run's article slugs alongside its run_id.`,

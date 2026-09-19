@@ -8,9 +8,15 @@ import {
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type Effort } from "../llm/index.ts";
-import { enqueueInboxItem } from "./inbox.ts";
-import { createSession, findChildByToolCall, getSession, getSessionChildren } from "./store.ts";
-import { type RunTurnDeps, runTurn } from "./turn.ts";
+import type { DelegationMessaging } from "./delegation-messaging.ts";
+import {
+  createSession,
+  findChildByToolCall,
+  getSession,
+  getSessionChildren,
+  sessionOwners,
+} from "./store.ts";
+import type { StartTurn } from "./turn-start.ts";
 
 /** Name the model calls the delegation tool by; also its standing-permission key. */
 export const DELEGATE_TOOL_NAME = "delegate";
@@ -35,13 +41,15 @@ export interface DelegateToolDeps {
   /** The session whose turn offers this tool; children it spawns carry it as their parent. */
   parentSessionId: string;
   /**
-   * Assembles the turn dependencies a child session runs against: the same
-   * approval-gated catalogue as any session (minus the child-withheld tools,
-   * with message_parent in place of the delegation tools) and the worker
-   * system prompt over those tools. An ask-gated call pauses the child for
-   * the user like any session.
+   * Starts a spawned child's turn, prepared as any session is: a usable
+   * working directory, and the same approval-gated catalogue (minus the
+   * child-withheld tools, with message_parent in place of the delegation
+   * tools) under the worker system prompt. An ask-gated call pauses the child
+   * for the user like any session.
    */
-  childTurnDeps: (childSessionId: string) => RunTurnDeps;
+  startTurn: StartTurn;
+  /** Queues a message for a worker and delivers it as the worker's state allows. */
+  sendMessage: DelegationMessaging["send"];
   bus?: EventBus;
   /**
    * The configured delegate models by role. With at least one role
@@ -85,7 +93,7 @@ const spawnedResult = (title: string, childSessionId: string): string =>
  * steer a worker, ask for progress, or answer its question by session id.
  */
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
-  const { db, parentSessionId, childTurnDeps, bus, delegates } = deps;
+  const { db, parentSessionId, startTurn, sendMessage, bus, delegates } = deps;
   const description =
     "Delegate substantial, separable work when a focused worker improves quality, independent strands can run in parallel, or its separate context saves enough investigation detail to justify briefing and report review. Keep small investigations and tightly coupled reasoning local: a search followed by reading its result is fine; tool-call count alone does not require delegation. The worker runs in the background with the parent's model unless a configured model role is selected, and uses the same permission gates; only the user can approve a paused call. Returns its session id immediately. Progress, questions, results, and incomplete reports arrive as messages during your turn or wake you after it ends. When nothing else needs you, tell the user what is underway and end your turn. The worker cannot see this conversation: supply a complete brief and request findings tied to supporting sources/references, uncertainties, and incomplete work. Assess reports before synthesising; resolve missing or conflicting evidence through a targeted follow-up or source check, and selectively verify consequential or weakly supported claims without routinely repeating the investigation. Choose model and effort for the task only after deciding delegation is worthwhile.";
   const titleField = z
@@ -139,7 +147,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       parentSessionId,
       parentToolCallId: toolCallId,
     });
-    bus?.publish({ type: "session.started", id: child.id });
+    bus?.publish({ type: "session.started", id: child.id, ...sessionOwners(child) });
 
     const userMessage: UIMessage = {
       id: crypto.randomUUID(),
@@ -151,9 +159,9 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     // detached: the worker never pins the parent's turn, and cancelling the
     // parent doesn't touch it. Every settled worker turn reaches the parent as
     // a runtime notice (delegation messaging), not through this
-    // call. `done` always resolves (the turn settles it in a finally), so
+    // call. `done` always resolves (the turn's lease never rejects it), so
     // the handle is deliberately dropped rather than awaited.
-    const { done } = await runTurn(childTurnDeps(child.id), { session: child, userMessage });
+    const { done } = await startTurn(child, { kind: "message", userMessage });
     void done;
 
     return spawnedResult(title, child.id);
@@ -176,12 +184,11 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
           `no delegated worker of this conversation has session id "${sessionId}" — use the id the delegate call returned`,
         );
       }
-      // Captured before the publish: the queued event can start the worker's
-      // wake turn synchronously, and the useful answer is what the message
-      // found, not the turn it caused.
+      // Captured before the send, which can start the worker's wake turn
+      // synchronously: the useful answer is what the message found, not the
+      // turn it caused.
       const status = child.status;
-      enqueueInboxItem(db, sessionId, { source: "parent", text: message });
-      bus?.publish({ type: "session.inbox.queued", sessionId });
+      sendMessage(sessionId, { source: "parent", text: message });
       if (status === "running") {
         return "Delivered: the worker is mid-turn, so the message weaves in at its next step.";
       }
@@ -234,7 +241,8 @@ export interface MessageParentToolDeps {
   db: KiriDb;
   /** The delegated worker session whose turn offers this tool. */
   childSessionId: string;
-  bus?: EventBus;
+  /** Queues a message for the parent and delivers it as the parent's state allows. */
+  sendMessage: DelegationMessaging["send"];
 }
 
 /**
@@ -246,7 +254,7 @@ export interface MessageParentToolDeps {
  * mid-turn it weaves into the parent's work, otherwise it wakes the parent.
  */
 export function messageParentTool(deps: MessageParentToolDeps): ToolSet {
-  const { db, childSessionId, bus } = deps;
+  const { db, childSessionId, sendMessage } = deps;
   return {
     [MESSAGE_PARENT_TOOL_NAME]: tool({
       description:
@@ -266,12 +274,11 @@ export function messageParentTool(deps: MessageParentToolDeps): ToolSet {
         if (child.parentSessionId === null) {
           throw new Error("this session has no parent to message");
         }
-        enqueueInboxItem(db, child.parentSessionId, {
+        sendMessage(child.parentSessionId, {
           source: "child",
           fromSessionId: child.id,
           text: message,
         });
-        bus?.publish({ type: "session.inbox.queued", sessionId: child.parentSessionId });
         return "Delivered to the session that delegated your task.";
       },
     }),

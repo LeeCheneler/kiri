@@ -5,9 +5,17 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, messages } from "../db/schema.ts";
-import { appendMessage, createSession, getSession } from "../sessions/store.ts";
-import { createProject, deleteProject, getProject, listProjects, updateProject } from "./store.ts";
+import { articles, messages, sessionInbox, sessions } from "../db/schema.ts";
+import { enqueueInboxItem } from "../sessions/inbox.ts";
+import { appendMessage, createSession, getSession, setSessionStatus } from "../sessions/store.ts";
+import {
+  ProjectConflictError,
+  createProject,
+  deleteProject,
+  getProject,
+  listProjects,
+  updateProject,
+} from "./store.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -105,6 +113,11 @@ describe("projects store", () => {
     createSession(db, MODEL, { id: "s1", projectId: "p1" });
     createSession(db, MODEL, { id: "c1", parentSessionId: "s1", parentToolCallId: "t1" });
     appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "hello" }] });
+    appendMessage(db, "c1", { role: "user", parts: [{ type: "text", text: "worker" }] });
+    enqueueInboxItem(db, "s1", { source: "child", fromSessionId: "c1", text: "Report" });
+    enqueueInboxItem(db, "c1", { source: "parent", text: "Steering" });
+    createSession(db, MODEL, { id: "sibling", projectId: "p1" });
+    enqueueInboxItem(db, "sibling", { source: "user", text: "Queued" });
     db.insert(articles)
       .values([
         {
@@ -131,8 +144,10 @@ describe("projects store", () => {
     expect(getProject(db, "p1")).toBeUndefined();
     expect(getSession(db, "s1")).toBeUndefined();
     expect(getSession(db, "c1")).toBeUndefined();
+    expect(getSession(db, "sibling")).toBeUndefined();
     expect(db.select().from(articles).all()).toEqual([]);
     expect(db.select().from(messages).all()).toEqual([]);
+    expect(db.select().from(sessionInbox).all()).toEqual([]);
   });
 
   it("leaves other projects and projectless sessions untouched", () => {
@@ -141,6 +156,14 @@ describe("projects store", () => {
     createSession(db, MODEL, { id: "s1", projectId: "p1" });
     createSession(db, MODEL, { id: "s2", projectId: "p2" });
     createSession(db, MODEL, { id: "s3" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "Delete me" });
+    const otherProjectInbox = enqueueInboxItem(db, "s2", { source: "user", text: "Keep me" });
+    // The recipient owns the message, even when its sender is being deleted.
+    const outsideInbox = enqueueInboxItem(db, "s3", {
+      source: "child",
+      fromSessionId: "s1",
+      text: "Keep this report",
+    });
     db.insert(articles)
       .values({
         id: "a1",
@@ -158,7 +181,46 @@ describe("projects store", () => {
     expect(getSession(db, "s1")).toBeUndefined();
     expect(getSession(db, "s2")?.id).toBe("s2");
     expect(getSession(db, "s3")?.id).toBe("s3");
+    expect(db.select().from(sessionInbox).all()).toEqual([otherProjectInbox, outsideInbox]);
     expect(db.select().from(articles).where(eq(articles.projectId, "p2")).all()).toHaveLength(1);
+  });
+
+  for (const running of ["parent", "worker", "legacy-worker"] as const) {
+    it(`refuses to delete a project with a running ${running}, changing nothing`, () => {
+      createProject(db, "Research", { id: "p1" });
+      createSession(db, MODEL, { id: "s1", projectId: "p1" });
+      // A worker created before workers carried their parent's project id
+      // still belongs to the container through its parent.
+      createSession(db, MODEL, {
+        id: "c1",
+        parentSessionId: "s1",
+        parentToolCallId: "t1",
+        ...(running === "legacy-worker" ? {} : { projectId: "p1" }),
+      });
+      setSessionStatus(db, running === "parent" ? "s1" : "c1", "running");
+      const before = db.select().from(sessions).all();
+
+      expect(() => deleteProject(db, "p1")).toThrow(ProjectConflictError);
+
+      expect(getProject(db, "p1")).toBeDefined();
+      expect(db.select().from(sessions).all()).toEqual(before);
+    });
+  }
+
+  it("hands back every session it deleted, workers included, with their owners", () => {
+    createProject(db, "Research", { id: "p1" });
+    createSession(db, MODEL, { id: "s1", projectId: "p1" });
+    createSession(db, MODEL, {
+      id: "c1",
+      projectId: "p1",
+      parentSessionId: "s1",
+      parentToolCallId: "t1",
+    });
+
+    expect(deleteProject(db, "p1").sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "c1", projectId: "p1", parentSessionId: "s1" },
+      { id: "s1", projectId: "p1", parentSessionId: null },
+    ]);
   });
 
   it("removes nothing when deleting an absent project", () => {

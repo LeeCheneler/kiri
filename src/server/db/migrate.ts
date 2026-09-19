@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import migration0000 from "../../../drizzle/0000_initial.sql" with { type: "text" };
 import migration0001 from "../../../drizzle/0001_index_run_nodes_run_id.sql" with { type: "text" };
 import migration0002 from "../../../drizzle/0002_rename_run_nodes_to_run_steps.sql" with {
@@ -59,11 +60,26 @@ import migration0037 from "../../../drizzle/0037_drop_task_position.sql" with { 
 import migration0038 from "../../../drizzle/0038_add_session_inbox.sql" with { type: "text" };
 import migration0039 from "../../../drizzle/0039_add_inbox_sender.sql" with { type: "text" };
 import migration0040 from "../../../drizzle/0040_index_memories.sql" with { type: "text" };
+import migration0041 from "../../../drizzle/0041_add_transcript_revision.sql" with { type: "text" };
+import migration0042 from "../../../drizzle/0042_add_inbox_delivered_at.sql" with { type: "text" };
+import migration0043 from "../../../drizzle/0043_add_message_parts_format.sql" with {
+  type: "text",
+};
+import migration0044 from "../../../drizzle/0044_enforce_message_order_and_lineage.sql" with {
+  type: "text",
+};
+import migration0045 from "../../../drizzle/0045_add_article_heading.sql" with { type: "text" };
+import { backfillArticleHeadings } from "./backfill-article-headings.ts";
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
   name: string;
   sql: string;
+  /**
+   * Fills values SQL cannot derive. Runs after the statements, inside the
+   * migration's transaction, so a migration and its backfill apply as one.
+   */
+  backfill?: (sqlite: Database) => void;
 }
 
 /**
@@ -85,9 +101,17 @@ interface Migration {
  * schema, so `search_fts` exists only in SQL. It mirrors `articles`,
  * `messages` (user/assistant text parts), and `runs` (summaries) via
  * triggers — schema changes to those tables must keep the triggers in
- * step. `0028_add_session_title` extends the index with triggers on
+ * step. The message triggers read text parts straight from `messages.parts`,
+ * outside the transcript format boundary, so a parts format that reshapes
+ * text parts must migrate the stored rows or the triggers with it.
+ * `0028_add_session_title` extends the index with triggers on
  * `sessions` mirroring each top-level session's title. `0040_index_memories`
  * adds memory names, descriptions, and bodies for explicit knowledge retrieval.
+ *
+ * `0045_add_article_heading` stores each article's first heading so indexes
+ * never load bodies to derive it. Its backfill applies the heading rules as
+ * they stood when it ran; a change to those rules needs a migration that
+ * recomputes the column.
  */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
@@ -131,6 +155,11 @@ const MIGRATIONS: Migration[] = [
   { name: "0038_add_session_inbox", sql: migration0038 },
   { name: "0039_add_inbox_sender", sql: migration0039 },
   { name: "0040_index_memories", sql: migration0040 },
+  { name: "0041_add_transcript_revision", sql: migration0041 },
+  { name: "0042_add_inbox_delivered_at", sql: migration0042 },
+  { name: "0043_add_message_parts_format", sql: migration0043 },
+  { name: "0044_enforce_message_order_and_lineage", sql: migration0044 },
+  { name: "0045_add_article_heading", sql: migration0045, backfill: backfillArticleHeadings },
 ];
 
 /**
@@ -168,6 +197,7 @@ export function migrate(db: KiriDb): void {
       for (const statement of statements) {
         sqlite.run(statement);
       }
+      migration.backfill?.(sqlite);
       sqlite
         .prepare("INSERT INTO __kiri_migrations (name, applied_at) VALUES (?, ?)")
         .run(migration.name, Date.now());

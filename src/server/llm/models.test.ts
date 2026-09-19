@@ -1,15 +1,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
-import type { LlmProvider, LlmProviderRegistry } from "./index.ts";
-import { listLlmModels } from "./models.ts";
-import { createLlmProviderRegistry } from "./registry.ts";
-
-const registryWith = (...providers: LlmProvider[]): LlmProviderRegistry => {
-  const registry = createLlmProviderRegistry();
-  registry.replace(new Map(providers.map((provider) => [provider.name, provider])));
-  return registry;
-};
+import type { LlmProvider } from "./index.ts";
+import { listProviderModels, unlistedModel } from "./models.ts";
 
 const anthropic: LlmProvider = {
   name: "anthropic",
@@ -26,7 +19,7 @@ const local: LlmProvider = {
 const modelList = (url: string, ids: unknown[]) =>
   http.get(url, () => HttpResponse.json({ data: ids.map((id) => ({ id })) }));
 
-describe("listLlmModels", () => {
+describe("listProviderModels", () => {
   // The openai-compatible context probe targets LM Studio's native endpoint;
   // default it to absent so a bare listing never reaches a real localhost:1234.
   // LM Studio tests override this.
@@ -48,12 +41,17 @@ describe("listLlmModels", () => {
       }),
     );
 
-    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+    const result = await listProviderModels(anthropic, { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-haiku-4-5",
+        provider: "anthropic",
+        output: "text",
+        reasoning: true,
+      },
     ]);
-    expect(result.failures).toEqual([]);
+    expect(result.reason).toBeUndefined();
     expect(headers?.get("x-api-key")).toBe("sk-test");
     expect(headers?.get("anthropic-version")).toBe("2023-06-01");
   });
@@ -67,7 +65,7 @@ describe("listLlmModels", () => {
       }),
     );
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       { id: "openai:gpt-4o-mini", provider: "openai", output: "text", reasoning: false },
@@ -84,7 +82,7 @@ describe("listLlmModels", () => {
       }),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:some-model", provider: "local", output: "text", reasoning: false },
@@ -96,52 +94,61 @@ describe("listLlmModels", () => {
     server.use(modelList("http://localhost:1234/v1/models", ["m1"]));
     const trailing: LlmProvider = { ...local, baseUrl: "http://localhost:1234/v1/" };
 
-    const result = await listLlmModels(registryWith(trailing), {});
+    const result = await listProviderModels(trailing, {});
 
     expect(result.models).toEqual([
       { id: "local:m1", provider: "local", output: "text", reasoning: false },
     ]);
   });
 
-  it("aggregates and flattens models across every configured provider", async () => {
+  it("reports a failed listing as a reason rather than throwing", async () => {
     server.use(
-      modelList("https://api.anthropic.com/v1/models", ["claude-haiku-4-5"]),
-      modelList("http://localhost:1234/v1/models", ["a", "b"]),
-    );
-
-    const result = await listLlmModels(registryWith(anthropic, local), {
-      ANTHROPIC_API_KEY: "sk-test",
-    });
-
-    expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
-      { id: "local:a", provider: "local", output: "text", reasoning: false },
-      { id: "local:b", provider: "local", output: "text", reasoning: false },
-    ]);
-    expect(result.failures).toEqual([]);
-  });
-
-  it("collects a provider failure without failing the other providers", async () => {
-    server.use(
-      modelList("http://localhost:1234/v1/models", ["ok"]),
       http.get(
         "https://api.openai.com/v1/models",
         () => new HttpResponse(null, { status: 500, statusText: "Internal Server Error" }),
       ),
     );
 
-    const result = await listLlmModels(registryWith(openai, local), { OPENAI_API_KEY: "sk-test" });
+    expect(await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" })).toEqual({
+      models: [],
+      reason: "500 Internal Server Error",
+    });
+  });
 
-    expect(result.models).toEqual([
-      { id: "local:ok", provider: "local", output: "text", reasoning: false },
-    ]);
-    expect(result.failures).toEqual([{ provider: "openai", reason: "500 Internal Server Error" }]);
+  it("gives up on a listing that outlasts the discovery timeout", async () => {
+    server.use(
+      http.get("https://api.openai.com/v1/models", async () => {
+        await delay(200);
+        return HttpResponse.json({ data: [{ id: "gpt-4o" }] });
+      }),
+    );
+
+    const result = await listProviderModels(openai, {}, { timeoutMs: 10 });
+
+    expect(result.models).toEqual([]);
+    expect(result.reason).toBeDefined();
+  });
+
+  it("keeps the listing when only the LM Studio probe outlasts the timeout", async () => {
+    server.use(
+      modelList("http://localhost:1234/v1/models", ["m1"]),
+      http.get("http://localhost:1234/api/v0/models", async () => {
+        await delay(200);
+        return HttpResponse.json({ data: [{ id: "m1", max_context_length: 4096 }] });
+      }),
+    );
+
+    const result = await listProviderModels(local, {}, { timeoutMs: 50 });
+
+    expect(result).toEqual({
+      models: [{ id: "local:m1", provider: "local", output: "text", reasoning: false }],
+    });
   });
 
   it("filters out non-string model ids", async () => {
     server.use(modelList("https://api.openai.com/v1/models", ["gpt-4o", 123, null]));
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       { id: "openai:gpt-4o", provider: "openai", output: "text", reasoning: false },
@@ -151,13 +158,9 @@ describe("listLlmModels", () => {
   it("treats a response with no data array as zero models", async () => {
     server.use(http.get("https://api.openai.com/v1/models", () => HttpResponse.json({})));
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
-    expect(result).toEqual({ models: [], failures: [] });
-  });
-
-  it("returns empty results when no providers are configured", async () => {
-    expect(await listLlmModels(registryWith(), {})).toEqual({ models: [], failures: [] });
+    expect(result).toEqual({ models: [] });
   });
 
   it("does not leak api key material in a failure reason", async () => {
@@ -169,10 +172,10 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: secret });
+    const result = await listProviderModels(anthropic, { ANTHROPIC_API_KEY: secret });
 
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]?.reason).not.toContain(secret);
+    expect(result.reason).toBe("401 Unauthorized");
+    expect(result.reason).not.toContain(secret);
   });
 
   it("reads context window and output cap from an anthropic-style listing", async () => {
@@ -184,7 +187,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+    const result = await listProviderModels(anthropic, { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       {
@@ -213,7 +216,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -234,7 +237,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -261,7 +264,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -281,7 +284,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       { id: "openai:gpt-x", provider: "openai", output: "text", reasoning: false },
@@ -308,7 +311,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -347,7 +350,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -375,17 +378,25 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       // The arrow's left-hand side answers image input: chatty takes
       // text+image, painter takes text only.
-      { id: "local:chatty", provider: "local", output: "text", imageInput: true, reasoning: false },
+      {
+        id: "local:chatty",
+        provider: "local",
+        output: "text",
+        imageInput: true,
+        nativeDocuments: false,
+        reasoning: false,
+      },
       {
         id: "local:painter",
         provider: "local",
         output: "image",
         imageInput: false,
+        nativeDocuments: false,
         reasoning: false,
       },
       { id: "local:mystery", provider: "local", output: "text", reasoning: false },
@@ -409,7 +420,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:flux", provider: "local", output: "image", reasoning: false },
@@ -442,7 +453,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:painter", provider: "local", output: "image", reasoning: false },
@@ -463,7 +474,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:mistral-large", provider: "local", output: "text", reasoning: false },
@@ -490,7 +501,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -498,6 +509,7 @@ describe("listLlmModels", () => {
         provider: "local",
         output: "text",
         imageInput: true,
+        nativeDocuments: false,
         reasoning: false,
       },
       {
@@ -505,6 +517,7 @@ describe("listLlmModels", () => {
         provider: "local",
         output: "text",
         imageInput: false,
+        nativeDocuments: false,
         reasoning: false,
       },
       { id: "local:mystery", provider: "local", output: "text", reasoning: false },
@@ -525,7 +538,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+    const result = await listProviderModels(anthropic, { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       {
@@ -542,7 +555,12 @@ describe("listLlmModels", () => {
         imageInput: false,
         reasoning: true,
       },
-      { id: "anthropic:claude-bare", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-bare",
+        provider: "anthropic",
+        output: "text",
+        reasoning: true,
+      },
     ]);
   });
 
@@ -558,7 +576,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -591,7 +609,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -620,7 +638,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -652,7 +670,7 @@ describe("listLlmModels", () => {
       ]),
     );
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       { id: "openai:gpt-image-1", provider: "openai", output: "image", reasoning: false },
@@ -684,7 +702,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:deep-model", provider: "local", output: "text", reasoning: true },
@@ -713,20 +731,30 @@ describe("listLlmModels", () => {
       ]),
     );
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       { id: "openai:o3", provider: "openai", output: "text", reasoning: true },
       { id: "openai:o4-mini", provider: "openai", output: "text", reasoning: true },
       { id: "openai:gpt-5", provider: "openai", output: "text", reasoning: true },
       { id: "openai:gpt-5.2-mini", provider: "openai", output: "text", reasoning: true },
-      { id: "openai:deepseek-r1-distill", provider: "openai", output: "text", reasoning: true },
+      {
+        id: "openai:deepseek-r1-distill",
+        provider: "openai",
+        output: "text",
+        reasoning: true,
+      },
       { id: "openai:qwq-32b", provider: "openai", output: "text", reasoning: true },
       { id: "openai:magistral-small", provider: "openai", output: "text", reasoning: true },
       { id: "openai:qwen3-thinking", provider: "openai", output: "text", reasoning: true },
       { id: "openai:o1-mini", provider: "openai", output: "text", reasoning: false },
       { id: "openai:o1-preview", provider: "openai", output: "text", reasoning: false },
-      { id: "openai:gpt-5-chat-latest", provider: "openai", output: "text", reasoning: false },
+      {
+        id: "openai:gpt-5-chat-latest",
+        provider: "openai",
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -742,7 +770,7 @@ describe("listLlmModels", () => {
       ]),
     );
 
-    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+    const result = await listProviderModels(anthropic, { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       {
@@ -751,7 +779,12 @@ describe("listLlmModels", () => {
         output: "text",
         reasoning: true,
       },
-      { id: "anthropic:claude-sonnet-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-sonnet-4-5",
+        provider: "anthropic",
+        output: "text",
+        reasoning: true,
+      },
       {
         id: "anthropic:claude-3-5-sonnet-latest",
         provider: "anthropic",
@@ -764,7 +797,12 @@ describe("listLlmModels", () => {
         output: "text",
         reasoning: false,
       },
-      { id: "anthropic:claude-2.1", provider: "anthropic", output: "text", reasoning: false },
+      {
+        id: "anthropic:claude-2.1",
+        provider: "anthropic",
+        output: "text",
+        reasoning: false,
+      },
       {
         id: "anthropic:claude-instant-1.2",
         provider: "anthropic",
@@ -781,7 +819,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+    const result = await listProviderModels(openai, { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
       { id: "openai:gpt-image-1", provider: "openai", output: "image", reasoning: false },
@@ -804,7 +842,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     // Prefers the loaded (served) length over the model's maximum.
     expect(result.models).toEqual([
@@ -828,7 +866,7 @@ describe("listLlmModels", () => {
       ),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       {
@@ -853,7 +891,7 @@ describe("listLlmModels", () => {
       }),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:m", provider: "local", contextWindow: 200000, output: "text", reasoning: false },
@@ -869,10 +907,63 @@ describe("listLlmModels", () => {
       http.get("http://localhost:1234/api/v0/models", () => HttpResponse.error()),
     );
 
-    const result = await listLlmModels(registryWith(local), {});
+    const result = await listProviderModels(local, {});
 
     expect(result.models).toEqual([
       { id: "local:google/gemma", provider: "local", output: "text", reasoning: false },
     ]);
+  });
+});
+
+describe("document input", () => {
+  const openrouter: LlmProvider = {
+    name: "openrouter",
+    type: "openai-compatible",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+  };
+
+  it("reads native document support from an OpenRouter-shaped listing", async () => {
+    server.use(
+      http.get("https://openrouter.ai/api/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "native", architecture: { input_modalities: ["text", "image", "file"] } },
+            { id: "parsed", architecture: { input_modalities: ["text"] } },
+            { id: "bare" },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listProviderModels(openrouter, {});
+
+    expect(result.models.map(({ id, nativeDocuments }) => [id, nativeDocuments])).toEqual([
+      ["openrouter:native", true],
+      ["openrouter:parsed", false],
+      ["openrouter:bare", undefined],
+    ]);
+  });
+});
+
+describe("unlistedModel", () => {
+  it("reads reasoning from the id family and leaves limits and inputs unknown", () => {
+    expect(unlistedModel(anthropic, "claude-opus-4-8")).toEqual({
+      id: "anthropic:claude-opus-4-8",
+      provider: "anthropic",
+      output: "text",
+      reasoning: true,
+    });
+    expect(unlistedModel(local, "google/gemma")).toEqual({
+      id: "local:google/gemma",
+      provider: "local",
+      output: "text",
+      reasoning: false,
+    });
+  });
+
+  it("reads an image family from the id, and any other id as text", () => {
+    expect(unlistedModel(openai, "gpt-image-1").output).toBe("image");
+    expect(unlistedModel(openai, "whisper-1").output).toBe("text");
   });
 });

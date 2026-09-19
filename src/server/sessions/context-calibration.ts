@@ -85,16 +85,26 @@ export function contextSnapshot(request: ContextRequest): Omit<ContextCalibratio
   };
 }
 
+/** The measurement, when it was taken against the same model and call options as the request. */
+export function applicableCalibration(
+  calibration: ContextCalibration | undefined,
+  request: Omit<ContextCalibration, "inputTokens">,
+): ContextCalibration | undefined {
+  return calibration?.version === request.version &&
+    calibration.model === request.model &&
+    calibration.optionsHash === request.optionsHash
+    ? calibration
+    : undefined;
+}
+
 /** Reuse measured input with 10% headroom; charge changed/new components without subtracting removed input. */
 export function measuredContextTokens(
   request: Omit<ContextCalibration, "inputTokens">,
-  previous: ContextCalibration | undefined,
+  measured: ContextCalibration | undefined,
 ): number {
+  const previous = applicableCalibration(measured, request);
   if (
     !previous ||
-    previous.version !== request.version ||
-    previous.model !== request.model ||
-    previous.optionsHash !== request.optionsHash ||
     !Number.isFinite(previous.inputTokens) ||
     previous.inputTokens <= 0 ||
     !Number.isFinite(previous.estimate) ||
@@ -109,8 +119,8 @@ export function measuredContextTokens(
     if (count > 0) remaining.set(hash, count - 1);
     else added += tokens;
   }
-  const measured = previous.inputTokens * 1.1;
-  return Math.ceil(measured + added * Math.max(1, measured / previous.estimate));
+  const input = previous.inputTokens * 1.1;
+  return Math.ceil(input + added * Math.max(1, input / previous.estimate));
 }
 
 /** Read only server-saved assistant measurements after the latest context checkpoint. */
@@ -125,7 +135,7 @@ export function savedContextCalibration(history: UIMessage[]): ContextCalibratio
 }
 
 /** Remove bookkeeping before SDK conversion, including otherwise empty assistant blocks. */
-export function withoutContextCalibration(history: UIMessage[]): UIMessage[] {
+export function withoutContextCalibration<T extends UIMessage>(history: T[]): T[] {
   return history.map((message) => ({
     ...message,
     parts: message.parts.filter((part) => part.type !== PART_TYPE),

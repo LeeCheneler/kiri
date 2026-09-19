@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { bootstrap } from "../bootstrap.ts";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -62,8 +63,7 @@ describe("runWorkflow", () => {
     },
     generateText,
     listModels: async () => ({ models: [], failures: [] }),
-    contextWindowFor: async () => undefined,
-    reasoningOptionsFor: async () => undefined,
+    describeModel: async (id) => describedModel(id),
   });
 
   it("persists a single use: step run + envelope and reports ok", async () => {

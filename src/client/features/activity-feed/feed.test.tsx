@@ -32,6 +32,7 @@ const baseRun: RunListEntry = {
 };
 
 const baseSession: SessionListEntry = {
+  transcriptRevision: 0,
   id: "s1",
   status: "idle",
   projectId: null,

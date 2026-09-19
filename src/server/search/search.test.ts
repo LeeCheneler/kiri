@@ -48,7 +48,7 @@ describe("search", () => {
         workflowName,
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
         summary,
       })
       .run();
@@ -68,7 +68,7 @@ describe("search", () => {
     id: string,
     sessionId: string,
     index: number,
-    role: string,
+    role: typeof messages.$inferInsert.role,
     text: string,
   ) => {
     db.insert(messages)
@@ -216,7 +216,8 @@ describe("search", () => {
     const results = search({ db, registry }, "heron");
     expect(results.sessions).toHaveLength(1);
     expect(results.sessions[0]?.title).toBe("Wading birds");
-    expect(results.sessions[0]?.preview).toBe("Tell me about herons");
+    // The title names the hit, so its opening message is never read.
+    expect(results.sessions[0]?.preview).toBe("");
   });
 
   it("finds a run by its summary and carries the workflow name", () => {

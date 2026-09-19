@@ -30,8 +30,10 @@ export {
   messageParentTool,
 } from "./delegate-tool.ts";
 export {
+  type DelegationMessaging,
   type DelegationMessagingDeps,
-  mountDelegationMessaging,
+  type InboxMessage,
+  createDelegationMessaging,
 } from "./delegation-messaging.ts";
 export {
   type FilesystemToolsOptions,
@@ -42,9 +44,10 @@ export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export { type InstructionContext, createInstructionContext } from "./instruction-context.ts";
 export {
   type InboxItem,
-  deleteInboxItems,
   enqueueInboxItem,
+  getInboxItem,
   pendingInboxItems,
+  withdrawInboxItem,
 } from "./inbox.ts";
 export {
   type LiveConsoleEmitter,
@@ -52,15 +55,7 @@ export {
   type LiveConsoleSnapshot,
   liveConsoleEmitter,
 } from "./live-console.ts";
-export {
-  type Memory,
-  type MemorySummary,
-  getScopedMemory,
-  listMemories,
-  listProjectMemories,
-  memoryNameSchema,
-  memoryTools,
-} from "./memory-tools.ts";
+export { memoryTools } from "./memory-tools.ts";
 export { projectTools } from "./project-tools.ts";
 export { type TaskListSummary, summariseTaskList, taskTools } from "./task-tools.ts";
 export {
@@ -74,6 +69,7 @@ export {
   deleteMessagesFrom,
   deleteSession,
   findChildByToolCall,
+  getLastMessage,
   getSession,
   getSessionChildren,
   getSessionLabels,
@@ -86,6 +82,7 @@ export {
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
+  updateSessionSettings,
   updateSessionTitle,
 } from "./store.ts";
 export { SESSION_TITLE_MAX_LENGTH, generateSessionTitle } from "./session-title.ts";

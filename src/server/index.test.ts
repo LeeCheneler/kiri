@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { HTTPException } from "hono/http-exception";
+import { TURN_ID_HEADER } from "../shared/api/sessions.ts";
 import { createEventBus } from "./events/index.ts";
 import { createApp } from "./index.ts";
 import {
@@ -38,6 +39,14 @@ describe("createApp", () => {
         headers: { Origin: "https://local.kiri.build" },
       });
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://local.kiri.build");
+    });
+
+    it("lets a cross-origin view read the turn a streamed response belongs to", async () => {
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
+      const res = await app.request("/api/health", {
+        headers: { Origin: "https://local.kiri.build" },
+      });
+      expect(res.headers.get("Access-Control-Expose-Headers")).toContain(TURN_ID_HEADER);
     });
 
     it("omits CORS headers for disallowed origins", async () => {

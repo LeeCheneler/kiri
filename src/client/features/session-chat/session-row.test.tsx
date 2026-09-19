@@ -8,6 +8,7 @@ import { SessionRow } from "./session-row.tsx";
 const NOW = new Date("2026-05-09T12:03:00.000Z");
 
 const base: SessionListEntry = {
+  transcriptRevision: 0,
   id: "abc1234567",
   status: "idle",
   projectId: null,

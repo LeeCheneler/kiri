@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ToolSet } from "ai";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
@@ -33,8 +35,7 @@ const stubClients: LlmClients = {
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 };
 
 describe("BUILTIN_TOOLS", () => {
@@ -52,31 +53,48 @@ describe("BUILTIN_TOOLS", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // The registry is the session routes' source of truth for which built-in
+  // Every first-party tool factory's output, merged as the tool assembly
+  // merges them.
+  const firstPartyTools = (): ToolSet => ({
+    ...knowledgeTools({ db, registry: createRegistry() }, null),
+    ...skillTools(createConfigStore(dir)),
+    ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
+    ...articleTools(db, "session-1", null, () => {}),
+    ...memoryTools(db, null, () => {}),
+    ...projectTools(db, "project-1", () => {}),
+    ...taskTools(db, "project-1", () => {}),
+    ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
+    ...shellTools(() => [dir], { get: () => null, set: () => {} }),
+    ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
+    ...delegateTool({
+      db,
+      parentSessionId: "session-1",
+      startTurn: () => {
+        throw new Error("no turn starts in this test");
+      },
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
+    }),
+    // Offered to child sessions where delegate/message_worker are not;
+    // the registry carries all three, so merge both sides here.
+    ...messageParentTool({
+      db,
+      childSessionId: "session-1",
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
+    }),
+  });
+
+  // The registry is the tool assembly's source of truth for which built-in
   // tools exist: each entry is offered by looking its name up in the merged
   // first-party toolset. A tool added to either side without the other would
   // ship un-gated or broken, so pin the two to exact agreement.
   it("names every first-party session tool exactly once", () => {
-    const offered = {
-      ...knowledgeTools({ db, registry: createRegistry() }, null),
-      ...skillTools(createConfigStore(dir)),
-      ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
-      ...articleTools(db, "session-1", null, () => {}),
-      ...memoryTools(db, null, () => {}),
-      ...projectTools(db, "project-1", () => {}),
-      ...taskTools(db, "project-1", () => {}),
-      ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
-      ...shellTools(() => [dir], { get: () => null, set: () => {} }),
-      ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
-      ...delegateTool({
-        db,
-        parentSessionId: "session-1",
-        childTurnDeps: () => ({ db, llmClients: stubClients }),
-      }),
-      // Offered to child sessions where delegate/message_worker are not;
-      // the registry carries all three, so merge both sides here.
-      ...messageParentTool({ db, childSessionId: "session-1" }),
-    };
-    expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
+    const offered = firstPartyTools();
+    expect(BUILTIN_TOOLS.map((tool): string => tool.name).sort()).toEqual(
+      Object.keys(offered).sort(),
+    );
   });
 });

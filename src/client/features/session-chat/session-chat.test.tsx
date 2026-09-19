@@ -21,6 +21,9 @@ const sessionDetail = (
   overrides: Record<string, unknown> = {},
   inbox: unknown[] = [],
 ) => ({
+  transcriptRevision: 0,
+  // A running session names the turn streaming for it, which the view joins.
+  turnId: overrides.status === "running" ? "t1" : null,
   session: {
     id: "s1",
     status: "idle",
@@ -209,13 +212,6 @@ const runningToolTranscript = () => [
     ],
   },
 ];
-
-// The tool part of a resume request's assistant message.
-const sentToolPart = (body: unknown) => {
-  const parts = (body as { message: { parts: { type: string }[] } }).message.parts;
-  const part = parts.find((p) => p.type.startsWith("tool-"));
-  return part as unknown as { state: string; approval: { approved: boolean } };
-};
 
 // happy-dom has no layout, so the page never actually scrolls. Stand in for it:
 // track the page offset and the foot it can scroll to, and capture the chat's own
@@ -618,7 +614,29 @@ describe("<SessionChat>", () => {
     // Ending the turn (here by cancelling) drops the ephemeral console; the
     // panel reads the stored outcome instead.
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByText(/2 pass/)).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText(/2 pass/).length).toBe(0));
+  });
+
+  it("retains a queued draft whose UTF-8 JSON exceeds the inbox limit", async () => {
+    const queued: unknown[] = [];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async ({ request }) => {
+        queued.push(await request.json());
+        return HttpResponse.json({});
+      }),
+    );
+    renderChat();
+    await screen.findByText("search the readme");
+    const input = screen.getByRole("textbox", { name: /message/i });
+    const draft = "é".repeat(128 * 1024);
+    fireEvent.change(input, { target: { value: draft } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("alert").textContent).toContain("256 KiB");
+    expect((input as HTMLTextAreaElement).value).toBe(draft);
+    expect(queued).toHaveLength(0);
   });
 
   it("queues a message sent while a turn is in flight and shows it queued", async () => {
@@ -642,7 +660,7 @@ describe("<SessionChat>", () => {
     // The message rides the inbox, not the turn endpoint, and renders queued.
     expect(await screen.findByText("also check the docs")).toBeDefined();
     expect(screen.getByText("queued")).toBeDefined();
-    expect(queued).toEqual([{ text: "also check the docs" }]);
+    expect(queued).toEqual([{ id: expect.any(String), text: "also check the docs" }]);
   });
 
   it("hides a chip once its delivery has streamed into the transcript", async () => {
@@ -741,58 +759,25 @@ describe("<SessionChat>", () => {
     expect(screen.queryByText("queued")).toBeNull();
   });
 
-  it("promotes an undelivered queued message to its own turn when the session settles", async () => {
+  it("leaves a message the settled turn did not deliver queued for the server to schedule", async () => {
     const user = userEvent.setup();
-    let withdrawn = 0;
+    const requests: string[] = [];
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
       ),
       http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
+        HttpResponse.json(
+          { item: inboxItem("q1", "also check the docs"), delivered: false },
+          { status: 201 },
+        ),
       ),
-      http.post("*/api/sessions/:id/messages", () => assistantReply("On the docs: all good")),
-    );
-    const { queryClient } = renderChat();
-
-    await screen.findByText("search the readme");
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
-    await user.keyboard("{Enter}");
-    await screen.findByText("queued");
-
-    // The turn settles without delivering the message: the withdraw wins the
-    // race (204) and the message is promoted to its own turn.
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
-      ),
-      // Like the real server: the first withdraw deletes the row, a repeat 404s.
-      http.delete("*/api/sessions/:id/inbox/:itemId", () => {
-        withdrawn += 1;
-        return withdrawn === 1
-          ? new HttpResponse(null, { status: 204 })
-          : HttpResponse.json({ error: "not queued" }, { status: 404 });
+      http.post("*/api/sessions/:id/messages", () => {
+        requests.push("send");
+        return assistantReply("should not happen");
       }),
-    );
-    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
-
-    expect(await screen.findByText("On the docs: all good")).toBeDefined();
-    expect(withdrawn).toBe(1);
-    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
-  });
-
-  it("clears a queued message the settled transcript shows delivered, without withdrawing", async () => {
-    const user = userEvent.setup();
-    let withdrawn = 0;
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
-      ),
-      http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
-      ),
       http.delete("*/api/sessions/:id/inbox/:itemId", () => {
-        withdrawn += 1;
+        requests.push("withdraw");
         return new HttpResponse(null, { status: 204 });
       }),
     );
@@ -803,8 +788,39 @@ describe("<SessionChat>", () => {
     await user.keyboard("{Enter}");
     await screen.findByText("queued");
 
+    // The turn settles with the message still in the backlog. Delivering it is
+    // the server's job: the browser neither withdraws nor resends it.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
+      ),
+    );
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(screen.getByText("queued")).toBeDefined();
+    expect(requests).toEqual([]);
+  });
+
+  it("clears a queued message the settled transcript shows delivered", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
+      ),
+    );
+    const { queryClient } = renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
     // The settled transcript carries the delivery as a woven data-inbox part
-    // under the queue id — proof it reached the turn, so nothing to withdraw.
+    // under the queue id — proof it reached the turn.
     const delivered = [
       message("m1", "user", "search the readme"),
       {
@@ -821,66 +837,43 @@ describe("<SessionChat>", () => {
         ],
       },
     ];
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(delivered))));
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({ ...sessionDetail(delivered), transcriptRevision: 1 }),
+      ),
+    );
     await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
 
     // The chip resolves into the woven interjection; the message text stays.
     await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
     expect(screen.getByText("also check the docs")).toBeDefined();
-    expect(withdrawn).toBe(0);
   });
 
-  it("clears the queue without promoting when the withdraw itself fails", async () => {
+  it("shows a message as queued while its submission is still unconfirmed, then repeats it", async () => {
     const user = userEvent.setup();
-    let promoted = 0;
+    const submitted: unknown[] = [];
+    let sent = 0;
     server.use(
+      // The backlog already holds an earlier message: the unconfirmed one
+      // shows after it.
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+        HttpResponse.json(
+          sessionDetail(runningToolTranscript(), { status: "running" }, [
+            inboxItem("q0", "an earlier note"),
+          ]),
+        ),
       ),
-      http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
-      ),
+      http.post("*/api/sessions/:id/inbox", async ({ request }) => {
+        const body = (await request.json()) as { id: string; text: string };
+        submitted.push(body);
+        // The first response is lost; the repeat finds the message queued.
+        if (submitted.length === 1) return HttpResponse.json({ error: "boom" }, { status: 500 });
+        return HttpResponse.json({ item: inboxItem(body.id, body.text), delivered: false });
+      }),
       http.post("*/api/sessions/:id/messages", () => {
-        promoted += 1;
+        sent += 1;
         return assistantReply("should not happen");
       }),
-    );
-    const { queryClient } = renderChat();
-
-    await screen.findByText("search the readme");
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
-    await user.keyboard("{Enter}");
-    await screen.findByText("queued");
-
-    // A failed withdraw can't prove the message wasn't delivered, so it is not
-    // promoted — resending would risk a double delivery.
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
-      ),
-      http.delete("*/api/sessions/:id/inbox/:itemId", () =>
-        HttpResponse.json({ error: "boom" }, { status: 500 }),
-      ),
-    );
-    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
-
-    // Yield past the refetch → reconcile → withdraw round-trip before polling:
-    // waitFor's timer can starve while the query retryer occupies the loop.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
-    expect(promoted).toBe(0);
-  });
-
-  it("falls back to a normal send when the queue races the turn settling", async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
-      ),
-      http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ error: "no turn in flight" }, { status: 409 }),
-      ),
-      http.post("*/api/sessions/:id/messages", () => assistantReply("Fresh turn reply")),
     );
     renderChat();
 
@@ -888,8 +881,116 @@ describe("<SessionChat>", () => {
     await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
     await user.keyboard("{Enter}");
 
-    // The 409 said the turn was over; the message went out as its own turn.
-    expect(await screen.findByText("Fresh turn reply")).toBeDefined();
+    await waitFor(() => expect(screen.getAllByText("queued")).toHaveLength(2));
+    await waitFor(() => expect(submitted).toHaveLength(2));
+    // One submission, repeated under one id — never a second message, and
+    // never a fresh turn in its place.
+    expect(submitted[1]).toEqual(submitted[0]);
+    expect(screen.getAllByText("also check the docs")).toHaveLength(1);
+    expect(sent).toBe(0);
+  });
+
+  it("returns a refused message to the composer, ahead of anything typed since", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return HttpResponse.json({ error: 'session "s1" not found' }, { status: 404 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("search the readme");
+    const composer = screen.getByRole("textbox", { name: /message/i });
+    await user.type(composer, "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+    await user.type(composer, "and the changelog");
+    release?.();
+
+    expect(await screen.findByText('session "s1" not found')).toBeDefined();
+    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
+    expect((composer as HTMLTextAreaElement).value).toBe(
+      "also check the docs\n\nand the changelog",
+    );
+  });
+
+  it("withdraws a held message", async () => {
+    const user = userEvent.setup();
+    const withdrawn: string[] = [];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "search the readme")], { status: "cancelled" }, [
+            inboxItem("q0", "also refactor the tests"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/inbox/:itemId", ({ params }) => {
+        withdrawn.push(String(params.itemId));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "withdraw" }));
+
+    await waitFor(() => expect(screen.queryByText("also refactor the tests")).toBeNull());
+    expect(withdrawn).toEqual(["q0"]);
+  });
+
+  it("offers no withdraw while a message is still being submitted", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return HttpResponse.json({ error: "gone" }, { status: 404 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "one more thing");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
+    // Nothing is on the server to withdraw yet.
+    expect(screen.queryByRole("button", { name: "withdraw" })).toBeNull();
+    release?.();
+  });
+
+  it("keeps a held message and says so when the withdraw fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "search the readme")], { status: "failed" }, [
+            inboxItem("q0", "also refactor the tests"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/inbox/:itemId", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "withdraw" }));
+
+    expect(await screen.findByText("Couldn't withdraw the message.")).toBeDefined();
+    expect(screen.getByText("also refactor the tests")).toBeDefined();
   });
 
   it("refuses to queue a message carrying images, keeping them staged", async () => {
@@ -936,9 +1037,7 @@ describe("<SessionChat>", () => {
     await user.click(await screen.findByRole("button", { name: "Allow" }));
 
     expect(await screen.findByText("Created the issue.")).toBeDefined();
-    const toolPart = sentToolPart(resumeBody);
-    expect(toolPart.state).toBe("approval-responded");
-    expect(toolPart.approval.approved).toBe(true);
+    expect(resumeBody).toEqual({ approvals: [{ toolCallId: "c1", approved: true }] });
   });
 
   it("always-allows a paused tool, recording a grant before resuming", async () => {
@@ -1007,7 +1106,7 @@ describe("<SessionChat>", () => {
     await user.click(await screen.findByRole("button", { name: "Deny" }));
 
     expect(await screen.findByText("Okay, I won't.")).toBeDefined();
-    expect(sentToolPart(resumeBody).approval.approved).toBe(false);
+    expect(resumeBody).toEqual({ approvals: [{ toolCallId: "c1", approved: false }] });
     expect(grantCalled).toBe(false);
   });
 
@@ -1026,7 +1125,7 @@ describe("<SessionChat>", () => {
       ),
       http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
         truncatedId = String(params.messageId);
-        return new HttpResponse(null, { status: 204 });
+        return HttpResponse.json({ transcriptRevision: 1 });
       }),
       http.post("*/api/sessions/:id/messages", async ({ request }) => {
         const body = (await request.json()) as {
@@ -1067,7 +1166,7 @@ describe("<SessionChat>", () => {
       ),
       http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
         truncatedId = String(params.messageId);
-        return new HttpResponse(null, { status: 204 });
+        return HttpResponse.json({ transcriptRevision: 1 });
       }),
     );
     renderChat();
@@ -1290,10 +1389,13 @@ describe("<SessionChat>", () => {
 
     // The turn finishes elsewhere; the row settles with the assistant reply. A
     // live event would invalidate the cached session — drive that refetch here.
-    detail = sessionDetail(
-      [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-      { status: "idle" },
-    );
+    detail = {
+      ...sessionDetail(
+        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+        { status: "idle" },
+      ),
+      transcriptRevision: detail.transcriptRevision + 1,
+    };
     await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
 
     expect(await screen.findByText("An answer")).toBeDefined();
@@ -1302,8 +1404,7 @@ describe("<SessionChat>", () => {
 
   it("folds in a turn that grew an existing message's parts while away", async () => {
     // An approval resumed elsewhere extends the paused assistant message in
-    // place — same message count, more parts — so the fold-in must compare
-    // parts, not just messages.
+    // place. The revision advances even though the message count stays the same.
     let detail = sessionDetail(
       [message("m1", "user", "Question"), message("m2", "assistant", "Working on it.")],
       { status: "running" },
@@ -1313,19 +1414,22 @@ describe("<SessionChat>", () => {
 
     await screen.findByText("Working on it.");
 
-    detail = sessionDetail(
-      [
-        message("m1", "user", "Question"),
-        {
-          ...message("m2", "assistant", "Working on it."),
-          parts: [
-            { type: "text", text: "Working on it." },
-            { type: "text", text: "Now finished." },
-          ],
-        },
-      ],
-      { status: "idle" },
-    );
+    detail = {
+      ...sessionDetail(
+        [
+          message("m1", "user", "Question"),
+          {
+            ...message("m2", "assistant", "Working on it."),
+            parts: [
+              { type: "text", text: "Working on it." },
+              { type: "text", text: "Now finished." },
+            ],
+          },
+        ],
+        { status: "idle" },
+      ),
+      transcriptRevision: detail.transcriptRevision + 1,
+    };
     await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
 
     expect(await screen.findByText("Now finished.")).toBeDefined();
@@ -1394,6 +1498,32 @@ describe("<SessionChat>", () => {
     });
 
     expect(await screen.findByText(/reads text only/i)).toBeDefined();
+  });
+
+  it("offers the document types the session's model carries in the picker", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            {
+              id: "anthropic:claude",
+              provider: "anthropic",
+              output: "text",
+              documentInput: ["application/pdf"],
+            },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    const { container } = renderChat();
+
+    await screen.findByRole("textbox", { name: /message/i });
+    await waitFor(() => {
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(input.accept.split(",")).toContain(".pdf");
+    });
   });
 
   it("restores a saved draft into the composer", async () => {
@@ -1567,10 +1697,13 @@ describe("<SessionChat>", () => {
 
       // The turn settles off-screen and folds in. Because the user scrolled up,
       // the new message must not yank the page back to the foot.
-      detail = sessionDetail(
-        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
 
@@ -1595,10 +1728,13 @@ describe("<SessionChat>", () => {
       scroll.setFoot(5200);
       scroll.scrollTo(5200);
 
-      detail = sessionDetail(
-        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
 
@@ -1622,24 +1758,30 @@ describe("<SessionChat>", () => {
       // page *above* the offset we last saw. That drop is our own scroll, not the
       // user's, and must not un-pin.
       scroll.setFoot(4800);
-      detail = sessionDetail(
-        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
       window.dispatchEvent(new Event("scroll"));
       scroll.scrollCalls.length = 0;
 
       // Still pinned, so the next message is followed too.
-      detail = sessionDetail(
-        [
-          message("m1", "user", "Question"),
-          message("m2", "assistant", "An answer"),
-          message("m3", "user", "Another"),
-        ],
-        { status: "idle" },
-      );
+      detail = {
+        ...sessionDetail(
+          [
+            message("m1", "user", "Question"),
+            message("m2", "assistant", "An answer"),
+            message("m3", "user", "Another"),
+          ],
+          { status: "idle" },
+        ),
+        transcriptRevision: detail.transcriptRevision + 1,
+      };
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("Another");
 

@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isInboxPart } from "../../../shared/inbox-part.ts";
+import { API_BODY_LIMIT_BYTES, jsonBytes } from "../../../shared/message-limits.ts";
 import { ApiError, type Session, type SessionDetail } from "../../api.ts";
 import { Chip } from "../../design-system/actions/chip.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
@@ -25,7 +26,8 @@ import {
 import { MessageComposer } from "./message-composer.tsx";
 import { modelLabel } from "./model-options.ts";
 import { PushToTalk } from "./push-to-talk.tsx";
-import { useSessionDraft } from "./session-draft.ts";
+import { queueFailureText } from "./queue-submission.ts";
+import { readSessionDraft, useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
 import type { ToolPageLinks } from "./tool-invocation.tsx";
 import { usePushToTalk } from "./use-push-to-talk.ts";
@@ -43,6 +45,8 @@ function sessionErrorText(error: unknown): string | undefined {
   }
   return undefined;
 }
+
+const NO_DOCUMENTS: readonly string[] = [];
 
 // Whether a message carries an image attachment — used to nudge towards a
 // multimodal model when a turn that included one fails (the likeliest cause).
@@ -173,8 +177,12 @@ function ChatView({
   // Whether the session's model reads images, per its provider's listing. Only
   // a definite "no" restricts the composer — unknown (a bare listing, a pinned
   // model the provider no longer lists) keeps images attachable rather than
-  // blocking on a guess.
-  const acceptsImages = models.find((model) => model.id === session.model)?.imageInput !== false;
+  // blocking on a guess. Documents are the other way round: only the types the
+  // provider is known to carry are attachable, since the rest would fail the
+  // turn (or, on a gateway, be parsed at a cost).
+  const sessionModel = models.find((model) => model.id === session.model);
+  const acceptsImages = sessionModel?.imageInput !== false;
+  const acceptsDocuments = sessionModel?.documentInput ?? NO_DOCUMENTS;
 
   // Seed once from the persisted transcript; `useChat` owns the live state from
   // here. A later refetch (from a session.* event) re-runs this memo, but
@@ -192,11 +200,18 @@ function ChatView({
     liveConsoles,
     sendMessage,
     queueMessage,
+    submitting,
+    withdrawMessage,
     resubmit,
     deleteMessage,
     cancel,
     onToolDecision,
-  } = useSessionConversation({ session, initialMessages, pendingInbox: detail.inbox });
+  } = useSessionConversation({
+    session,
+    initialMessages,
+    transcriptRevision: detail.transcriptRevision,
+    turnId: detail.turnId,
+  });
   // The undelivered backlog, straight off the same detail payload the session's
   // status rides — chips render from the server's queue, not local state, so
   // they survive reloads and show in every view of the session. A delivery the
@@ -208,7 +223,13 @@ function ChatView({
       new Set(messages.flatMap((message) => message.parts.filter(isInboxPart).map((p) => p.id))),
     [messages],
   );
-  const queued = (detail.inbox ?? []).filter((item) => !deliveredLive.has(item.id));
+  // A message still being submitted shows alongside, until the server's
+  // backlog carries it.
+  const backlog = detail.inbox ?? [];
+  const queued = [
+    ...backlog,
+    ...submitting.filter((pending) => !backlog.some((item) => item.id === pending.id)),
+  ].filter((item) => !deliveredLive.has(item.id));
   // Chips above the composer for a settled turn a short reply answers. Driven
   // by the persisted transcript rather than the live one: it refetches in the
   // same query as the `busy` status, so a settled turn's suggestions are only
@@ -304,28 +325,47 @@ function ChatView({
   // carrying images is refused (returning `false` keeps them staged) with a
   // notice, rather than dropping the attachments. Either acceptance pulls the
   // transcript back to the foot, even if the user had scrolled up.
-  const [queueBlocked, setQueueBlocked] = useState(false);
+  const [queueError, setQueueError] = useState<string>();
   const handleSend = (parts: UIMessage["parts"]): boolean | undefined => {
     if (busy) {
       if (parts.some((part) => part.type === "file")) {
-        setQueueBlocked(true);
+        setQueueError(
+          "Attachments can't be queued while a turn is running — wait for it to finish, or remove them to queue the text.",
+        );
         return false;
       }
-      setQueueBlocked(false);
+      const text = parts
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .filter((text) => text !== "")
+        .join("\n\n");
+      // Measured with an id of the length the submission will carry.
+      if (jsonBytes({ id: crypto.randomUUID(), text }) > API_BODY_LIMIT_BYTES) {
+        setQueueError(
+          "Queued messages must fit within 256 KiB. Shorten the message or wait for the turn to finish.",
+        );
+        return false;
+      }
+      setQueueError(undefined);
       pinnedToBottom.current = true;
-      void queueMessage(
-        parts
-          .map((part) => (part.type === "text" ? part.text : ""))
-          .filter((text) => text !== "")
-          .join("\n\n"),
-      );
+      // A message that wasn't queued goes back in the composer, ahead of
+      // anything typed since, rather than being lost with its chip.
+      void queueMessage(text).catch((cause: unknown) => {
+        setQueueError(queueFailureText(cause));
+        const typedSince = readSessionDraft(session.id);
+        setDraft(typedSince === "" ? text : `${text}\n\n${typedSince}`);
+      });
       clearDraft();
       return;
     }
-    setQueueBlocked(false);
+    setQueueError(undefined);
     pinnedToBottom.current = true;
     void sendMessage({ parts });
     clearDraft();
+  };
+
+  const handleWithdraw = (itemId: string) => {
+    setQueueError(undefined);
+    void withdrawMessage(itemId).catch(() => setQueueError("Couldn't withdraw the message."));
   };
 
   // Resend an edited user message via the conversation engine, pulling the
@@ -378,6 +418,8 @@ function ChatView({
               key={message.id}
               message={message}
               busy={busy}
+              acceptsImages={acceptsImages}
+              acceptsDocuments={acceptsDocuments}
               sessionId={session.id}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}
@@ -401,7 +443,12 @@ function ChatView({
         <div className="mt-8 space-y-8">
           {queued.map((item) =>
             item.source === "user" ? (
-              <QueuedMessage key={item.id} text={item.text} />
+              <QueuedMessage
+                key={item.id}
+                text={item.text}
+                // Only a message the server holds can be withdrawn from it.
+                onWithdraw={backlog.includes(item) ? () => handleWithdraw(item.id) : undefined}
+              />
             ) : (
               <InboxInterjection
                 key={item.id}
@@ -481,10 +528,9 @@ function ChatView({
             clearing any staged images (the draft text is per-session already).
             Enter-only submit — the key instructions ride in the placeholder,
             visible exactly when there's nothing typed to send. */}
-        {queueBlocked ? (
+        {queueError ? (
           <p role="alert" className="mb-2 font-mono text-status-failed text-xs">
-            Images can't be queued while a turn is running — wait for it to finish, or remove the
-            attachments to queue the text.
+            {queueError}
           </p>
         ) : null}
         <MessageComposer
@@ -500,6 +546,7 @@ function ChatView({
              the model can't continue past an unanswered call. */
           busy={awaitingApproval}
           acceptsImages={acceptsImages}
+          acceptsDocuments={acceptsDocuments}
           error={talkState.error}
           controls={
             <>

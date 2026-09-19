@@ -1,18 +1,20 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { cancelSession, createSession, fetchSessionsPage } from "../api.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
 import {
   useModels,
+  usePatchSessionInbox,
+  useRefreshSessionDetail,
   useSession,
   useSessionsFeed,
-  useSessionsLive,
   useTruncateSessionDetail,
 } from "./sessions.ts";
 
@@ -28,12 +30,13 @@ const sessionRow = (id: string, overrides: Record<string, unknown> = {}) => ({
 
 const renderProbe = (ui: ReactNode) => {
   const { factory, sources } = captureEventSources();
+  const queryClient = createQueryClient();
   const result = render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <LiveEventsProvider factory={factory}>{ui}</LiveEventsProvider>
     </QueryClientProvider>,
   );
-  return { ...result, sources };
+  return { ...result, sources, queryClient };
 };
 
 const ModelsProbe = () => {
@@ -41,9 +44,9 @@ const ModelsProbe = () => {
   return <p>{data ? data.models.map((m) => m.id).join(",") : "loading"}</p>;
 };
 
-// Probe whose rendered text is the session's model, kept live by useSessionsLive.
+// Probe whose rendered text is the session's model, kept live by useLiveInvalidation.
 const SessionProbe = ({ id }: { id: string }) => {
-  useSessionsLive();
+  useLiveInvalidation();
   const { data } = useSession(id);
   return <p>{data ? data.session.model : "loading"}</p>;
 };
@@ -56,7 +59,7 @@ const TruncateProbe = ({ id, messageId }: { id: string; messageId: string }) => 
   return (
     <div>
       <p>{data ? data.messages.map((m) => m.id).join(",") || "empty" : "loading"}</p>
-      <button type="button" onClick={() => truncate(messageId)}>
+      <button type="button" onClick={() => truncate(messageId, 1)}>
         truncate
       </button>
     </div>
@@ -64,7 +67,7 @@ const TruncateProbe = ({ id, messageId }: { id: string; messageId: string }) => 
 };
 
 const FeedProbe = () => {
-  useSessionsLive();
+  useLiveInvalidation();
   const { data } = useSessionsFeed();
   return <p>{data ? data.map((s) => s.id).join(",") || "empty" : "loading"}</p>;
 };
@@ -77,6 +80,7 @@ const serveCountingSession = () => {
     http.get("*/api/sessions/:id", () => {
       calls++;
       return HttpResponse.json({
+        transcriptRevision: 0,
         session: sessionRow("s1", { model: `m-${calls}` }),
         messages: [],
       });
@@ -96,6 +100,137 @@ const serveCountingFeed = () => {
 };
 
 describe("sessions state", () => {
+  it("adds a queued message to the cached inbox once, even if a refetch already brought it", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({
+          transcriptRevision: 1,
+          session: sessionRow("s1"),
+          messages: [],
+          inbox: [],
+        }),
+      ),
+    );
+    const queryClient = createQueryClient();
+    const { result } = renderHook(
+      () => ({ session: useSession("s1"), inbox: usePatchSessionInbox("s1") }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+    await waitFor(() => expect(result.current.session.data).toBeDefined());
+    const item = {
+      id: "q1",
+      source: "user" as const,
+      text: "also check the docs",
+      fromSessionId: null,
+      createdAt: "2026-09-19T00:00:00.000Z",
+    };
+
+    act(() => {
+      result.current.inbox.append(item);
+      result.current.inbox.append(item);
+    });
+
+    await waitFor(() => expect(result.current.session.data?.inbox).toEqual([item]));
+  });
+
+  it("joins a newer lifecycle read when it replaces the post-stream refresh", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/:id", async () => {
+        const revision = ++reads;
+        if (revision === 2) await blocked;
+        return HttpResponse.json({
+          transcriptRevision: revision,
+          session: sessionRow("s1"),
+          messages: [],
+        });
+      }),
+    );
+    const queryClient = createQueryClient();
+    const { result } = renderHook(
+      () => {
+        const session = useSession("s1");
+        const refresh = useRefreshSessionDetail("s1");
+        return { session, refresh };
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+    await waitFor(() => expect(result.current.session.data?.transcriptRevision).toBe(1));
+    const refreshing = result.current.refresh();
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+      expect((await refreshing).transcriptRevision).toBe(3);
+      release();
+    });
+  });
+
+  it("keeps a committed truncation when an older detail read arrives afterwards", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/:id", async () => {
+        reads += 1;
+        if (reads > 1) await blocked;
+        return HttpResponse.json({
+          transcriptRevision: 0,
+          session: sessionRow("s1"),
+          messages: [
+            { id: "m1", role: "user", parts: [] },
+            { id: "m2", role: "assistant", parts: [] },
+          ],
+        });
+      }),
+    );
+    const { queryClient } = renderProbe(<TruncateProbe id="s1" messageId="m2" />);
+    await screen.findByText("m1,m2");
+    const reading = queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+    await waitFor(() => expect(reads).toBe(2));
+    act(() => screen.getByRole("button", { name: "truncate" }).click());
+    await screen.findByText("m1");
+    await act(async () => {
+      release();
+      await reading;
+    });
+    expect(screen.queryByText("m1,m2") === null).toBe(true);
+    expect(queryClient.getQueryData(["session", "s1"])).toMatchObject({ transcriptRevision: 1 });
+  });
+
+  it("ignores a truncation response older than the cached snapshot", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({
+          transcriptRevision: 2,
+          session: sessionRow("s1"),
+          messages: [
+            { id: "m1", role: "user", parts: [] },
+            { id: "m2", role: "assistant", parts: [] },
+          ],
+        }),
+      ),
+    );
+    const { queryClient } = renderProbe(<TruncateProbe id="s1" messageId="m2" />);
+    await screen.findByText("m1,m2");
+    act(() => screen.getByRole("button", { name: "truncate" }).click());
+    expect(queryClient.getQueryData(["session", "s1"])).toMatchObject({ transcriptRevision: 2 });
+    expect(screen.queryByText("m1,m2") !== null).toBe(true);
+  });
+
   it("fetches the available models", async () => {
     server.use(
       http.get("*/api/models", () =>
@@ -124,13 +259,36 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<SessionProbe id="s1" />);
     await screen.findByText("m-1");
 
-    act(() => sources[0]?.emit({ type: "session.updated", id: "s1", status: "running" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("m-2");
 
-    act(() => sources[0]?.emit({ type: "session.message.added", sessionId: "s1" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.message.added",
+        sessionId: "s1",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("m-3");
 
-    act(() => sources[0]?.emit({ type: "session.finished", id: "s1", status: "failed" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.finished",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("m-4");
   });
 
@@ -139,7 +297,15 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<SessionProbe id="s1" />);
     await screen.findByText("m-1");
 
-    act(() => sources[0]?.emit({ type: "session.updated", id: "other", status: "running" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.updated",
+        id: "other",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     // The detail query for s1 is untouched; only the keyed "other" query and the
     // feed (not mounted here) were invalidated, so the model stays m-1.
     await act(() => Promise.resolve());
@@ -163,6 +329,7 @@ describe("sessions state", () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json({
+          transcriptRevision: 0,
           session: sessionRow("s1"),
           messages: [
             { id: "m1", role: "user", parts: [] },
@@ -185,6 +352,7 @@ describe("sessions state", () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json({
+          transcriptRevision: 0,
           session: sessionRow("s1"),
           messages: [{ id: "m1", role: "user", parts: [] }],
         }),
@@ -213,7 +381,14 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<FeedProbe />);
     await screen.findByText("s-1");
 
-    act(() => sources[0]?.emit({ type: "session.started", id: "new" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.started",
+        id: "new",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("s-2");
   });
 
@@ -222,7 +397,14 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<FeedProbe />);
     await screen.findByText("s-1");
 
-    act(() => sources[0]?.emit({ type: "session.deleted", id: "s-1" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.deleted",
+        id: "s-1",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("s-2");
   });
 

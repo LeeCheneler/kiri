@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createEventBus } from "../events/index.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
-import { loadKiriConfig } from "./loader.ts";
+import { type ConfigService, createConfigService } from "./service.ts";
 import { type ConfigStore, createConfigStore } from "./store.ts";
 import { watchKiriConfig } from "./watcher.ts";
 
@@ -44,6 +44,7 @@ const PROVIDER = "providers:\n  local:\n    type: openai-compatible\n    base_ur
 describe("watchKiriConfig", () => {
   let cwd: string;
   let config: ConfigStore;
+  let service: ConfigService;
   let registry: LlmProviderRegistry;
   let logs: string[];
   let errs: string[];
@@ -55,6 +56,7 @@ describe("watchKiriConfig", () => {
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-config-watch-"));
     config = createConfigStore(cwd);
+    service = createConfigService(config, {});
     registry = createLlmProviderRegistry();
     logs = [];
     errs = [];
@@ -87,6 +89,7 @@ describe("watchKiriConfig", () => {
     const { watchFn, triggerChange } = createFakeWatcher();
     const watcher = watchKiriConfig(
       config,
+      service,
       registry,
       {},
       {
@@ -122,6 +125,7 @@ describe("watchKiriConfig", () => {
     const { watchFn, triggerChange } = createFakeWatcher();
     const watcher = watchKiriConfig(
       config,
+      service,
       registry,
       {},
       { debounceMs: 10, watchFn, mcpRegistry: fakeMcp },
@@ -136,9 +140,110 @@ describe("watchKiriConfig", () => {
     watcher.stop();
   });
 
+  it("suppresses stale completion events while revalidating providers immediately", async () => {
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    const replacements: string[][] = [];
+    const revalidated: string[][] = [];
+    const events: string[] = [];
+    const bus = createEventBus();
+    bus.subscribe((event) => events.push(event.type));
+    const fakeMcp: McpRegistry = {
+      tools: () => ({}),
+      status: () => [],
+      catalog: () => [],
+      close: async () => {},
+      replace: async (servers) => {
+        replacements.push([...servers.keys()]);
+        await (replacements.length === 1 ? first.promise : second.promise);
+      },
+    };
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchKiriConfig(
+      config,
+      service,
+      registry,
+      {},
+      {
+        debounceMs: 0,
+        watchFn,
+        mcpRegistry: fakeMcp,
+        bus,
+        onReload: () => {
+          revalidated.push(registry.listProviders().map((p) => p.name));
+        },
+      },
+    );
+    writeConfig(`${PROVIDER}mcp:\n  first:\n    type: stdio\n    command: first\n`);
+    triggerChange();
+    await waitFor(() => replacements.length === 1);
+    expect(revalidated).toEqual([["local"]]);
+    writeConfig(
+      `${PROVIDER.replace("local:", "new:")}mcp:\n  second:\n    type: stdio\n    command: second\n`,
+    );
+    triggerChange();
+    await waitFor(() => replacements.length === 2);
+    second.resolve();
+    await waitFor(() => events.length === 1);
+    first.resolve();
+    await first.promise;
+    await Bun.sleep(0);
+    expect(revalidated).toEqual([["local"], ["new"]]);
+    expect(registry.listProviders().map((p) => p.name)).toEqual(["new"]);
+    expect(events).toEqual(["config.changed"]);
+    expect(logs.filter((line) => line.includes("mcp server"))).toHaveLength(1);
+    watcher.stop();
+  });
+
+  it("suppresses pending reload completion and rescheduling after stop", async () => {
+    const pending = Promise.withResolvers<void>();
+    let started = false;
+    let revalidated = 0;
+    const events: string[] = [];
+    const bus = createEventBus();
+    bus.subscribe((event) => events.push(event.type));
+    const fakeMcp: McpRegistry = {
+      tools: () => ({}),
+      status: () => [],
+      catalog: () => [],
+      close: async () => {},
+      replace: async () => {
+        started = true;
+        await pending.promise;
+      },
+    };
+    const { watchFn, triggerChange, watcher: fsWatcher } = createFakeWatcher();
+    const watcher = watchKiriConfig(
+      config,
+      service,
+      registry,
+      {},
+      {
+        debounceMs: 0,
+        watchFn,
+        mcpRegistry: fakeMcp,
+        bus,
+        onReload: () => {
+          revalidated++;
+        },
+      },
+    );
+    writeConfig(PROVIDER);
+    triggerChange();
+    await waitFor(() => started);
+    watcher.stop();
+    pending.resolve();
+    fsWatcher.emit("error", new Error("late watcher error"));
+    await pending.promise;
+    await Bun.sleep(10);
+    expect(revalidated).toBe(1);
+    expect(events).toEqual([]);
+    expect(logs.filter((line) => line.includes("mcp server"))).toEqual([]);
+  });
+
   it("reacts to a null filename even without an onReload handler", async () => {
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });
+    const watcher = watchKiriConfig(config, service, registry, {}, { debounceMs: 10, watchFn });
 
     writeConfig(PROVIDER);
     triggerChange(null);
@@ -150,7 +255,7 @@ describe("watchKiriConfig", () => {
 
   it("ignores changes to non-config files", async () => {
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });
+    const watcher = watchKiriConfig(config, service, registry, {}, { debounceMs: 10, watchFn });
 
     writeConfig(PROVIDER);
     triggerChange("kiri.md");
@@ -164,13 +269,14 @@ describe("watchKiriConfig", () => {
 
   it("keeps the last-known-good registry when a reload is invalid", async () => {
     writeConfig("providers:\n  anthropic:\n    type: anthropic\n");
-    registry.replace(loadKiriConfig(config, {}).providers);
+    registry.replace(service.current().providers);
     expect(registry.getProvider("anthropic")).toBeDefined();
 
     let reloaded = 0;
     const { watchFn, triggerChange } = createFakeWatcher();
     const watcher = watchKiriConfig(
       config,
+      service,
       registry,
       {},
       {
@@ -196,7 +302,13 @@ describe("watchKiriConfig", () => {
     const bus = createEventBus();
     bus.subscribe((e) => events.push(e.type));
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn, bus });
+    const watcher = watchKiriConfig(
+      config,
+      service,
+      registry,
+      {},
+      { debounceMs: 10, watchFn, bus },
+    );
 
     writeConfig(PROVIDER);
     triggerChange("kiri.yaml");
@@ -211,7 +323,13 @@ describe("watchKiriConfig", () => {
     const bus = createEventBus();
     bus.subscribe((e) => events.push(e.type));
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn, bus });
+    const watcher = watchKiriConfig(
+      config,
+      service,
+      registry,
+      {},
+      { debounceMs: 10, watchFn, bus },
+    );
 
     writeConfig("providers:\n  x:\n    type: not-a-real-type\n");
     triggerChange("kiri.yaml");
@@ -226,7 +344,7 @@ describe("watchKiriConfig", () => {
     writeConfig("providers:\n  anthropic:\n    type: anthropic\n");
     writeFileSync(join(cwd, "kiri.yml"), "providers:\n  openai:\n    type: openai\n");
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });
+    const watcher = watchKiriConfig(config, service, registry, {}, { debounceMs: 10, watchFn });
 
     triggerChange("kiri.yaml");
     await waitFor(() => warns.some((m) => m.includes("both")));
@@ -238,7 +356,7 @@ describe("watchKiriConfig", () => {
   it("logs and reschedules a reload when the fs watcher emits an error", async () => {
     writeConfig(PROVIDER);
     const { watchFn, watcher: fakeWatcher } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });
+    const watcher = watchKiriConfig(config, service, registry, {}, { debounceMs: 10, watchFn });
 
     fakeWatcher.emit("error", new Error("inotify hiccup"));
     await waitFor(() => registry.getProvider("local") !== undefined);
@@ -249,7 +367,7 @@ describe("watchKiriConfig", () => {
 
   it("stringifies a non-Error watcher error", async () => {
     const { watchFn, watcher: fakeWatcher } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });
+    const watcher = watchKiriConfig(config, service, registry, {}, { debounceMs: 10, watchFn });
 
     fakeWatcher.emit("error", "raw string");
     await waitFor(() => errs.some((m) => m.includes("raw string")));
@@ -260,7 +378,7 @@ describe("watchKiriConfig", () => {
 
   it("stop() halts further reloads", async () => {
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn });
+    const watcher = watchKiriConfig(config, service, registry, {}, { debounceMs: 10, watchFn });
     watcher.stop();
 
     writeConfig(PROVIDER);

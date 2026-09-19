@@ -36,6 +36,86 @@ describe("db", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("gives existing articles their stored heading and leaves headless ones without", () => {
+    migrate(db);
+    // Recreate the immediately preceding schema with articles already written.
+    db.$client.run("ALTER TABLE articles DROP COLUMN heading");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0045_add_article_heading'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    const insert = db.$client.prepare(
+      "INSERT INTO articles (id, session_id, slug, name, content_md, created_at) VALUES (?, 'old', ?, ?, ?, 1)",
+    );
+    insert.run("a1", "herons", "Herons", "Sure, here it is.\n\n# Wading **birds**\n\nBody.");
+    insert.run("a2", "notes", "Notes", "No heading here.");
+
+    migrate(db);
+
+    const headings = db
+      .select({ id: articles.id, heading: articles.heading })
+      .from(articles)
+      .orderBy(articles.id)
+      .all();
+    expect(headings).toEqual([
+      { id: "a1", heading: "Wading birds" },
+      { id: "a2", heading: null },
+    ]);
+    // The search index still mirrors an article the backfill rewrote.
+    expect(
+      db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'wading'").all(),
+    ).toHaveLength(1);
+  });
+
+  it("marks existing messages as the legacy parts format and keeps their parts", () => {
+    migrate(db);
+    // Recreate the immediately preceding schema with an existing conversation.
+    db.$client.run("ALTER TABLE messages DROP COLUMN parts_format");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0043_add_message_parts_format'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    const parts = JSON.stringify([{ type: "text", text: "retained" }]);
+    db.$client
+      .prepare(
+        'INSERT INTO messages (id, session_id, "index", role, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run("m1", "old", 0, "user", parts, 1);
+    migrate(db);
+    const row = db.select().from(messages).get();
+    expect(row?.partsFormat).toBe(0);
+    expect(row?.parts).toEqual([{ type: "text", text: "retained" }]);
+    // The search index still mirrors the message once its table has changed.
+    db.update(messages)
+      .set({ parts: [{ type: "text", text: "pelicans" }] })
+      .run();
+    expect(
+      db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'pelicans'").all(),
+    ).toHaveLength(1);
+  });
+
+  it("adds revision zero to existing transcripts and preserves it on repeated migration", () => {
+    migrate(db);
+    // Recreate the immediately preceding schema with an existing conversation.
+    db.$client.run("ALTER TABLE sessions DROP COLUMN transcript_revision");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0041_add_transcript_revision'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    const parts = JSON.stringify([{ type: "text", text: "retained" }]);
+    db.$client
+      .prepare(
+        'INSERT INTO messages (id, session_id, "index", role, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run("m1", "old", 0, "user", parts, 1);
+    migrate(db);
+    expect(db.select().from(sessions).get()?.transcriptRevision).toBe(0);
+    expect(db.select().from(messages).get()?.parts).toEqual([{ type: "text", text: "retained" }]);
+    db.update(sessions).set({ transcriptRevision: 7 }).run();
+    migrate(db);
+    expect(db.select().from(sessions).get()?.transcriptRevision).toBe(7);
+  });
+
   it("inserts a run + run_step and reads them back", () => {
     migrate(db);
 
@@ -46,7 +126,7 @@ describe("db", () => {
         workflowName: "self-review",
         status: "ok",
         startedAt,
-        definitionSnapshot: { name: "self-review", nodes: [] },
+        definitionSnapshot: { name: "self-review", steps: [] },
       })
       .run();
 
@@ -66,7 +146,7 @@ describe("db", () => {
     expect(run).toBeDefined();
     expect(run?.workflowName).toBe("self-review");
     expect(run?.startedAt).toEqual(startedAt);
-    expect(run?.definitionSnapshot).toEqual({ name: "self-review", nodes: [] });
+    expect(run?.definitionSnapshot).toEqual({ name: "self-review", steps: [] });
 
     const node = db.select().from(runSteps).where(eq(runSteps.id, "node-1")).get();
     expect(node).toBeDefined();
@@ -121,7 +201,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -172,7 +252,7 @@ describe("db", () => {
         workflowName: "plain",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -290,7 +370,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -330,7 +410,7 @@ describe("db", () => {
           workflowName: "x",
           status: "ok",
           startedAt: new Date(),
-          definitionSnapshot: {},
+          definitionSnapshot: { name: "fixture", steps: [] },
         })
         .run();
       db.insert(articles)
@@ -426,7 +506,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(sessions)
@@ -476,7 +556,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -658,7 +738,7 @@ describe("db", () => {
         workflowName: "aggregator",
         status: "ok",
         startedAt: new Date(1_700_000_000_000),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(runs)
@@ -667,7 +747,7 @@ describe("db", () => {
         workflowName: "pr-review",
         status: "ok",
         startedAt: new Date(1_700_000_005_000),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -709,7 +789,7 @@ describe("db", () => {
         workflowName: "x",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
 
@@ -1119,6 +1199,7 @@ describe("db", () => {
         "started_at",
         "status",
         "title",
+        "transcript_revision",
       ].sort(),
     );
 
@@ -1128,7 +1209,7 @@ describe("db", () => {
       )
       .all()
       .map((r) => r.name);
-    expect(indexes).toEqual(["messages_session_id_idx"]);
+    expect(indexes).toEqual(["messages_session_id_index_unique"]);
 
     const sessionIndexes = sqlite
       .query<{ name: string }, []>(
@@ -1136,7 +1217,10 @@ describe("db", () => {
       )
       .all()
       .map((r) => r.name);
-    expect(sessionIndexes).toEqual(["sessions_parent_session_id_idx"]);
+    expect(sessionIndexes.sort()).toEqual([
+      "sessions_parent_session_id_idx",
+      "sessions_parent_tool_call_unique",
+    ]);
   });
 
   it("preserves article rows when migrating a pre-decoupling DB", () => {
@@ -1186,6 +1270,7 @@ describe("db", () => {
     sqlite.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY NOT NULL,
       session_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
       role TEXT NOT NULL,
       parts TEXT NOT NULL
     )`);
@@ -1339,7 +1424,7 @@ describe("db", () => {
         workflowName: "digester",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     db.insert(articles)
@@ -1389,7 +1474,7 @@ describe("db", () => {
         role: "user",
         parts: [
           { type: "text", text: "Find the pelican report" },
-          { type: "file", url: "blob:x" },
+          { type: "file", mediaType: "image/png", url: "blob:x" },
         ],
         createdAt: new Date(),
       })
@@ -1425,7 +1510,15 @@ describe("db", () => {
         sessionId: "sess-fts",
         index: 3,
         role: "assistant",
-        parts: [{ type: "tool-run_command", state: "output-available" }],
+        parts: [
+          {
+            type: "tool-run_command",
+            toolCallId: "call-1",
+            state: "output-available",
+            input: {},
+            output: "",
+          },
+        ],
         createdAt: new Date(),
       })
       .run();
@@ -1621,7 +1714,7 @@ describe("db", () => {
         workflowName: "aggregator",
         status: "running",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     expect(searchRows(db, "run")).toHaveLength(0);
@@ -1700,6 +1793,7 @@ describe("db", () => {
     sqlite.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY NOT NULL,
       session_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
       role TEXT NOT NULL,
       parts TEXT NOT NULL
     )`);
@@ -1736,9 +1830,9 @@ describe("db", () => {
     sqlite.run("INSERT INTO articles VALUES ('a1', 'r1', NULL, 'Digest', 'Old pelican news')");
     sqlite.run(
       `INSERT INTO messages VALUES
-        ('m1', 's1', 'user', '[{"type":"text","text":"hello there"}]'),
-        ('m2', 's1', 'assistant', '[{"type":"tool-run_command","state":"output-available"}]'),
-        ('m3', 's1', 'system', '[{"type":"text","text":"overlay"}]')`,
+        ('m1', 's1', 0, 'user', '[{"type":"text","text":"hello there"}]'),
+        ('m2', 's1', 1, 'assistant', '[{"type":"tool-run_command","state":"output-available"}]'),
+        ('m3', 's1', 2, 'system', '[{"type":"text","text":"overlay"}]')`,
     );
 
     migrate(db);

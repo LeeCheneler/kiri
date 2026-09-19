@@ -8,12 +8,14 @@ import { migrate } from "../db/migrate.ts";
 import {
   type InboxDelivery,
   type InboxItem,
-  deleteInboxItems,
+  acknowledgeInboxItems,
   enqueueInboxItem,
   expandInboxMessages,
   inboxUIPart,
   insertInboxModelMessages,
   pendingInboxItems,
+  sessionsWithBacklog,
+  withdrawInboxItem,
 } from "./inbox.ts";
 import { createSession, deleteSession } from "./store.ts";
 
@@ -31,6 +33,7 @@ const item = (
   text,
   fromSessionId: sender.fromSessionId ?? null,
   createdAt: new Date(1_000),
+  deliveredAt: null,
 });
 
 const delivery = (id: string, insertIndex: number): InboxDelivery => ({
@@ -56,7 +59,7 @@ describe("inbox store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("queues, lists in FIFO order, and deletes", () => {
+  it("queues, lists in FIFO order, and drops acknowledged items from the backlog", () => {
     createSession(db, MODEL, { id: "s1" });
     const first = enqueueInboxItem(db, "s1", { source: "user", text: "first" });
     const second = enqueueInboxItem(db, "s1", { source: "user", text: "second" });
@@ -65,11 +68,30 @@ describe("inbox store", () => {
     expect(pendingInboxItems(db, "s1").map((row) => row.text)).toEqual(["first", "second"]);
     expect(first.createdAt).toBeInstanceOf(Date);
 
-    deleteInboxItems(db, [first.id]);
+    acknowledgeInboxItems(db, [first.id]);
     expect(pendingInboxItems(db, "s1").map((row) => row.id)).toEqual([second.id]);
-    // An empty delete is a no-op rather than a malformed query.
-    deleteInboxItems(db, []);
+    // An empty acknowledgement is a no-op rather than a malformed query.
+    acknowledgeInboxItems(db, []);
     expect(pendingInboxItems(db, "s1")).toHaveLength(1);
+  });
+
+  it("withdraws a pending item once, and only from its own session", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    const queued = enqueueInboxItem(db, "s1", { source: "user", text: "queued" });
+
+    expect(withdrawInboxItem(db, "s2", queued.id)).toBe(false);
+    expect(withdrawInboxItem(db, "s1", queued.id)).toBe(true);
+    expect(withdrawInboxItem(db, "s1", queued.id)).toBe(false);
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+  });
+
+  it("refuses to withdraw a delivered item", () => {
+    createSession(db, MODEL, { id: "s1" });
+    const queued = enqueueInboxItem(db, "s1", { source: "user", text: "queued" });
+    acknowledgeInboxItems(db, [queued.id]);
+
+    expect(withdrawInboxItem(db, "s1", queued.id)).toBe(false);
   });
 
   it("stores a child sender's session id and carries it into the delivered part", () => {
@@ -99,6 +121,18 @@ describe("inbox store", () => {
     enqueueInboxItem(db, "s1", { source: "user", text: "for s1" });
 
     expect(pendingInboxItems(db, "s2")).toEqual([]);
+  });
+
+  it("lists each session holding an undelivered backlog once", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    createSession(db, MODEL, { id: "s3" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "one" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "two" });
+    const delivered = enqueueInboxItem(db, "s2", { source: "user", text: "delivered" });
+    acknowledgeInboxItems(db, [delivered.id]);
+
+    expect(sessionsWithBacklog(db)).toEqual(["s1"]);
   });
 
   it("deletes a session's backlog with the session", () => {

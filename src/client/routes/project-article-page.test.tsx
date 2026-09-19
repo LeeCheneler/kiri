@@ -9,7 +9,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useProjectsLive } from "../state/projects.ts";
+import { useLiveInvalidation } from "../state/live-sync.tsx";
 import { createQueryClient } from "../state/query-client.ts";
 import { ProjectArticleActions, ProjectArticleContent } from "./project-article-page.tsx";
 
@@ -19,7 +19,7 @@ const PROJECT_ID = "abc12345-0000-0000-0000-000000000000";
 
 // The root-level project live bridge, as `<LiveSync>` mounts it in the app.
 const Live = () => {
-  useProjectsLive();
+  useLiveInvalidation();
   return null;
 };
 

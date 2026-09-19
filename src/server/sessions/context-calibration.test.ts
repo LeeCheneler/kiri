@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { type ModelMessage, type UIMessage, convertToModelMessages } from "ai";
 import {
+  applicableCalibration,
   contextSnapshot,
   measuredContextTokens,
   savedContextCalibration,
@@ -88,6 +89,15 @@ describe("context calibration", () => {
     for (const inputTokens of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(measuredContextTokens(next, { ...previous, inputTokens })).toBe(next.estimate);
     }
+  });
+
+  it("applies a measurement only to the model and call options it was taken against", () => {
+    const previous = { ...contextSnapshot(request), inputTokens: 20000 };
+    expect(applicableCalibration(previous, contextSnapshot(request))).toBe(previous);
+    expect(applicableCalibration(undefined, contextSnapshot(request))).toBeUndefined();
+    expect(
+      applicableCalibration(previous, contextSnapshot({ ...request, model: "test:other" })),
+    ).toBeUndefined();
   });
 
   it("matches SDK property reordering and detects changed image bytes", () => {

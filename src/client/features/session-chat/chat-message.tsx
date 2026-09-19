@@ -1,5 +1,6 @@
 import type { FileUIPart, UIMessage } from "ai";
 import { memo, useEffect, useId, useState } from "react";
+import { parseAttachedFile } from "../../../shared/attached-file.ts";
 import type { CheckpointUIPart } from "../../../shared/checkpoint-part.ts";
 import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
@@ -8,9 +9,9 @@ import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
-import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
+import { stagedAttachmentsFrom } from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
-import { PreviewableFile } from "./file-thumb.tsx";
+import { AttachedDocument, PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import type { LiveConsoleStore } from "./live-console.ts";
 import { MessageComposer } from "./message-composer.tsx";
@@ -42,6 +43,13 @@ const imageParts = (message: UIMessage): FileUIPart[] =>
     (part): part is FileUIPart => part.type === "file" && part.mediaType.startsWith("image/"),
   );
 
+// The document attachments on a message — every non-image file part — rendered
+// as downloadable tiles alongside the images.
+const documentParts = (message: UIMessage): FileUIPart[] =>
+  message.parts.filter(
+    (part): part is FileUIPart => part.type === "file" && !part.mediaType.startsWith("image/"),
+  );
+
 // The text files attached to a message, rendered as previewable tiles above its
 // text. They ride as `<attached-file>` text parts so they reach the model as
 // plain text.
@@ -62,16 +70,21 @@ const attachedFiles = (message: UIMessage): { filename: string; content: string 
 function UserMessage({
   message,
   busy,
+  acceptsImages,
+  acceptsDocuments,
   onResubmit,
   onDelete,
 }: {
   message: UIMessage;
   busy: boolean;
+  acceptsImages: boolean;
+  acceptsDocuments: readonly string[];
   onResubmit: ResubmitHandler;
   onDelete: DeleteMessageHandler;
 }) {
   const text = messageText(message);
   const images = imageParts(message);
+  const documents = documentParts(message);
   const files = attachedFiles(message);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -106,11 +119,9 @@ function UserMessage({
             value={draft}
             onChange={setDraft}
             busy={busy}
-            initialImages={images.map((part) => ({ id: part.url, part }) satisfies PendingImage)}
-            initialTextFiles={files.map(
-              (file, index) =>
-                ({ id: `${message.id}-file-${index}`, ...file }) satisfies PendingTextFile,
-            )}
+            acceptsImages={acceptsImages}
+            acceptsDocuments={acceptsDocuments}
+            initialAttachments={stagedAttachmentsFrom(message)}
             onSubmit={(parts) => onResubmit(message.id, parts)}
             onCancel={() => setEditing(false)}
             submitLabel="resend"
@@ -119,11 +130,16 @@ function UserMessage({
           <>
             <Eyebrow tone="muted">You</Eyebrow>
             <div className="mt-2 space-y-3">
-              {images.length > 0 || files.length > 0 ? (
+              {images.length > 0 || documents.length > 0 || files.length > 0 ? (
                 <ul className="flex flex-wrap gap-2">
                   {images.map((part) => (
                     <li key={part.url}>
                       <PreviewableImage part={part} />
+                    </li>
+                  ))}
+                  {documents.map((part) => (
+                    <li key={part.url}>
+                      <AttachedDocument part={part} />
                     </li>
                   ))}
                   {files.map((file, index) => (
@@ -183,19 +199,32 @@ function UserMessage({
 }
 
 /**
- * A message accepted for the in-flight turn but not yet delivered to it. Boxed
- * like a user message so it reads as part of the conversation, with a quiet
+ * A message queued for the session but not yet delivered to a turn. Boxed like
+ * a user message so it reads as part of the conversation, with a quiet
  * "queued" tag and muted text for its pending state. It resolves out of this
- * view when the turn absorbs it (it reappears as the woven interjection) or
- * the turn settles first (it promotes to an ordinary sent message).
+ * view when a turn takes it (it reappears as the woven interjection) or the
+ * user withdraws it. `onWithdraw` is absent while the message is still being
+ * submitted: there is nothing on the server to withdraw yet.
  */
-export function QueuedMessage({ text }: { text: string }) {
+export function QueuedMessage({ text, onWithdraw }: { text: string; onWithdraw?: () => void }) {
   return (
     <article>
       <Card>
         <div className="flex items-baseline justify-between">
           <Eyebrow tone="muted">You</Eyebrow>
-          <span className="font-mono text-ink-muted text-xs">queued</span>
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono text-ink-muted text-xs">queued</span>
+            {onWithdraw ? (
+              <button
+                type="button"
+                onClick={onWithdraw}
+                title="Withdraw message"
+                className="cursor-pointer font-mono text-ink-muted text-xs hover:text-status-failed"
+              >
+                withdraw
+              </button>
+            ) : null}
+          </div>
         </div>
         <p className="mt-2 whitespace-pre-wrap font-mono text-ink-muted text-sm">{text}</p>
       </Card>
@@ -389,6 +418,8 @@ function AssistantMessage({
 export const ChatMessage = memo(function ChatMessage({
   message,
   busy,
+  acceptsImages,
+  acceptsDocuments,
   sessionId,
   pageLinks,
   liveConsoles,
@@ -399,6 +430,10 @@ export const ChatMessage = memo(function ChatMessage({
 }: {
   message: UIMessage;
   busy: boolean;
+  /** Whether the session's model reads images; gates what an edited message can resend. */
+  acceptsImages: boolean;
+  /** The document media types the session's model can be sent; must be referentially stable. */
+  acceptsDocuments: readonly string[];
   /** The owning session; lets a delegate call render its embedded child session. */
   sessionId?: string;
   /** Where the session's article, memory, and project pages live; tool results link through it. */
@@ -425,7 +460,14 @@ export const ChatMessage = memo(function ChatMessage({
       );
     }
     return (
-      <UserMessage message={message} busy={busy} onResubmit={onResubmit} onDelete={onDelete} />
+      <UserMessage
+        message={message}
+        busy={busy}
+        acceptsImages={acceptsImages}
+        acceptsDocuments={acceptsDocuments}
+        onResubmit={onResubmit}
+        onDelete={onDelete}
+      />
     );
   }
   const segments = segmentParts(message.parts);

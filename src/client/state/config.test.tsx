@@ -5,12 +5,13 @@ import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useConfigHealth, useConfigHealthLive } from "./config.ts";
+import { useConfigHealth } from "./config.ts";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
 import { useModels } from "./sessions.ts";
 
 const Probe = () => {
-  useConfigHealthLive();
+  useLiveInvalidation();
   const checks = useConfigHealth().data?.checks ?? [];
   const models = useModels().data?.models ?? [];
   return (

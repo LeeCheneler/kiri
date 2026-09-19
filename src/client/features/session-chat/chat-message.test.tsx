@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { wrapAttachedFile } from "../../../shared/attached-file.ts";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
-import { wrapAttachedFile } from "./attachments.ts";
 import { ChatMessage, type DeleteMessageHandler, type ResubmitHandler } from "./chat-message.tsx";
 import type { ToolDecisionHandler } from "./tool-invocation.tsx";
 
@@ -20,8 +20,12 @@ const renderMessage = (
     onResubmit = () => {},
     onDelete = () => {},
     onToolDecision,
+    acceptsImages = true,
+    acceptsDocuments = [],
   }: {
     busy?: boolean;
+    acceptsImages?: boolean;
+    acceptsDocuments?: readonly string[];
     wikiLinkResolver?: WikiLinkResolver;
     onResubmit?: ResubmitHandler;
     onDelete?: DeleteMessageHandler;
@@ -34,6 +38,8 @@ const renderMessage = (
       <ChatMessage
         message={msg}
         busy={busy}
+        acceptsImages={acceptsImages}
+        acceptsDocuments={acceptsDocuments}
         wikiLinkResolver={wikiLinkResolver}
         onResubmit={onResubmit}
         onDelete={onDelete}
@@ -187,6 +193,23 @@ describe("<ChatMessage>", () => {
     expect(screen.getByText("You")).toBeDefined();
     expect(screen.getByText("look at this")).toBeDefined();
     expect(screen.getByAltText("shot.png")).toBeDefined();
+  });
+
+  it("renders a document attachment as a download tile", () => {
+    const url = "data:application/pdf;base64,AA";
+    renderMessage(
+      message("user", [
+        { type: "file", mediaType: "application/pdf", filename: "brief.pdf", url },
+        { type: "file", mediaType: "application/pdf", url },
+        { type: "text", text: "summarise these" },
+      ]),
+    );
+
+    const named = screen.getByTitle("Download brief.pdf") as HTMLAnchorElement;
+    expect(named.getAttribute("href")).toBe(url);
+    expect(named.getAttribute("download")).toBe("brief.pdf");
+    expect(screen.getByTitle("Download Attached document")).toBeDefined();
+    expect(screen.getByText("summarise these")).toBeDefined();
   });
 
   it("renders an attached text file as a previewable tile, not as raw message text", () => {
@@ -382,6 +405,63 @@ describe("<ChatMessage>", () => {
     await userEvent.type(editField() as HTMLTextAreaElement, "look again{Enter}");
 
     expect(onResubmit.mock.calls).toEqual([["m1", [image, { type: "text", text: "look again" }]]]);
+  });
+
+  it("preserves document attachments when resending an edited message", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    const document = {
+      type: "file" as const,
+      mediaType: "application/pdf",
+      filename: "brief.pdf",
+      url: "data:application/pdf;base64,AA",
+    };
+    renderMessage(message("user", [document, { type: "text", text: "read" }]), {
+      onResubmit,
+      acceptsDocuments: ["application/pdf"],
+    });
+
+    await userEvent.click(editButton());
+    // The seeded document tiles in the editor.
+    expect(screen.getByRole("button", { name: "Remove brief.pdf" })).toBeDefined();
+    await userEvent.clear(editField() as HTMLTextAreaElement);
+    await userEvent.type(editField() as HTMLTextAreaElement, "read again{Enter}");
+
+    expect(onResubmit.mock.calls).toEqual([
+      ["m1", [document, { type: "text", text: "read again" }]],
+    ]);
+  });
+
+  it("refuses to resend attachments the session's model can no longer read", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    const document = {
+      type: "file" as const,
+      mediaType: "application/pdf",
+      filename: "brief.pdf",
+      url: "data:application/pdf;base64,AA",
+    };
+    const image = {
+      type: "file" as const,
+      mediaType: "image/png",
+      url: "data:image/png;base64,AA",
+    };
+    renderMessage(message("user", [document, image, { type: "text", text: "read" }]), {
+      onResubmit,
+      acceptsImages: false,
+    });
+
+    await userEvent.click(editButton());
+    await userEvent.type(editField() as HTMLTextAreaElement, " again{Enter}");
+
+    expect(onResubmit).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").map((alert) => alert.textContent)).toEqual([
+      "This model can't read .pdf files. Switch model to attach it.",
+      "This model reads text only. Switch model to attach images.",
+    ]);
+    // Removing what the model can't read lets the rest through.
+    await userEvent.click(screen.getByRole("button", { name: "Remove brief.pdf" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove image" }));
+    await userEvent.click(screen.getByRole("button", { name: "resend" }));
+    expect(onResubmit.mock.calls).toEqual([["m1", [{ type: "text", text: "read again" }]]]);
   });
 
   it("preserves attached text files when resending an edited message", async () => {

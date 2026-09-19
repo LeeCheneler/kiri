@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { type JSONValue, type ToolSet, tool } from "ai";
+import { type ToolSet, tool } from "ai";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { listArticleSummaries } from "../articles/store.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, runSteps, runs } from "../db/schema.ts";
+import { runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
@@ -17,7 +18,7 @@ import {
   parseWorkflowSource,
   stepLabel,
 } from "../workflows/index.ts";
-import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
+import { MAX_DIFF_LENGTH, unifiedDiff } from "./write-tool-diffs.ts";
 export interface WorkflowToolsDeps {
   /** Checks workspace-authorized directory instructions before writing workflow YAML. */
   checkInstructions?: (directory: string) => void;
@@ -99,12 +100,7 @@ const runOutcome = (db: KiriDb, runId: string, definition: WorkflowDefinition) =
     .where(eq(runSteps.runId, runId))
     .orderBy(asc(runSteps.index))
     .all();
-  const articleRows = db
-    .select({ slug: articles.slug, name: articles.name })
-    .from(articles)
-    .where(eq(articles.runId, runId))
-    .orderBy(asc(articles.createdAt))
-    .all();
+  const articleRows = listArticleSummaries(db, { runId });
   return {
     run_id: runId,
     status: run.status,
@@ -124,7 +120,8 @@ const runOutcome = (db: KiriDb, runId: string, definition: WorkflowDefinition) =
       };
     }),
     articles: articleRows.map((article) => ({
-      ...article,
+      slug: article.slug,
+      name: article.name,
       href: `/runs/${encodeURIComponent(runId)}/articles/${encodeURIComponent(article.slug)}`,
     })),
   };
@@ -434,18 +431,14 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
         deps.checkInstructions?.(dirname(realpathSync(source)));
         writeFileSync(source, after);
         // The diff is app-only: the transcript renders the rewrite as the
-        // change it made, while toModelOutput and the send-time strip keep it
-        // out of what the model is paid for.
+        // change it made, while the result's projection keeps it out
+        // of what the model is paid for.
         return {
           name: definition.name,
           file: workspaceRelative(source),
           ...unifiedDiff(before, after, MAX_DIFF_LENGTH),
         };
       },
-      toModelOutput: ({ output }) => ({
-        type: "json" as const,
-        value: compactWriteOutput(output) as JSONValue,
-      }),
     }),
   };
 }

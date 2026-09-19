@@ -11,7 +11,7 @@ import { RunRow } from "./run-row.tsx";
  * `IntersectionObserver` sentinel at the foot of the list loads the next
  * page as it scrolls into view; the feed stays current as runs start,
  * change, finish, and are deleted because the query is invalidated on those
- * events app-wide (see `useRunFeedsLive`).
+ * events app-wide (see `<LiveSync>`).
  */
 export function Runs({ workflowName }: { workflowName: string }) {
   const feed = useWorkflowRunFeed(workflowName);

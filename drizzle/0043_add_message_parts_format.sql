@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `parts_format` integer DEFAULT 0 NOT NULL;

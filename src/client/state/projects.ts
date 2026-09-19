@@ -27,12 +27,7 @@ import {
   patchProject,
   patchProjectMemory,
 } from "../api.ts";
-import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
-
-const projectsKey = ["projects"] as const;
-const projectKey = (id: string) => ["project", id] as const;
-const projectArticleKey = (id: string, slug: string) => ["project-article", id, slug] as const;
-const projectMemoryKey = (id: string, name: string) => ["project-memory", id, name] as const;
+import { projectArticleKey, projectKey, projectMemoryKey, projectsKey } from "./query-keys.ts";
 
 /** Page size for each project content column; mirrors the server default. */
 const PROJECT_PAGE_SIZE = 25;
@@ -40,8 +35,7 @@ const PROJECT_PAGE_SIZE = 25;
 /**
  * Read the project index — every project with its corpus and session
  * counts, newest first. Fetched on first use and served from cache
- * thereafter; kept current by `useProjectsLive`, mounted once near the
- * root via `<LiveSync>`.
+ * thereafter; kept current by `<LiveSync>`.
  */
 export function useProjects(): UseQueryResult<ProjectSummary[]> {
   return useQuery({
@@ -53,7 +47,7 @@ export function useProjects(): UseQueryResult<ProjectSummary[]> {
 /**
  * Read a single project with its article and session indexes. Fetched on
  * first use and served from cache thereafter; kept current by
- * `useProjectsLive`.
+ * `<LiveSync>`.
  */
 export function useProject(id: string): UseQueryResult<ProjectDetail> {
   return useQuery({ queryKey: projectKey(id), queryFn: () => fetchProject(id) });
@@ -99,7 +93,7 @@ export function useProjectSessionsFeed(
  * Read a single project-owned article, fetching on first use and serving
  * the cache thereafter. The corpus is editable — any of the project's
  * sessions can rewrite an article — so the cache is kept current by
- * `useProjectsLive`.
+ * `<LiveSync>`.
  */
 export function useProjectArticle(id: string, slug: string): UseQueryResult<ProjectArticleDetail> {
   return useQuery({
@@ -110,75 +104,13 @@ export function useProjectArticle(id: string, slug: string): UseQueryResult<Proj
 
 /**
  * Read a single project-scoped memory in full. Fetched on first use and
- * served from cache thereafter; kept current by `useProjectsLive`, since a
+ * served from cache thereafter; kept current by `<LiveSync>`, since a
  * session in the project can rewrite it mid-turn.
  */
 export function useProjectMemory(id: string, name: string): UseQueryResult<MemoryDetail> {
   return useQuery({
     queryKey: projectMemoryKey(id, name),
     queryFn: async () => (await fetchProjectMemory(id, name)).memory,
-  });
-}
-
-/**
- * Bridges project events to the project caches: any create, rename, or
- * delete invalidates the affected project's detail, its articles, and the
- * index, whether or not a consumer is mounted — a deleted project 404s
- * rather than rendering from cache. Reconnect re-syncs every project
- * query. Mount once near the root via `<LiveSync>`.
- */
-export function useProjectsLive(): void {
-  const queryClient = useQueryClient();
-  useLiveEvent({
-    on: ["project.created", "project.updated", "project.deleted"],
-    handler: (event) => {
-      void queryClient.invalidateQueries({ queryKey: projectKey(event.id) });
-      void queryClient.invalidateQueries({ queryKey: ["project-article", event.id] });
-      void queryClient.invalidateQueries({ queryKey: projectsKey });
-    },
-  });
-  // Session lifecycle reshapes a project's session index and counts, but
-  // session events carry no project id — restale every project query and let
-  // the mounted ones refetch.
-  useLiveEvent({
-    on: ["session.started", "session.updated", "session.finished", "session.deleted"],
-    handler: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project"] });
-      void queryClient.invalidateQueries({ queryKey: projectsKey });
-    },
-  });
-  // Corpus writes and deletions announce their project id — the project's
-  // page, index counts, and the touched article all refresh without a
-  // project.* event. Session-owned article events carry none and are ignored.
-  useLiveEvent({
-    on: ["article.written", "article.deleted"],
-    handler: (event) => {
-      if (event.projectId === undefined) return;
-      void queryClient.invalidateQueries({ queryKey: projectKey(event.projectId) });
-      void queryClient.invalidateQueries({
-        queryKey: projectArticleKey(event.projectId, event.slug),
-      });
-      void queryClient.invalidateQueries({ queryKey: projectsKey });
-    },
-  });
-  // Project-scoped memory writes announce their project id — the project's
-  // page and the touched memory refresh without a project.* event. Global
-  // memory events carry none and belong to the memories caches.
-  useLiveEvent({
-    on: ["memory.saved", "memory.deleted"],
-    handler: (event) => {
-      if (event.projectId === undefined) return;
-      void queryClient.invalidateQueries({ queryKey: projectKey(event.projectId) });
-      void queryClient.invalidateQueries({
-        queryKey: projectMemoryKey(event.projectId, event.name),
-      });
-    },
-  });
-  useLiveReconnect(() => {
-    void queryClient.invalidateQueries({ queryKey: ["project"] });
-    void queryClient.invalidateQueries({ queryKey: ["project-article"] });
-    void queryClient.invalidateQueries({ queryKey: ["project-memory"] });
-    void queryClient.invalidateQueries({ queryKey: projectsKey });
   });
 }
 

@@ -90,8 +90,9 @@ new credentials automatically. No Kiri restart is needed. Returning to the
 app rechecks the health banner; a local expiry check does not verify backend
 access. Keep the credential file out of your repository and shared logs.
 
-Sessions support streaming, tools, token usage, and image input when the
-model advertises it. Utility calls and `llm:` steps collect the streamed
+Sessions support streaming, tools, token usage, image input when the model
+advertises it, and document input: PDFs in full, and Word, PowerPoint, and
+Excel files as extracted text. Utility calls and `llm:` steps collect the streamed
 response into their usual final text result. Effort is clamped to the
 model's advertised levels. This provider offers neither image generation
 nor audio transcription; configure another provider for those capabilities.
@@ -124,6 +125,11 @@ providers:
 Everything that takes a `model:` — pipeline steps, articles, summarisers,
 sessions — accepts `openrouter:google/gemini-3.7-flash` or
 `local:<model-id>` the same as a hosted first-party provider.
+
+Document attachments are the one difference between the two: sessions on an
+OpenRouter model take PDFs — parsed natively where the model reads files,
+otherwise through OpenRouter's free text parser — while sessions on a local
+server or another gateway take text files and images only.
 
 ## Model shortcuts
 
@@ -205,8 +211,23 @@ same endpoint. Unset, push-to-talk stays off.
 
 ## Hot reload and health
 
-Edits to `kiri.yaml` apply live; an invalid edit keeps the last-known-good
-config. Problems — an unset key variable, a reference to an undeclared
+Edits to `kiri.yaml` apply live; an invalid edit keeps the last good providers,
+MCP servers, and models — shortcuts, delegates, and the utility and
+transcription models — until the file is fixed. Overlapping MCP reconnects keep the latest requested configuration,
+and tool calls already running retain their connections until they finish.
+Changing a provider refreshes its cached context limits, reasoning support, and
+document capabilities for new lookups. Models already resolved for a request
+keep their original endpoint and capabilities source.
+
+Kiri reads each model's limits and capabilities from its own provider's model
+listing, so a slow or unreachable provider never delays a session on another.
+A listing request is given ten seconds, reused for five minutes, and retried
+thirty seconds after a failure. When a listing is unavailable or doesn't carry
+a model, the model still runs: its context window is treated as unknown, and
+reasoning settings are sent only when its id belongs to a well-known reasoning
+family.
+
+Problems — an unset key variable, a reference to an undeclared
 provider, or expired Codex credentials — never block boot: they're flagged in the boot report and the
 in-app health banner. See [Troubleshooting](/docs/troubleshooting).
 

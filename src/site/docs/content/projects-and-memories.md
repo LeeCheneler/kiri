@@ -81,7 +81,8 @@ See [knowledge retrieval details](/docs/session-reference#finding-prior-work).
 
 ### Lifecycle and boundaries
 
-Deleting a project deletes its sessions, articles, memories, and tasks after
-confirmation. These records live in Kiri's local database, outside git.
+Deleting a project deletes its sessions and delegated workers, their queued
+messages, articles, memories, and tasks after confirmation. Stop any running
+sessions or workers first. These records live in Kiri's local database, outside git.
 [Delegated workers](/docs/session-reference#delegating-research) can read project
 records; the parent session makes shared-record changes.

@@ -135,4 +135,34 @@ describe("createCancelRegistry", () => {
     expect(reg.isCancelled("r1")).toBe(true);
     expect(reg.isCancelled("r2")).toBe(false);
   });
+
+  it("drains by cancelling every run and waiting for each to be released", async () => {
+    const reg = createCancelRegistry({ sigkillDelayMs: 10_000 });
+    const c1 = makeFakeChild();
+    reg.register("r1");
+    reg.register("r2");
+    reg.setChild("r1", c1);
+    reg.requestCancel("r2");
+
+    let drained = false;
+    const draining = reg.drain().then(() => {
+      drained = true;
+    });
+    expect(reg.drain()).toBe(reg.drain());
+    expect(c1.signals).toEqual(["SIGTERM"]);
+    expect(reg.isCancelled("r2")).toBe(true);
+
+    reg.release("r1");
+    await sleep(0);
+    expect(drained).toBe(false);
+    reg.release("r2");
+    await draining;
+  });
+
+  it("drains at once with nothing running, and cancels a run registered afterwards", async () => {
+    const reg = createCancelRegistry();
+    await reg.drain();
+    reg.register("r1");
+    expect(reg.isCancelled("r1")).toBe(true);
+  });
 });

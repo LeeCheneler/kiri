@@ -1,8 +1,6 @@
 import { type UseQueryResult, keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type SearchResults, fetchSearch } from "../api.ts";
-
-/** Query key for one search term. */
-export const searchKey = (q: string) => ["search", q] as const;
+import { searchKey } from "./query-keys.ts";
 
 /**
  * Query the cross-entity search endpoint for `q`, disabled while `q` is

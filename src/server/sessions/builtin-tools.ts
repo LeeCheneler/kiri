@@ -11,37 +11,36 @@ export interface BuiltinTool {
   description: string;
   defaultPermission: ToolPermission;
   /**
+   * Which sessions are offered the tool, whatever its permission; absent means
+   * every session. `top-level` tools are withheld from a delegated worker: a
+   * worker can't spawn or steer workers, and the durable record — articles,
+   * memories, the project's standing instructions and task list — stays with
+   * the user-facing conversation. A worker's deliverable rides
+   * `message_parent` (articles it wrote would land on a hidden session), it
+   * recalls memories and reads the task list without rewriting either, and
+   * the instructions it inherits are the user's to change through the
+   * conversation they're in. `worker` tools are offered only to a session
+   * with a parent.
+   */
+  availability?: "top-level" | "worker";
+  /**
+   * The app-only payload the tool's result carries for the transcript to
+   * render — a unified `diff` of the change it made, or a generated `image` —
+   * which is stripped before the model sees the result. Absent means the
+   * model receives the result as stored.
+   */
+  output?: "diff" | "image";
+  /**
    * Plumbing between kiri's own sessions rather than a capability the user
    * grants: gated like every tool, but kept off the MCP page's listing.
    */
-  internal?: boolean;
+  internal?: true;
 }
 
-/**
- * Every first-party session tool, in the order the MCP page lists them. Each
- * rides the same standing tool-permission machinery as an MCP tool — the
- * session routes gate each listed tool per call, and the MCP page's Built-in
- * tools card shows its permission for review and change. Defaults encode the
- * trust posture: tools that only read or write kiri's own data run without
- * prompting (`allow` — the request in chat is the authorisation), as do the
- * filesystem read tools (reads confined to the sandbox the user declared in
- * `kiri.yaml` — declaring it is the authorisation), while tools that execute
- * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
- * (the workflow and filesystem write tools), or run model-authored commands
- * (`run_command`) ask first. `delegate` runs without prompting because its
- * worker's tools ride this same gating — an ask pauses the worker for the
- * user, so delegation never widens what runs unprompted — and the delegation
- * messaging tools (`message_worker`, `message_parent`) only move text
- * between the conversation's own sessions. Those two are `internal`:
- * inner plumbing of delegation rather than a capability the user grants,
- * so the MCP page's listing leaves them out.
- * A tool whose capability isn't configured (the filesystem tools and
- * `run_command` with no declared sandbox) is withheld from the model
- * regardless of its permission, as are `delegate` and `message_worker`
- * from a child session — a worker can't spawn or steer workers — and
- * `message_parent` from a session with no parent.
- */
-export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
+// Declared `as const` so the names form a literal union; consumers read the
+// list through `BUILTIN_TOOLS`, which widens every other field back to the
+// descriptor's contract.
+const DESCRIPTORS = [
   {
     name: "search_knowledge",
     description: "Search prior work in the current project or explicitly across the workspace.",
@@ -56,21 +55,26 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "create_article",
     description: "Create an article: a standalone markdown document saved outside the chat.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "replace_article",
     description: "Rewrite the entire body of one of the session's articles.",
     defaultPermission: "allow",
+    availability: "top-level",
+    output: "diff",
   },
   {
     name: "edit_article",
     description: "Make a targeted text replacement in one of the session's articles.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "delete_article",
     description: "Permanently delete one of the session's articles.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "list_articles",
@@ -86,6 +90,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "generate_image",
     description: "Generate an image with the session's selected image model.",
     defaultPermission: "allow",
+    output: "image",
   },
   {
     name: "use_skill",
@@ -96,6 +101,8 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "save_memory",
     description: "Save or update a durable memory for future sessions to recall.",
     defaultPermission: "allow",
+    availability: "top-level",
+    output: "diff",
   },
   {
     name: "read_memory",
@@ -106,11 +113,14 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "delete_memory",
     description: "Delete a saved memory.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "update_project_instructions",
     description: "Rewrite the standing instructions of the session's project.",
     defaultPermission: "allow",
+    availability: "top-level",
+    output: "diff",
   },
   {
     name: "list_tasks",
@@ -121,31 +131,37 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "add_task",
     description: "Add a task to the session's project task list.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "update_task",
     description: "Mark a project task done, retitle it, edit its note, or move it.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "delete_task",
     description: "Delete a task from the session's project task list.",
     defaultPermission: "ask",
+    availability: "top-level",
   },
   {
     name: "create_task_group",
     description: "Create a group in the session's project task list.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "update_task_group",
     description: "Rename, reorder, or hide a group in the session's project task list.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "delete_task_group",
     description: "Delete a group and its tasks from the session's project task list.",
     defaultPermission: "ask",
+    availability: "top-level",
   },
   {
     name: "list_workflows",
@@ -171,6 +187,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "replace_workflow",
     description: "Rewrite a workflow's YAML file wholesale.",
     defaultPermission: "ask",
+    output: "diff",
   },
   {
     name: "run_workflow",
@@ -211,11 +228,13 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "write_file",
     description: "Create or overwrite a text file in the allowed directories.",
     defaultPermission: "ask",
+    output: "diff",
   },
   {
     name: "edit_file",
     description: "Make a targeted text replacement in a file in the allowed directories.",
     defaultPermission: "ask",
+    output: "diff",
   },
   {
     name: "create_directory",
@@ -242,11 +261,13 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     description:
       "Delegate a self-contained task to a worker session that runs in the background and messages back.",
     defaultPermission: "allow",
+    availability: "top-level",
   },
   {
     name: "message_worker",
     description: "Message a delegated worker: steer it, ask for progress, or answer its question.",
     defaultPermission: "allow",
+    availability: "top-level",
     internal: true,
   },
   {
@@ -254,6 +275,35 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     description:
       "Let a delegated worker message the session that delegated its task: progress, questions, and results.",
     defaultPermission: "allow",
+    availability: "worker",
     internal: true,
   },
-];
+] as const satisfies readonly BuiltinTool[];
+
+/** The name of a first-party session tool, as the model calls it. */
+export type BuiltinToolName = (typeof DESCRIPTORS)[number]["name"];
+
+/**
+ * Every first-party session tool, in the order the MCP page lists them. Each
+ * rides the same standing tool-permission machinery as an MCP tool — the
+ * tool assembly gates each listed tool per call, and the MCP page's Built-in
+ * tools card shows its permission for review and change. Defaults encode the
+ * trust posture: tools that only read or write kiri's own data run without
+ * prompting (`allow` — the request in chat is the authorisation), as do the
+ * filesystem read tools (reads confined to the sandbox the user declared in
+ * `kiri.yaml` — declaring it is the authorisation), while tools that execute
+ * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
+ * (the workflow and filesystem write tools), or run model-authored commands
+ * (`run_command`) ask first. `delegate` runs without prompting because its
+ * worker's tools ride this same gating — an ask pauses the worker for the
+ * user, so delegation never widens what runs unprompted — and the delegation
+ * messaging tools (`message_worker`, `message_parent`) only move text
+ * between the conversation's own sessions. Those two are `internal`:
+ * inner plumbing of delegation rather than a capability the user grants,
+ * so the MCP page's listing leaves them out.
+ * A tool whose capability isn't configured (the filesystem tools and
+ * `run_command` with no declared sandbox) is withheld from the model
+ * regardless of its permission, as is one whose `availability` excludes
+ * the session.
+ */
+export const BUILTIN_TOOLS: readonly (BuiltinTool & { name: BuiltinToolName })[] = DESCRIPTORS;

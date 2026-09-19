@@ -1,14 +1,25 @@
 import type { UIMessage } from "ai";
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import { and, asc, count, desc, eq, gte, inArray, isNull, max, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import type { SessionOwners } from "../../shared/api/events.ts";
+import { type ArticleSummary, articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
+import { CURRENT_PARTS_FORMAT, readStoredParts } from "./transcript-format.ts";
 
 /** A persisted session row. */
 export type Session = typeof sessions.$inferSelect;
-/** A persisted message row. `parts` is an AI SDK `UIMessage` parts array (typed `unknown` by drizzle's JSON column). */
-export type Message = typeof messages.$inferSelect;
+/**
+ * A persisted message. `parts` is an AI SDK `UIMessage` parts array in the
+ * current parts format, whichever format its row was written in.
+ */
+export type Message = Omit<typeof messages.$inferSelect, "partsFormat">;
+
+const toMessage = ({ partsFormat, ...row }: typeof messages.$inferSelect): Message => ({
+  ...row,
+  parts: readStoredParts(row.id, partsFormat, row.parts),
+});
 
 /** A message to append, ahead of being assigned its row id, index, and timestamp. */
 export interface NewMessage {
@@ -106,6 +117,21 @@ export function getSessionChildren(db: KiriDb, parentSessionId: string): Session
 }
 
 /**
+ * Apply validated settings to an existing session in one atomic update and
+ * return its row. Undefined fields are unchanged; an empty patch only reads.
+ */
+export function updateSessionSettings(
+  db: KiriDb,
+  id: string,
+  settings: Partial<Pick<Session, "model" | "imageModel" | "effort" | "title">>,
+): Session {
+  if (Object.values(settings).every((value) => value === undefined)) {
+    return getSession(db, id) as Session;
+  }
+  return db.update(sessions).set(settings).where(eq(sessions.id, id)).returning().get() as Session;
+}
+
+/**
  * Set the `provider:model` id a session's turns run against. The turn endpoint
  * resolves the model per turn, so the change takes effect from the next turn.
  * Returns the updated row.
@@ -177,25 +203,41 @@ function messagePreview(parts: UIMessage["parts"]): string {
 }
 
 /**
- * Preview label for each of `sessionIds`, taken from its first user message
- * (whitespace collapsed, capped at 100 chars). A single batched query, ordered
- * so the lowest-index user message per session wins. Sessions without a user
- * message yet — or whose first one has no text — are absent from the map.
+ * Preview label for each untitled session in `sessionIds`, taken from its
+ * first user message (whitespace collapsed, capped at 100 chars). A titled
+ * session is named by its title wherever it is listed, so it is never read. A
+ * single batched query that reads one message per session, however long the
+ * history behind it. Sessions without a user message yet — or whose first one
+ * has no text — are absent from the map.
  */
 export function getSessionPreviews(db: KiriDb, sessionIds: string[]): Map<string, string> {
   const previews = new Map<string, string>();
   if (sessionIds.length === 0) return previews;
+
+  const candidate = alias(messages, "candidate");
+  const firstUserMessageId = db
+    .select({ id: candidate.id })
+    .from(candidate)
+    .where(and(eq(candidate.sessionId, sessions.id), eq(candidate.role, "user")))
+    .orderBy(asc(candidate.index))
+    .limit(1);
   const rows = db
-    .select({ sessionId: messages.sessionId, parts: messages.parts })
-    .from(messages)
-    .where(and(inArray(messages.sessionId, sessionIds), eq(messages.role, "user")))
-    .orderBy(asc(messages.index))
+    .select({
+      id: messages.id,
+      sessionId: messages.sessionId,
+      parts: messages.parts,
+      partsFormat: messages.partsFormat,
+    })
+    .from(sessions)
+    .innerJoin(messages, eq(messages.id, sql`(${firstUserMessageId})`))
+    .where(and(inArray(sessions.id, sessionIds), isNull(sessions.title)))
     .all();
+
   for (const row of rows) {
-    if (previews.has(row.sessionId)) continue;
-    const text = messagePreview(row.parts as UIMessage["parts"]);
+    const text = messagePreview(readStoredParts(row.id, row.partsFormat, row.parts));
     if (text !== "") previews.set(row.sessionId, text);
   }
+
   return previews;
 }
 
@@ -224,24 +266,30 @@ export function getSessionLabels(db: KiriDb, sessionIds: string[]): Map<string, 
 }
 
 /**
- * When each of `sessionIds` last moved: its newest message's timestamp. A
- * single batched query ordered newest-first, so the first row per session
- * wins. Sessions with no messages yet are absent from the map — callers fall
- * back to `startedAt`.
+ * When each of `sessionIds` last moved: its last message's timestamp. Messages
+ * are only ever appended, so the highest index is the newest. A single batched
+ * query that reads one row per session. Sessions with no messages yet are
+ * absent from the map — callers fall back to `startedAt`.
  */
 export function getSessionLastActivity(db: KiriDb, sessionIds: string[]): Map<string, Date> {
-  const activity = new Map<string, Date>();
-  if (sessionIds.length === 0) return activity;
+  if (sessionIds.length === 0) return new Map();
+
+  const candidate = alias(messages, "candidate");
+  const lastIndex = db
+    .select({ index: max(candidate.index) })
+    .from(candidate)
+    .where(eq(candidate.sessionId, sessions.id));
   const rows = db
     .select({ sessionId: messages.sessionId, createdAt: messages.createdAt })
-    .from(messages)
-    .where(inArray(messages.sessionId, sessionIds))
-    .orderBy(desc(messages.createdAt))
+    .from(sessions)
+    .innerJoin(
+      messages,
+      and(eq(messages.sessionId, sessions.id), eq(messages.index, sql`(${lastIndex})`)),
+    )
+    .where(inArray(sessions.id, sessionIds))
     .all();
-  for (const row of rows) {
-    if (!activity.has(row.sessionId)) activity.set(row.sessionId, row.createdAt);
-  }
-  return activity;
+
+  return new Map(rows.map((row) => [row.sessionId, row.createdAt]));
 }
 
 /**
@@ -267,7 +315,7 @@ export function getSessionsWithWaitingChildren(db: KiriDb, sessionIds: string[])
  */
 export type SessionListEntry = Session & {
   preview: string | null;
-  articles: { slug: string; name: string; heading: string | null; createdAt: Date }[];
+  articles: ArticleSummary[];
   projectName: string | null;
   hasWaitingChild: boolean;
   hasRunningChild: boolean;
@@ -295,26 +343,7 @@ export function buildSessionListEntries(db: KiriDb, rows: Session[]): SessionLis
           .flatMap((row) => row.parentSessionId ?? [])
       : [],
   );
-  const articlesBySessionId = new Map<string | null, SessionListEntry["articles"]>();
-  if (ids.length > 0) {
-    const articleRows = db
-      .select()
-      .from(articles)
-      .where(inArray(articles.sessionId, ids))
-      .orderBy(asc(articles.createdAt))
-      .all();
-    for (const article of articleRows) {
-      const entry = {
-        slug: article.slug,
-        name: article.name,
-        heading: extractFirstHeading(article.contentMd),
-        createdAt: article.createdAt,
-      };
-      const list = articlesBySessionId.get(article.sessionId);
-      if (list) list.push(entry);
-      else articlesBySessionId.set(article.sessionId, [entry]);
-    }
-  }
+  const articlesBySessionId = articleSummariesByOwner(db, "sessionId", ids);
   const projectIds = [...new Set(rows.flatMap((row) => row.projectId ?? []))];
   const projectNames = new Map(
     projectIds.length > 0
@@ -343,7 +372,42 @@ export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
     .from(messages)
     .where(eq(messages.sessionId, sessionId))
     .orderBy(asc(messages.index))
-    .all();
+    .all()
+    .map(toMessage);
+}
+
+/** Read a session's last message, or `undefined` while it has none. */
+export function getLastMessage(db: KiriDb, sessionId: string): Message | undefined {
+  const row = db
+    .select()
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(desc(messages.index))
+    .limit(1)
+    .get();
+  return row && toMessage(row);
+}
+
+/** Read one of a session's messages by id, or `undefined` if it has no such message. */
+export function getMessage(db: KiriDb, sessionId: string, messageId: string): Message | undefined {
+  const row = db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+    .get();
+  return row && toMessage(row);
+}
+
+// Runs inside the message mutation's transaction, including any outer checkpoint.
+function advanceTranscriptRevision(db: KiriDb, sessionId: string): number {
+  const row = db
+    .update(sessions)
+    .set({ transcriptRevision: sql`${sessions.transcriptRevision} + 1` })
+    .where(eq(sessions.id, sessionId))
+    .returning({ revision: sessions.transcriptRevision })
+    .get();
+  if (!row) throw new Error(`session "${sessionId}" not found`);
+  return row.revision;
 }
 
 /**
@@ -356,24 +420,32 @@ export function appendMessage(
   message: NewMessage,
   opts: { id?: string; createdAt?: Date } = {},
 ): Message {
-  const index = db
-    .select({ index: messages.index })
-    .from(messages)
-    .where(eq(messages.sessionId, sessionId))
-    .all().length;
-  const id = opts.id ?? crypto.randomUUID();
-  db.insert(messages)
-    .values({
-      id,
-      sessionId,
-      index,
-      role: message.role,
-      parts: message.parts,
-      contextTokens: message.contextTokens ?? null,
-      createdAt: opts.createdAt ?? new Date(),
-    })
-    .run();
-  return db.select().from(messages).where(eq(messages.id, id)).get() as Message;
+  return db.transaction(() => {
+    const index = (
+      db
+        .select({ count: count() })
+        .from(messages)
+        .where(eq(messages.sessionId, sessionId))
+        .get() as { count: number }
+    ).count;
+    const id = opts.id ?? crypto.randomUUID();
+    db.insert(messages)
+      .values({
+        id,
+        sessionId,
+        index,
+        role: message.role,
+        parts: message.parts,
+        partsFormat: CURRENT_PARTS_FORMAT,
+        contextTokens: message.contextTokens ?? null,
+        createdAt: opts.createdAt ?? new Date(),
+      })
+      .run();
+    advanceTranscriptRevision(db, sessionId);
+    return toMessage(
+      db.select().from(messages).where(eq(messages.id, id)).get() as typeof messages.$inferSelect,
+    );
+  });
 }
 
 /**
@@ -389,13 +461,19 @@ export function updateMessage(
   messageId: string,
   update: { parts: UIMessage["parts"]; contextTokens?: number },
 ): void {
-  db.update(messages)
-    .set({
-      parts: update.parts,
-      ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
-    })
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
-    .run();
+  db.transaction(() => {
+    const result = db
+      .update(messages)
+      .set({
+        parts: update.parts,
+        partsFormat: CURRENT_PARTS_FORMAT,
+        ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
+      })
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+      .returning({ id: messages.id })
+      .get();
+    if (result !== undefined) advanceTranscriptRevision(db, sessionId);
+  });
 }
 
 /**
@@ -403,33 +481,39 @@ export function updateMessage(
  * Rolls a transcript back to an earlier point — e.g. editing and resending a
  * user message, which discards that message and the turns that followed.
  * Trailing rows are removed wholesale rather than gapped, so the append-at-count
- * invariant in `appendMessage` still holds. Returns whether the message existed;
+ * invariant in `appendMessage` still holds. Returns the committed revision;
  * truncating from an absent message changes nothing.
  */
-export function deleteMessagesFrom(db: KiriDb, sessionId: string, messageId: string): boolean {
-  const target = db
-    .select({ index: messages.index })
-    .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
-    .get();
-  if (!target) return false;
-  db.delete(messages)
-    .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
-    .run();
-  return true;
+export function deleteMessagesFrom(
+  db: KiriDb,
+  sessionId: string,
+  messageId: string,
+): number | undefined {
+  return db.transaction(() => {
+    const target = db
+      .select({ index: messages.index })
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+      .get();
+    if (!target) return undefined;
+    db.delete(messages)
+      .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
+      .run();
+    return advanceTranscriptRevision(db, sessionId);
+  });
 }
 
 /**
- * Move a session to `status`. Pass `error` and/or `finishedAt` to set them in
- * the same write (a terminal `failed`/`cancelled` carries both); omit them to
- * leave the existing values untouched.
+ * Move a session to `status` and return the updated row. Pass `error` and/or
+ * `finishedAt` to set them in the same write (a terminal `failed`/`cancelled`
+ * carries both); omit them to leave the existing values untouched.
  */
 export function setSessionStatus(
   db: KiriDb,
   sessionId: string,
   status: SessionStatus,
   update: { error?: unknown; finishedAt?: Date | null } = {},
-): void {
+): Session {
   db.update(sessions)
     .set({
       status,
@@ -438,30 +522,150 @@ export function setSessionStatus(
     })
     .where(eq(sessions.id, sessionId))
     .run();
+  return getSession(db, sessionId) as Session;
+}
+
+/** The project and parent a session's events name, so their lists of it refresh. */
+export const sessionOwners = (
+  session: Pick<Session, "projectId" | "parentSessionId">,
+): SessionOwners => ({
+  projectId: session.projectId,
+  parentSessionId: session.parentSessionId,
+});
+
+/** A session operation refused because of the state the session or its family is in. */
+export class SessionConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionConflictError";
+  }
+}
+
+/** What a move into a project changed: the sessions moved, and the articles that went with them, named by the session each left. */
+export interface SessionMove {
+  family: Session[];
+  articles: { id: string; slug: string; sessionId: string | null }[];
 }
 
 /**
- * Permanently delete a session — and any child sessions it spawned — with
- * their messages and articles in one transaction. Messages and articles hold
- * an FK to the session, so they go first — an in-code cascade matching the
- * rest of the codebase rather than a schema-level ON DELETE. Children never
- * have children of their own, so one level of cascade is complete. Deleting
- * an absent session removes nothing.
+ * Move a projectless top-level session into a project, taking its delegated
+ * children and every article the family wrote with it: the sessions join the
+ * project and their articles become part of its shared corpus. The checks and
+ * the transfer share one transaction, so a refused move changes nothing.
+ * Throws `SessionConflictError` for a delegated session, one already in a
+ * project, a family with a turn running or an approval pending, or an article
+ * slug the corpus — or another moving article — already uses.
  */
-export function deleteSession(db: KiriDb, id: string): void {
-  db.transaction((tx) => {
-    const childIds = tx
-      .select({ id: sessions.id })
+export function moveSessionToProject(db: KiriDb, session: Session, projectId: string): SessionMove {
+  if (session.parentSessionId !== null) {
+    throw new SessionConflictError("Move the parent session to move its delegated sessions.");
+  }
+  if (session.projectId !== null) {
+    throw new SessionConflictError("This session already belongs to a project.");
+  }
+
+  return db.transaction(() => {
+    const family = [session, ...getSessionChildren(db, session.id)];
+    if (family.some((row) => row.status === "running" || row.status === "waiting")) {
+      throw new SessionConflictError(
+        "Finish or cancel all turns and resolve pending approvals before moving.",
+      );
+    }
+
+    const ids = family.map((row) => row.id);
+    const moving = db
+      .select({ id: articles.id, slug: articles.slug, sessionId: articles.sessionId })
+      .from(articles)
+      .where(inArray(articles.sessionId, ids))
+      .all();
+    const slugs = new Set(
+      db
+        .select({ slug: articles.slug })
+        .from(articles)
+        .where(eq(articles.projectId, projectId))
+        .all()
+        .map((row) => row.slug),
+    );
+    for (const article of moving) {
+      if (slugs.has(article.slug)) {
+        throw new SessionConflictError(
+          `Article slug "${article.slug}" conflicts. Choose another project or resolve the duplicate before moving.`,
+        );
+      }
+      slugs.add(article.slug);
+    }
+
+    db.update(articles)
+      .set({ sessionId: null, projectId })
+      .where(inArray(articles.sessionId, ids))
+      .run();
+    db.update(sessions).set({ projectId }).where(inArray(sessions.id, ids)).run();
+
+    return { family: family.map((row) => ({ ...row, projectId })), articles: moving };
+  });
+}
+
+/** A deleted session, with the owners its deletion is announced to. */
+export type DeletedSession = Pick<Session, "id" | "projectId" | "parentSessionId">;
+
+/**
+ * Delete the given sessions and their children with all session-owned records
+ * in one transaction. Accepts an existing transaction so container deletion
+ * can roll back the entire operation. Unguarded: the caller has already
+ * established that nothing in these families is running. Children cannot
+ * delegate, so one level of descendants is complete. Returns every session
+ * deleted, children included, for announcing.
+ */
+export function deleteSessions(
+  db: Pick<KiriDb, "transaction">,
+  sessionIds: string[],
+): DeletedSession[] {
+  if (sessionIds.length === 0) return [];
+  return db.transaction((tx) => {
+    const deleted = tx
+      .select({
+        id: sessions.id,
+        projectId: sessions.projectId,
+        parentSessionId: sessions.parentSessionId,
+      })
       .from(sessions)
-      .where(eq(sessions.parentSessionId, id))
-      .all()
+      .where(or(inArray(sessions.id, sessionIds), inArray(sessions.parentSessionId, sessionIds)))
+      .all();
+    const ids = deleted.map((row) => row.id);
+    const childIds = deleted
+      .filter((row) => row.parentSessionId !== null && sessionIds.includes(row.parentSessionId))
       .map((row) => row.id);
-    const ids = [...childIds, id];
     tx.delete(articles).where(inArray(articles.sessionId, ids)).run();
     tx.delete(messages).where(inArray(messages.sessionId, ids)).run();
     tx.delete(sessionInbox).where(inArray(sessionInbox.sessionId, ids)).run();
     // Children first: they hold an FK to the parent, and foreign_keys is ON.
     if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
-    tx.delete(sessions).where(eq(sessions.id, id)).run();
+    tx.delete(sessions).where(inArray(sessions.id, sessionIds)).run();
+    return deleted;
+  });
+}
+
+/**
+ * Delete a session and its children with all owned records; an absent id is a
+ * no-op. A running turn persists as it streams, and a delegated worker runs
+ * detached from its parent's turns, so either one in flight refuses the delete
+ * with `SessionConflictError` until it is cancelled. The check and the delete
+ * share one transaction. Returns every session deleted, for announcing.
+ */
+export function deleteSession(db: KiriDb, id: string): DeletedSession[] {
+  return db.transaction(() => {
+    const session = getSession(db, id);
+    if (!session) return [];
+
+    if (session.status === "running") {
+      throw new SessionConflictError(`session "${id}" has a turn in flight; cancel it first`);
+    }
+    if (getSessionChildren(db, id).some((child) => child.status === "running")) {
+      throw new SessionConflictError(
+        `session "${id}" has a delegated worker running; cancel it first`,
+      );
+    }
+
+    return deleteSessions(db, [id]);
   });
 }

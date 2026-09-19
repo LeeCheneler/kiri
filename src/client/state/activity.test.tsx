@@ -6,12 +6,8 @@ import type { ReactNode } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import {
-  useActivityFeed,
-  useActivityFeedLive,
-  useArticleFeed,
-  useArticleFeedLive,
-} from "./activity.ts";
+import { useActivityFeed, useArticleFeed } from "./activity.ts";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
 
 const renderProbe = (ui: ReactNode) => {
@@ -25,9 +21,9 @@ const renderProbe = (ui: ReactNode) => {
 };
 
 // Probe whose rendered text is the loaded entry ids, kept live by
-// useActivityFeedLive.
+// useLiveInvalidation.
 const FeedProbe = () => {
-  useActivityFeedLive();
+  useLiveInvalidation();
   const { data } = useActivityFeed();
   if (!data) return <p>loading</p>;
   return (
@@ -52,7 +48,7 @@ const serveCountingActivity = () => {
 
 // Probe for the articles feed, mirroring FeedProbe.
 const ArticleProbe = () => {
-  useArticleFeedLive();
+  useLiveInvalidation();
   const { data } = useArticleFeed();
   if (!data) return <p>loading</p>;
   return <p>{data.map((a) => a.slug).join(",") || "empty"}</p>;
@@ -96,7 +92,14 @@ describe("activity state", () => {
     act(() => sources[0]?.emit({ type: "run.started", id: "r9" }));
     await screen.findByText("a-2");
 
-    act(() => sources[0]?.emit({ type: "session.started", id: "s9" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.started",
+        id: "s9",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("a-3");
   });
 

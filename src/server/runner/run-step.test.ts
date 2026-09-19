@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describedModel } from "../../../tests/support/described-model.ts";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { ChildHandle } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
@@ -280,8 +281,7 @@ describe("runStep", () => {
           },
           generateText: async ({ prompt }) => ({ text: `completed: ${prompt}`, usage: {} }),
           listModels: async () => ({ models: [], failures: [] }),
-          contextWindowFor: async () => undefined,
-          reasoningOptionsFor: async () => undefined,
+          describeModel: async (id) => describedModel(id),
         },
       });
 

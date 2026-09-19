@@ -18,9 +18,9 @@ export {
   generateLlmText,
 } from "./clients.ts";
 export {
-  type LlmModelInfo,
-  type LlmModelOutput,
-  type LlmModelsFailure,
   type LlmModelsResult,
-  listLlmModels,
-} from "./models.ts";
+  type ModelDescription,
+  buildModelDescription,
+  toModelInfo,
+} from "./model-description.ts";
+export type { ListedModel, LlmModelOutput } from "./models.ts";

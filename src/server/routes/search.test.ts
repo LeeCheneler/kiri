@@ -43,7 +43,7 @@ describe("search routes", () => {
         workflowName: "pelican-digest",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
         summary: "Collected pelican stories.",
       })
       .run();
@@ -114,7 +114,7 @@ describe("search routes", () => {
         workflowName: "wf",
         status: "ok",
         startedAt: new Date(),
-        definitionSnapshot: {},
+        definitionSnapshot: { name: "fixture", steps: [] },
       })
       .run();
     for (const id of ["a1", "a2", "a3"]) {

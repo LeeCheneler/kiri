@@ -54,6 +54,10 @@ export interface SplitHeading {
  *
  * Pure and dependency-free so both the server (article projection) and the
  * client can import without pulling a markdown parser.
+ *
+ * The server stores this function's `heading` beside each article body, so a
+ * change to which line counts as the headline, or to how it is cleaned, needs a
+ * migration that recomputes the stored column.
  */
 export const splitLeadingHeading = (md: string): SplitHeading => {
   const lines = md.split("\n");

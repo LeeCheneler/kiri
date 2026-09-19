@@ -1,6 +1,7 @@
 import { z } from "zod";
+import type { ModelInfo } from "../../shared/api/models.ts";
 import { CODEX_BASE_URL, createCodexFetch } from "./codex-fetch.ts";
-import type { LlmProviderRegistry } from "./registry.ts";
+import { endpointFor } from "./endpoint.ts";
 import type { LlmProvider, ProviderType } from "./schema.ts";
 
 /** Anthropic requires a version header on every request to its REST API. */
@@ -12,51 +13,52 @@ const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
   openai: "https://api.openai.com/v1",
 };
 
-/** What a model produces: a chat model's text, or generated images. */
-export type LlmModelOutput = "text" | "image";
-
-/** A model offered by a configured provider, namespaced as a `provider:model` id. */
-export interface LlmModelInfo {
-  /** `provider:model` id — ready to hand straight to `resolveModel`. */
+/**
+ * What a provider's listing says about one model — facts about the model
+ * itself, never about the transport that carries requests to it.
+ */
+export interface ListedModel {
+  /** `provider:model` id. */
   id: string;
-  /** The provider the model came from (the `providers:` map key). */
+  /** The provider the model came from. */
   provider: string;
-  /** Maximum context (input) tokens, when the provider's listing reports it. */
+  /** Maximum context (input) tokens, when the listing reports it. */
   contextWindow?: number;
-  /** Maximum output tokens, when the provider's listing reports it. */
+  /** Maximum output tokens, when the listing reports it. */
   outputLimit?: number;
   /** What the model produces. Models producing neither text nor images are never listed. */
   output: LlmModelOutput;
-  /** Whether the model accepts image input, when the provider's listing reports it. */
+  /** Whether the model accepts image input; absent when the listing doesn't say. */
   imageInput?: boolean;
+  /**
+   * Whether the model reads documents natively, when its listing reports
+   * input modalities (OpenRouter's does); absent when it doesn't say.
+   */
+  nativeDocuments?: boolean;
   /**
    * Whether the model supports reasoning parameters (an effort or
    * reasoning-effort setting). Heuristic: read from the listing's supported
    * parameters when reported, otherwise from well-known id families — and
-   * false when neither says yes, so nothing is ever sent blind. Server-side
-   * only — it drives the turn's send-or-omit decision and is stripped from
-   * the models endpoint's response.
+   * false when neither says yes, so nothing is ever sent blind.
    */
   reasoning: boolean;
   /** Server-side effort levels advertised by Codex, ordered by capability at use. */
   reasoningLevels?: string[];
 }
 
-/** A provider whose model listing failed. Never fatal — collected, not thrown. */
-export interface LlmModelsFailure {
-  /** The provider that failed (the `providers:` map key). */
-  provider: string;
-  /** Human-readable reason. Never echoes a resolved API key value. */
-  reason: string;
+/** What a listed model produces. */
+export type LlmModelOutput = ModelInfo["output"];
+
+/** One provider's listing: the models it offers, or why discovery failed. */
+export interface ProviderListing {
+  /** Every model the provider offers, namespaced by it; empty when discovery failed. */
+  models: ListedModel[];
+  /** Why discovery failed; absent on success. Never carries key material. */
+  reason?: string;
 }
 
-/** The aggregate of model listings across every configured provider. */
-export interface LlmModelsResult {
-  /** Every model offered, flattened and namespaced by provider. */
-  models: LlmModelInfo[];
-  /** One entry per provider whose listing failed; the rest still succeed. */
-  failures: LlmModelsFailure[];
-}
+/** How long one provider's discovery — its listing and any follow-up probe — may take. */
+export const DISCOVERY_TIMEOUT_MS = 10_000;
 
 // A token limit is a positive number; anything else (absent, zero, a string,
 // null) degrades to undefined rather than failing the entry, so one odd field
@@ -207,6 +209,17 @@ function classifyImageInput(entry: ModalitySignals): boolean | undefined {
   return undefined;
 }
 
+// Classify whether a listing entry reads documents natively, from the same
+// input-modality signals as images (OpenRouter's `file` modality). No
+// modality signal at all is unknown, not false.
+function classifyDocumentInput(entry: ModalitySignals): boolean | undefined {
+  const modalities =
+    entry.architecture?.input_modalities ??
+    parseModalityArrow(entry.architecture?.modality)?.inputs;
+  if (modalities !== undefined && modalities.length > 0) return modalities.includes("file");
+  return undefined;
+}
+
 // Classify whether a listing entry supports reasoning parameters. An
 // OpenRouter-shaped `supported_parameters` array is authoritative either way:
 // it enumerates exactly what the endpoint accepts, so an entry that carries
@@ -282,6 +295,7 @@ const listingEntrySchema = z
     id: entry.id,
     output: classifyOutput(entry),
     imageInput: classifyImageInput(entry),
+    nativeDocuments: classifyDocumentInput(entry),
     reasoning: classifyReasoning(entry),
     limits: {
       contextWindow:
@@ -358,6 +372,8 @@ const codexListingSchema = z
           id: model.slug,
           output: "text" as const,
           imageInput: model.input_modalities?.includes("image"),
+          // Documents reach the Codex backend by provider rule, not by listing.
+          nativeDocuments: undefined,
           reasoning: reasoningLevels.some((level) => level !== "none"),
           reasoningLevels,
           limits: { contextWindow: model.context_window, outputLimit: undefined },
@@ -366,122 +382,128 @@ const codexListingSchema = z
     }),
   );
 
-/**
- * List the models every configured provider offers, namespaced as `provider:model`.
- * Each provider's models endpoint is fetched concurrently and failures are
- * collected per provider rather than failing the whole aggregate — a provider
- * that is down or unauthorised becomes a `failures` entry, never an exception.
- * API keys are read from `env` at call time and sent as the provider's auth
- * header; their values are never returned or echoed in a failure reason. Each
- * model carries its context window and output cap when the provider's listing
- * reports them (Anthropic, OpenRouter, vLLM, DeepInfra, LM Studio all do); a
- * provider whose listing omits them — notably OpenAI — leaves those fields
- * undefined. Each model is classified by what it produces — text or images —
- * from its reported output modalities (OpenRouter) or its id (OpenAI); models
- * producing neither (audio, video) are left off the list entirely. Whether a
- * model accepts image input is read from the listing's input modalities or
- * capability flags when present; a listing that says nothing (OpenAI) leaves
- * `imageInput` undefined — unknown, not false. Whether a model supports
- * reasoning parameters is read from the listing's supported parameters
- * (OpenRouter) or well-known id families (OpenAI, Anthropic), defaulting to
- * false when neither says yes.
- */
-export async function listLlmModels(
-  registry: LlmProviderRegistry,
-  env: Record<string, string | undefined>,
-): Promise<LlmModelsResult> {
-  const settled = await Promise.all(
-    registry.listProviders().map((provider) => listProviderModels(provider, env)),
-  );
-
-  const models: LlmModelInfo[] = [];
-  const failures: LlmModelsFailure[] = [];
-  for (const { provider, entries, reason } of settled) {
-    if (reason !== undefined) {
-      failures.push({ provider: provider.name, reason });
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry.output === undefined) continue;
-      models.push({
-        id: `${provider.name}:${entry.id}`,
-        provider: provider.name,
-        ...entry.limits,
-        output: entry.output,
-        imageInput: entry.imageInput,
-        reasoning: entry.reasoning,
-        ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
-      });
-    }
-  }
-  return { models, failures };
+// A listing entry as the model facts it reports, namespaced by its provider.
+function listedModel(
+  provider: LlmProvider,
+  entry: ProviderModel,
+  output: LlmModelOutput,
+): ListedModel {
+  return {
+    id: `${provider.name}:${entry.id}`,
+    provider: provider.name,
+    ...entry.limits,
+    output,
+    imageInput: entry.imageInput,
+    ...(entry.nativeDocuments !== undefined ? { nativeDocuments: entry.nativeDocuments } : {}),
+    reasoning: entry.reasoning,
+    ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
+  };
 }
 
 /**
- * Fetch one provider's `GET {base}/models` listing into model ids and their
- * reported limits, turning any failure (network, non-2xx, malformed body) into a
- * `reason` rather than a throw.
+ * The facts for a model its provider's listing doesn't carry — the listing
+ * failed or is incomplete, or a custom endpoint serves none — read from the
+ * id alone, by the same well-known families a bare listing falls back to.
+ * Limits and input capabilities stay unknown, reasoning is claimed only for
+ * a recognised family, and an id that names no output reads as text: a model
+ * being described is one a session is about to drive.
  */
-async function listProviderModels(
+export function unlistedModel(provider: LlmProvider, modelId: string): ListedModel {
+  const entry = listingEntrySchema.parse({ id: modelId });
+  return listedModel(provider, entry, entry.output ?? "text");
+}
+
+/**
+ * Discover the models one provider offers, namespaced as `provider:model`.
+ * Any failure — network, non-2xx, malformed body, or discovery outlasting
+ * `timeoutMs` — becomes a `reason`, never an exception. The API key is read
+ * from `env` at call time and sent as the provider's auth header; its value
+ * is never returned or echoed in a failure reason. Each model carries its
+ * context window and output cap when the listing reports them (Anthropic,
+ * OpenRouter, vLLM, DeepInfra, LM Studio all do); a listing that omits them —
+ * notably OpenAI's — leaves those fields undefined. Each model is classified
+ * by what it produces — text or images — from its reported output modalities
+ * (OpenRouter) or its id (OpenAI); models producing neither (audio, video)
+ * are left off entirely. Whether a model accepts image input is read from the
+ * listing's input modalities or capability flags when present; a listing that
+ * says nothing (OpenAI) leaves `imageInput` undefined — unknown, not false.
+ * Whether a model supports reasoning parameters is read from the listing's
+ * supported parameters (OpenRouter) or well-known id families (OpenAI,
+ * Anthropic), defaulting to false when neither says yes.
+ */
+export async function listProviderModels(
   provider: LlmProvider,
   env: Record<string, string | undefined>,
-): Promise<{ provider: LlmProvider; entries: ProviderModel[]; reason?: string }> {
+  options: { timeoutMs?: number } = {},
+): Promise<ProviderListing> {
+  try {
+    // One deadline covers the whole discovery, follow-up probe included.
+    const signal = AbortSignal.timeout(options.timeoutMs ?? DISCOVERY_TIMEOUT_MS);
+    const entries = await fetchProviderEntries(provider, env, signal);
+    return {
+      models: entries.flatMap((entry) =>
+        entry.output === undefined ? [] : [listedModel(provider, entry, entry.output)],
+      ),
+    };
+  } catch (cause) {
+    return { models: [], reason: cause instanceof Error ? cause.message : String(cause) };
+  }
+}
+
+// Fetch and parse one provider's `GET {base}/models` listing, throwing on any failure.
+async function fetchProviderEntries(
+  provider: LlmProvider,
+  env: Record<string, string | undefined>,
+  signal: AbortSignal,
+): Promise<ProviderModel[]> {
+  if (provider.type === "openai-codex") {
+    const response = await createCodexFetch(env, provider.name)(
+      `${CODEX_BASE_URL}/models?client_version=${CODEX_CLIENT_VERSION}`,
+      { signal },
+    );
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
+    return codexListingSchema.parse(await response.json());
+  }
+
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   const { url, headers } = buildRequest(provider, apiKey);
+  const response = await fetch(url, { headers, signal });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
+  const entries = listingSchema.parse(await response.json());
 
-  try {
-    if (provider.type === "openai-codex") {
-      const response = await createCodexFetch(env, provider.name)(
-        `${CODEX_BASE_URL}/models?client_version=${CODEX_CLIENT_VERSION}`,
-        { signal: AbortSignal.timeout(10_000) },
-      );
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
-      return { provider, entries: codexListingSchema.parse(await response.json()) };
-    }
-    const response = await fetch(url, { headers });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
-    const entries = listingSchema.parse(await response.json());
-
-    // LM Studio's OpenAI-compatible /v1/models omits context; its native
-    // /api/v0/models reports it. Probe that (best-effort) only when the primary
-    // listing left context unknown, so a provider like OpenRouter that already
-    // reports it never pays for the extra request.
-    if (
-      provider.type === "openai-compatible" &&
-      provider.baseUrl &&
-      entries.some((entry) => entry.limits.contextWindow === undefined)
-    ) {
-      const native = await fetchLmStudioContext(provider.baseUrl, headers);
-      for (const entry of entries) {
-        const contextWindow = native.get(entry.id);
-        if (entry.limits.contextWindow === undefined && contextWindow !== undefined) {
-          entry.limits = { ...entry.limits, contextWindow };
-        }
+  // LM Studio's OpenAI-compatible /v1/models omits context; its native
+  // /api/v0/models reports it. Probe that (best-effort) on a custom endpoint
+  // only when the primary listing left context unknown, so a server that
+  // already reports it never pays for the extra request.
+  if (
+    endpointFor(provider).kind === "custom" &&
+    provider.baseUrl &&
+    entries.some((entry) => entry.limits.contextWindow === undefined)
+  ) {
+    const native = await fetchLmStudioContext(provider.baseUrl, headers, signal);
+    for (const entry of entries) {
+      const contextWindow = native.get(entry.id);
+      if (entry.limits.contextWindow === undefined && contextWindow !== undefined) {
+        entry.limits = { ...entry.limits, contextWindow };
       }
     }
-
-    return { provider, entries };
-  } catch (cause) {
-    return {
-      provider,
-      entries: [],
-      reason: cause instanceof Error ? cause.message : String(cause),
-    };
   }
+  return entries;
 }
 
 /**
  * Best-effort fetch of LM Studio's native `/api/v0/models` listing. Returns a
  * model-id → context-window map. Any failure (not LM Studio, unreachable,
- * malformed) yields an empty map, so callers simply leave those models bare.
+ * malformed, out of time) yields an empty map, so callers simply leave those models bare.
  */
 async function fetchLmStudioContext(
   baseUrl: string,
   headers: Record<string, string>,
+  signal: AbortSignal,
 ): Promise<Map<string, number>> {
   try {
     const url = `${new URL(baseUrl).origin}/api/v0/models`;
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, signal });
     if (!response.ok) return new Map();
     const entries = nativeListingSchema.parse(await response.json());
     return new Map(entries.map((entry) => [entry.id, entry.contextWindow]));

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
-import { type Tool, type ToolSet, tool } from "ai";
+import { type Tool, type ToolSet, type UIMessage, tool } from "ai";
 import {
   MockLanguageModelV3,
   MockTranscriptionModelV3,
@@ -10,15 +10,36 @@ import {
 } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { describedModel } from "../../../tests/support/described-model.ts";
+import type * as sessionsApi from "../../shared/api/sessions.ts";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
+import { wrapAttachedFile } from "../../shared/attached-file.ts";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import {
+  MAX_DOCUMENT_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_TEXT_FILE_BYTES,
+  MESSAGE_BODY_LIMIT_BYTES,
+  MESSAGE_SIZE_ERROR,
+} from "../../shared/message-limits.ts";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
+import { type ConfigService, type ConfigSnapshot, createConfigService } from "../config/service.ts";
 import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
-import type { LlmClients, LlmModel, LlmTranscriptionModel } from "../llm/index.ts";
+import { type AppLifetime, createAppLifetime } from "../lifetime.ts";
+import {
+  type LlmClients,
+  type LlmModel,
+  type LlmTranscriptionModel,
+  type ModelDescription,
+  buildModelDescription,
+} from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { listTaskGroups } from "../projects/tasks.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import type { KnowledgePage, searchKnowledge } from "../search/knowledge.ts";
+import { acknowledgeInboxItems } from "../sessions/inbox.ts";
 import {
   type CommandJudgementEvent,
   type CommandLearning,
@@ -114,7 +135,7 @@ const fakeClients = (
   opts: {
     model?: LlmModel;
     resolveError?: string;
-    models?: { id: string; provider: string; output: "text" | "image"; reasoning?: boolean }[];
+    models?: ModelDescription[];
     generateText?: LlmClients["generateText"];
     transcription?: LlmTranscriptionModel;
   } = {},
@@ -132,11 +153,10 @@ const fakeClients = (
   },
   generateText: opts.generateText ?? (async () => ({ text: "", usage: {} })),
   listModels: async () => ({
-    models: (opts.models ?? []).map((model) => ({ reasoning: false, ...model })),
+    models: opts.models ?? [],
     failures: [],
   }),
-  contextWindowFor: async () => undefined,
-  reasoningOptionsFor: async () => undefined,
+  describeModel: async (id) => describedModel(id),
 });
 
 // Bus paired with a `waitForSettled(id)` that resolves when a session returns
@@ -189,18 +209,43 @@ describe("sessions routes", () => {
       cancelRegistry?: CancelRegistry;
       mcpRegistry?: McpRegistry;
       streamRegistry?: StreamRegistry;
-      getModelsConfig?: () => ModelsConfig;
-      getDefaultWorkingDirectory?: () => string | undefined;
+      /** Served in place of the workspace's `models:` section. */
+      models?: ModelsConfig;
+      /** Served in place of the workspace's default working directory. */
+      defaultWorkingDirectory?: string;
       commandLearning?: CommandLearning;
+      lifetime?: AppLifetime;
     } = {},
-  ) =>
-    createApp({
+  ) => {
+    const { models, defaultWorkingDirectory, ...deps } = extra;
+    return createApp({
       db: env.db,
       registry: env.registry,
       config: env.config,
       llmClients: clients,
-      ...extra,
+      configService: configServiceWith({ models, defaultWorkingDirectory }),
+      ...deps,
     });
+  };
+
+  // The workspace's real config service — so a test's kiri.yaml still supplies
+  // the sandbox — with the given settings served over whatever the file says.
+  const configServiceWith = (overrides: {
+    models?: ModelsConfig;
+    defaultWorkingDirectory?: string;
+  }): ConfigService => {
+    const service = createConfigService(env.config, {});
+    const overlay = (snapshot: ConfigSnapshot): ConfigSnapshot => ({
+      ...snapshot,
+      models: overrides.models ?? snapshot.models,
+      filesystem: {
+        ...snapshot.filesystem,
+        defaultWorkingDirectory:
+          overrides.defaultWorkingDirectory ?? snapshot.filesystem.defaultWorkingDirectory,
+      },
+    });
+    return { current: () => overlay(service.current()), reload: () => overlay(service.reload()) };
+  };
 
   // A registry whose tools() returns a fixed set; the route only reads tools().
   const fakeMcp = (tools: ToolSet): McpRegistry => ({
@@ -232,13 +277,20 @@ describe("sessions routes", () => {
       body: JSON.stringify({ message }),
     });
 
-  // Flip a paused assistant message's approval requests to responses.
-  const approvedParts = (row: { parts: unknown } | undefined, approved: boolean) =>
-    (row?.parts as ToolPart[]).map((part) =>
+  // One verdict for each call a paused assistant message awaits approval on.
+  const verdictsFor = (row: { parts: unknown } | undefined, approved: boolean) =>
+    (row?.parts as ToolPart[]).flatMap((part) =>
       part.state === "approval-requested"
-        ? { ...part, state: "approval-responded", approval: { ...part.approval, approved } }
-        : part,
+        ? [{ toolCallId: part.toolCallId as string, approved }]
+        : [],
     );
+
+  const postApprovals = (app: ReturnType<typeof createApp>, id: string, approvals: unknown) =>
+    app.request(`/api/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ approvals }),
+    });
 
   describe("POST /api/sessions/:id/move", () => {
     const move = (app: ReturnType<typeof createApp>, id = "s1", projectId: unknown = "p1") =>
@@ -270,6 +322,7 @@ describe("sessions routes", () => {
         slug: `notes-${sessionId}`,
         name: "Notes",
         contentMd: "# Research\n\nOriginal content",
+        heading: "Research",
         createdAt: new Date(1000),
       }));
       env.db.insert(articles).values(rows).run();
@@ -297,7 +350,13 @@ describe("sessions routes", () => {
           projectId: row.sessionId === "other" ? null : "p1",
         });
       }
-      expect(seen).toContainEqual({ type: "session.updated", id: "child", status: "idle" });
+      expect(seen).toContainEqual({
+        type: "session.updated",
+        id: "child",
+        status: "idle",
+        projectId: "p1",
+        parentSessionId: "s1",
+      });
       expect(seen).toContainEqual({
         type: "article.written",
         sessionId: "s1",
@@ -320,69 +379,41 @@ describe("sessions routes", () => {
       );
     });
 
-    it.each(["running", "waiting"] as const)(
-      "rejects %s sessions and children without changing ownership",
-      async (status) => {
-        const app = makeApp(fakeClients());
-        setSessionStatus(env.db, "s1", status);
-        expect((await move(app)).status).toBe(409);
-        setSessionStatus(env.db, "s1", "idle");
-        createSession(env.db, MODEL, {
-          id: "child",
-          parentSessionId: "s1",
-          parentToolCallId: "c1",
-        });
-        setSessionStatus(env.db, "child", status);
-        expect((await move(app)).status).toBe(409);
-        expect(getSession(env.db, "s1")?.projectId).toBeNull();
-        expect(getSession(env.db, "child")?.projectId).toBeNull();
-      },
-    );
+    it("409s a refused move with its reason, changing nothing and publishing nothing", async () => {
+      env.db
+        .insert(articles)
+        .values([
+          {
+            id: "a1",
+            sessionId: "s1",
+            slug: "notes",
+            name: "First",
+            contentMd: "First body",
+            createdAt: new Date(),
+          },
+          {
+            id: "a2",
+            projectId: "p1",
+            slug: "notes",
+            name: "Second",
+            contentMd: "Second body",
+            createdAt: new Date(),
+          },
+        ])
+        .run();
+      const before = env.db.select().from(articles).all();
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
 
-    it.each(["project", "child"])(
-      "leaves everything untouched when a slug conflicts with the %s",
-      async (owner) => {
-        createSession(env.db, MODEL, {
-          id: "child",
-          parentSessionId: "s1",
-          parentToolCallId: "c1",
-        });
-        env.db
-          .insert(articles)
-          .values([
-            {
-              id: "a1",
-              sessionId: "s1",
-              slug: "notes",
-              name: "First",
-              contentMd: "First body",
-              createdAt: new Date(),
-            },
-            {
-              id: "a2",
-              ...(owner === "project" ? { projectId: "p1" } : { sessionId: "child" }),
-              slug: "notes",
-              name: "Second",
-              contentMd: "Second body",
-              createdAt: new Date(),
-            },
-          ])
-          .run();
-        const before = env.db.select().from(articles).all();
-        const bus = createEventBus();
-        const seen: KiriEvent[] = [];
-        bus.subscribe((event) => seen.push(event));
+      const res = await move(makeApp(fakeClients(), { bus }));
 
-        const res = await move(makeApp(fakeClients(), { bus }));
-
-        expect(res.status).toBe(409);
-        expect((await res.json()).error).toContain('Article slug "notes" conflicts');
-        expect(getSession(env.db, "s1")?.projectId).toBeNull();
-        expect(getSession(env.db, "child")?.projectId).toBeNull();
-        expect(env.db.select().from(articles).all()).toEqual(before);
-        expect(seen).toEqual([]);
-      },
-    );
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain('Article slug "notes" conflicts');
+      expect(getSession(env.db, "s1")?.projectId).toBeNull();
+      expect(env.db.select().from(articles).all()).toEqual(before);
+      expect(seen).toEqual([]);
+    });
 
     it("rejects invalid destinations, missing sessions, children, and already assigned sessions", async () => {
       const app = makeApp(fakeClients());
@@ -401,17 +432,34 @@ describe("sessions routes", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
         fakeClients({
-          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+          models: [
+            buildModelDescription({ name: "anthropic", type: "anthropic" }, "claude", {
+              id: "anthropic:claude",
+              provider: "anthropic",
+              output: "text",
+              reasoning: true,
+              nativeDocuments: true,
+              contextWindow: 200000,
+            }),
+          ],
         }),
       );
 
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
-      // The reasoning flag is server-side send-or-omit state, stripped from
-      // the response — the client surface doesn't carry it.
+      // Only the description's public view is sent: the reasoning,
+      // native-document and transport facts are server-side send-or-omit state.
       expect(await res.json()).toEqual({
-        models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+        models: [
+          {
+            id: "anthropic:claude",
+            provider: "anthropic",
+            output: "text",
+            contextWindow: 200000,
+            documentInput: ["application/pdf"],
+          },
+        ],
         failures: [],
         shortcuts: {},
       });
@@ -422,7 +470,7 @@ describe("sessions routes", () => {
         text: { sonnet: "a:mid", haiku: "a:small" },
       };
       const app = makeApp(fakeClients(), {
-        getModelsConfig: () => ({ shortcuts, delegates: {} }),
+        models: { shortcuts, delegates: {} },
       });
 
       const res = await app.request("/api/models");
@@ -433,9 +481,26 @@ describe("sessions routes", () => {
       );
     });
 
+    it("keeps serving the shortcuts from the last good config after an invalid edit", async () => {
+      const path = join(env.cwd, "kiri.yaml");
+      writeFileSync(path, "models:\n  shortcuts:\n    text:\n      sonnet: a:mid\n");
+      const app = makeApp(fakeClients());
+      const shortcuts = async () =>
+        ((await (await app.request("/api/models")).json()) as { shortcuts: ModelShortcutsConfig })
+          .shortcuts;
+      expect(await shortcuts()).toEqual({ text: { sonnet: "a:mid" } });
+
+      // A typo elsewhere in the file must not empty the pickers.
+      writeFileSync(path, "providers: [not, a, map]\n");
+      expect(await shortcuts()).toEqual({ text: { sonnet: "a:mid" } });
+
+      writeFileSync(path, "models:\n  shortcuts:\n    text:\n      opus: a:big\n");
+      expect(await shortcuts()).toEqual({ text: { opus: "a:big" } });
+    });
+
     it("carries the configured utility model alongside the listing", async () => {
       const app = makeApp(fakeClients(), {
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+        models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },
       });
 
       const res = await app.request("/api/models");
@@ -446,11 +511,11 @@ describe("sessions routes", () => {
 
     it("carries the configured transcription model alongside the listing", async () => {
       const app = makeApp(fakeClients(), {
-        getModelsConfig: () => ({
+        models: {
           shortcuts: {},
           delegates: {},
           transcription: "openrouter:openai/whisper-1",
-        }),
+        },
       });
 
       const res = await app.request("/api/models");
@@ -464,7 +529,7 @@ describe("sessions routes", () => {
 
   describe("POST /api/transcribe", () => {
     const TRANSCRIPTION = "openrouter:openai/whisper-1";
-    const withTranscription = () => () => ({
+    const withTranscription = () => ({
       shortcuts: {},
       delegates: {},
       transcription: TRANSCRIPTION,
@@ -515,12 +580,12 @@ describe("sessions routes", () => {
     it("returns the trimmed transcript without rewriting it through the utility model", async () => {
       const { clients, transcribeCalls, generateCalls } = transcribingClients();
       const app = makeApp(clients, {
-        getModelsConfig: () => ({
+        models: {
           shortcuts: {},
           delegates: {},
           transcription: TRANSCRIPTION,
           utility: "local:tiny",
-        }),
+        },
       });
 
       const res = await postAudio(app, TINY_WAV);
@@ -534,7 +599,7 @@ describe("sessions routes", () => {
     it("400s without transcribing when no transcription model is configured", async () => {
       const { clients, transcribeCalls } = transcribingClients();
       const app = makeApp(clients, {
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+        models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },
       });
 
       const res = await postAudio(app, TINY_WAV);
@@ -546,7 +611,7 @@ describe("sessions routes", () => {
 
     it("400s on a form without an audio file, or with an empty one", async () => {
       const app = makeApp(transcribingClients().clients, {
-        getModelsConfig: withTranscription(),
+        models: withTranscription(),
       });
 
       const empty = await postAudio(app, new Uint8Array());
@@ -566,7 +631,7 @@ describe("sessions routes", () => {
 
     it("accepts a recording larger than the app-wide body limit", async () => {
       const { clients, transcribeCalls } = transcribingClients();
-      const app = makeApp(clients, { getModelsConfig: withTranscription() });
+      const app = makeApp(clients, { models: withTranscription() });
       // Well past the 256 KiB cap every other API body gets.
       const big = new Uint8Array(512 * 1024);
       big.set(TINY_WAV);
@@ -579,7 +644,7 @@ describe("sessions routes", () => {
 
     it("413s a recording over the audio cap", async () => {
       const app = makeApp(transcribingClients().clients, {
-        getModelsConfig: withTranscription(),
+        models: withTranscription(),
       });
 
       const res = await postAudio(app, new Uint8Array(25 * 1024 * 1024 + 1024));
@@ -607,7 +672,12 @@ describe("sessions routes", () => {
       expect(body.session.model).toBe(MODEL);
       expect(body.session.status).toBe("idle");
       expect(getSession(env.db, body.session.id)?.model).toBe(MODEL);
-      expect(events).toContainEqual({ type: "session.started", id: body.session.id });
+      expect(events).toContainEqual({
+        type: "session.started",
+        id: body.session.id,
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("creates a session with an image model when the body carries one", async () => {
@@ -655,7 +725,7 @@ describe("sessions routes", () => {
     });
 
     it("starts the session working from the configured default directory", async () => {
-      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+      const app = makeApp(fakeClients(), { defaultWorkingDirectory: env.cwd });
 
       const res = await app.request("/api/sessions", {
         method: "POST",
@@ -670,12 +740,8 @@ describe("sessions routes", () => {
     });
 
     it("starts the session without a working directory when the default is unset or not on disk", async () => {
-      for (const getDefaultWorkingDirectory of [
-        undefined,
-        () => undefined,
-        () => join(env.cwd, "gone"),
-      ]) {
-        const app = makeApp(fakeClients(), { getDefaultWorkingDirectory });
+      for (const defaultWorkingDirectory of [undefined, join(env.cwd, "gone")]) {
+        const app = makeApp(fakeClients(), { defaultWorkingDirectory });
 
         const res = await app.request("/api/sessions", {
           method: "POST",
@@ -802,6 +868,7 @@ describe("sessions routes", () => {
           slug: "notes",
           name: "Notes",
           contentMd: "# Meeting notes\n\nbody",
+          heading: "Meeting notes",
           createdAt: new Date(1500),
         })
         .run();
@@ -857,8 +924,7 @@ describe("sessions routes", () => {
         { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
       ]);
       const { bus, waitForSettled } = createSessionWaiter();
-      const streamRegistry = createStreamRegistry();
-      const app = makeApp(fakeClients({ model }), { bus, streamRegistry });
+      const app = makeApp(fakeClients({ model }), { bus });
       const session = createSession(env.db, MODEL, { id: "s1" });
       const settled = waitForSettled("s1");
       await (await postMessage(app, "s1", "Hi there")).text();
@@ -876,11 +942,6 @@ describe("sessions routes", () => {
       const stored = getSessionMessages(env.db, "s1");
       expect(JSON.stringify(stored)).toContain("data-context-calibration");
       expect(JSON.stringify(body.messages)).not.toContain("data-context-calibration");
-      const sink = streamRegistry.open("s1", stored);
-      const replay = await (await app.request(`/api/sessions/${session.id}`)).json();
-      expect(JSON.stringify(replay.messages)).not.toContain("data-context-calibration");
-      sink.close();
-      expect(getSessionMessages(env.db, "s1")).toEqual(stored);
     });
 
     it("names a child's parent so its page can link back up", async () => {
@@ -904,26 +965,35 @@ describe("sessions routes", () => {
       expect(parent.parent).toBeNull();
     });
 
-    it("serves the stream's baseline while running, then the saved progress once it closes", async () => {
+    it("serves the saved progress and its revision while a turn streams", async () => {
       const streamRegistry = createStreamRegistry();
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Do the work" }] });
-      const baseline = getSessionMessages(env.db, "s1");
-      const sink = streamRegistry.open("s1", baseline);
+      const sink = streamRegistry.open("s1", "turn-1", 1);
       appendMessage(env.db, "s1", {
         role: "assistant",
         parts: [{ type: "text", text: "Progress" }],
       });
 
       const live = await (await app.request("/api/sessions/s1")).json();
-      expect(live.messages.map((m: { role: string }) => m.role)).toEqual(["user"]);
-      expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
-
+      expect(live.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+      expect(live.transcriptRevision).toBe(2);
+      expect(live.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
       sink.close();
-      const settled = await (await app.request("/api/sessions/s1")).json();
-      expect(settled.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
-      expect(settled.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
+    });
+
+    it("names the streaming turn only while its stream can be joined", async () => {
+      const streamRegistry = createStreamRegistry();
+      const app = makeApp(fakeClients(), { streamRegistry });
+      createSession(env.db, MODEL, { id: "s1" });
+      const turnId = async () => (await (await app.request("/api/sessions/s1")).json()).turnId;
+
+      expect(await turnId()).toBeNull();
+      const sink = streamRegistry.open("s1", "turn-1", 0);
+      expect(await turnId()).toBe("turn-1");
+      sink.close();
+      expect(await turnId()).toBeNull();
     });
 
     it("404s an unknown session", async () => {
@@ -1025,6 +1095,7 @@ describe("sessions routes", () => {
           slug,
           name: "Notes",
           contentMd,
+          heading: extractFirstHeading(contentMd),
           createdAt,
         })
         .run();
@@ -1162,6 +1233,7 @@ describe("sessions routes", () => {
           slug: "corpus-doc",
           name: "Doc",
           contentMd: "# Doc",
+          heading: "Doc",
           createdAt: new Date(),
         })
         .run();
@@ -1185,25 +1257,47 @@ describe("sessions routes", () => {
       // concurrent streaming bodies; live capture is covered by the stream-registry
       // tests and the client resume tests.)
       const streamRegistry = createStreamRegistry();
-      const sink = streamRegistry.open("s1");
-      sink.push('data: {"type":"text-delta","delta":"rejoined"}\n\n');
+      const sink = streamRegistry.open("s1", "turn-1", 4);
+      sink.push({ type: "text-delta", id: "t1", delta: "rejoined" });
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await app.request("/api/sessions/s1/stream");
+      const res = await app.request("/api/sessions/s1/stream?revision=4");
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/event-stream");
+      expect(res.headers.get(TURN_ID_HEADER)).toBe("turn-1");
 
-      // Closing lets the reconnected stream reach EOF so its replay reads back.
-      sink.close();
+      // Ending lets the reconnected stream reach EOF so its replay reads back.
+      sink.end();
       expect(await res.text()).toContain("rejoined");
+    });
+
+    it("ends the stream at once for a client holding another revision", async () => {
+      const streamRegistry = createStreamRegistry();
+      const sink = streamRegistry.open("s1", "turn-1", 4);
+      sink.push({ type: "text-delta", id: "t1", delta: "already saved" });
+      const app = makeApp(fakeClients(), { streamRegistry });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/stream?revision=3");
+      expect(res.status).toBe(200);
+      expect(res.headers.get(TURN_ID_HEADER)).toBe("turn-1");
+      expect(await res.text()).toBe("");
+      sink.close();
+    });
+
+    it("400s a rejoin that names no revision", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/stream");
+      expect(res.status).toBe(400);
     });
 
     it("204s when no turn is in flight for the session", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await app.request("/api/sessions/s1/stream");
+      const res = await app.request("/api/sessions/s1/stream?revision=0");
 
       expect(res.status).toBe(204);
     });
@@ -1223,7 +1317,7 @@ describe("sessions routes", () => {
       await (await postMessage(app, "s1", "Hi there")).text();
       await settled;
 
-      const res = await app.request("/api/sessions/s1/stream");
+      const res = await app.request("/api/sessions/s1/stream?revision=2");
 
       expect(res.status).toBe(204);
     });
@@ -1261,7 +1355,7 @@ describe("sessions routes", () => {
       app.request(`/api/sessions/${id}/suggested-replies`);
 
     it("404s for an unknown session", async () => {
-      const app = makeApp(fakeClients(), { getModelsConfig: withUtility });
+      const app = makeApp(fakeClients(), { models: withUtility() });
 
       const res = await getReplies(app, "nope");
 
@@ -1270,7 +1364,7 @@ describe("sessions routes", () => {
 
     it("generates replies for a settled assistant turn with the utility model", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       seedSettledTurn("s1", "Shall I go ahead with the rename?");
 
       const res = await getReplies(app, "s1");
@@ -1296,7 +1390,7 @@ describe("sessions routes", () => {
 
     it("returns no replies for a delegated child session", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "parent" });
       createSession(env.db, MODEL, {
         id: "child",
@@ -1317,7 +1411,7 @@ describe("sessions routes", () => {
 
     it("returns no replies while a turn is in flight", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       seedSettledTurn("s1");
       setSessionStatus(env.db, "s1", "running");
 
@@ -1329,7 +1423,7 @@ describe("sessions routes", () => {
 
     it("returns no replies when the last message is not an assistant reply", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "empty" });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Hello?" }] });
@@ -1341,7 +1435,7 @@ describe("sessions routes", () => {
 
     it("returns no replies while a tool approval is pending", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Create it" }] });
       appendMessage(env.db, "s1", {
@@ -1366,7 +1460,7 @@ describe("sessions routes", () => {
 
     it("returns no replies for an assistant message with no text", async () => {
       const { clients, calls } = suggestingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Run it" }] });
       appendMessage(env.db, "s1", {
@@ -1393,7 +1487,7 @@ describe("sessions routes", () => {
       clients.generateText = async () => {
         throw new Error("provider down");
       };
-      const app = makeApp(clients, { getModelsConfig: withUtility });
+      const app = makeApp(clients, { models: withUtility() });
       seedSettledTurn("s1");
 
       const res = await getReplies(app, "s1");
@@ -1424,7 +1518,13 @@ describe("sessions routes", () => {
       const body = (await res.json()) as { session: { model: string } };
       expect(body.session.model).toBe("anthropic:claude");
       expect(getSession(env.db, "s1")?.model).toBe("anthropic:claude");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("404s an unknown session", async () => {
@@ -1452,6 +1552,119 @@ describe("sessions routes", () => {
         headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+
+    it("rejects a valid text model combined with an invalid image model without changes or events", async () => {
+      const clients = fakeClients();
+      const resolveModel = clients.resolveModel;
+      clients.resolveModel = (id) => {
+        if (id === "ghost:image") throw new Error('unknown llm provider "ghost"');
+        return resolveModel(id);
+      };
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(clients, { bus });
+      const before = createSession(env.db, MODEL, {
+        id: "s1",
+        title: "Original",
+        imageModel: "fake:original",
+      });
+
+      const res = await patchBody(app, "s1", {
+        model: "anthropic:claude",
+        imageModel: "ghost:image",
+        effort: "high",
+        title: "Updated",
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'unknown llm provider "ghost"' });
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(events).toEqual([]);
+    });
+
+    it("publishes one update after all requested settings have been committed", async () => {
+      const observed: { event: KiriEvent; session: ReturnType<typeof getSession> }[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => observed.push({ event, session: getSession(env.db, "s1") }));
+      const app = makeApp(fakeClients(), { bus });
+      const before = createSession(env.db, MODEL, { id: "s1" });
+      const changes = {
+        model: "anthropic:claude",
+        imageModel: "fake:paint",
+        effort: "high",
+        title: "Updated",
+      } as const;
+
+      const res = await patchBody(app, "s1", { ...changes, title: "  Updated  " });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).session).toMatchObject(changes);
+      expect(getSession(env.db, "s1")).toEqual({ ...before, ...changes });
+      expect(observed).toEqual([
+        {
+          event: {
+            type: "session.updated",
+            id: "s1",
+            status: "idle",
+            projectId: null,
+            parentSessionId: null,
+          },
+          session: { ...before, ...changes },
+        },
+      ]);
+    });
+
+    it("rolls back every requested setting and emits nothing when persistence fails", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(fakeClients(), { bus });
+      const before = createSession(env.db, MODEL, { id: "s1", title: "Original" });
+      // Abort after the row changes so rollback is exercised, not only validation.
+      env.db.$client.exec(`CREATE TEMP TRIGGER reject_session_settings
+        AFTER UPDATE OF title ON sessions
+        BEGIN SELECT RAISE(ABORT, 'settings write rejected'); END;`);
+
+      const res = await patchBody(app, "s1", {
+        model: "anthropic:claude",
+        imageModel: "fake:paint",
+        effort: "high",
+        title: "Updated",
+      });
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "internal server error" });
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(events).toEqual([]);
+    });
+
+    it("preserves the empty patch response and notification", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(fakeClients(), { bus });
+      const before = createSession(env.db, MODEL, { id: "s1", title: "Original" });
+
+      const res = await patchBody(app, "s1", {});
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).session).toMatchObject({
+        id: "s1",
+        model: MODEL,
+        title: "Original",
+      });
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(events).toEqual([
+        {
+          type: "session.updated",
+          id: "s1",
+          status: "idle",
+          projectId: null,
+          parentSessionId: null,
+        },
+      ]);
+    });
 
     it("rejects any cwd write — the working directory has no app-side writer", async () => {
       const app = makeApp(fakeClients());
@@ -1505,7 +1718,13 @@ describe("sessions routes", () => {
       const body = (await res.json()) as { session: { effort: string } };
       expect(body.session.effort).toBe("high");
       expect(getSession(env.db, "s1")?.effort).toBe("high");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("rejects an effort outside the levels and leaves it unchanged", async () => {
@@ -1533,7 +1752,13 @@ describe("sessions routes", () => {
       // The schema trims, so surrounding whitespace never reaches storage.
       expect(body.session.title).toBe("Postgres upgrade plan");
       expect(getSession(env.db, "s1")?.title).toBe("Postgres upgrade plan");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
 
       const cleared = await patchBody(app, "s1", { title: null });
 
@@ -1669,6 +1894,176 @@ describe("sessions routes", () => {
       { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 1) },
     ];
 
+    const binaryPart = (mediaType: string, bytes: number): UIMessage["parts"][number] => ({
+      type: "file",
+      mediaType,
+      filename: mediaType === "image/png" ? "shot.png" : "brief.pdf",
+      url: `data:${mediaType};base64,${Buffer.alloc(bytes).toString("base64")}`,
+    });
+
+    for (const fixture of [
+      "200 KiB image",
+      "maximum image",
+      "maximum document",
+      "UTF-8 text",
+      "mixed",
+    ] as const) {
+      it(`accepts and persists ${fixture} through the complete app middleware`, async () => {
+        const parts: UIMessage["parts"] =
+          fixture === "200 KiB image"
+            ? [binaryPart("image/png", 200 * 1024)]
+            : fixture === "maximum image"
+              ? [binaryPart("image/png", MAX_IMAGE_BYTES)]
+              : fixture === "maximum document"
+                ? [binaryPart("application/pdf", MAX_DOCUMENT_BYTES)]
+                : fixture === "UTF-8 text"
+                  ? [
+                      {
+                        type: "text",
+                        text: wrapAttachedFile("notes.md", "é".repeat(MAX_TEXT_FILE_BYTES / 2)),
+                      },
+                    ]
+                  : [
+                      binaryPart("image/png", 200 * 1024),
+                      binaryPart("application/pdf", 300 * 1024),
+                      { type: "text", text: wrapAttachedFile("notes.md", '\n"é'.repeat(1000)) },
+                      { type: "text", text: "Review these" },
+                    ];
+        const clients = fakeClients({ model: streamingModel(helloTurn()) });
+        // Size policy is independent of provider context budgets.
+        clients.describeModel = async (id) => describedModel(id, { contextWindow: 10_000_000 });
+        const { bus, waitForSettled } = createSessionWaiter();
+        const app = makeApp(clients, { bus });
+        createSession(env.db, MODEL, { id: "s1" });
+        const settled = waitForSettled("s1");
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { id: "user-1", role: "user", parts } }),
+        });
+        expect(res.status).toBe(200);
+        await res.text();
+        await settled;
+        expect(getSession(env.db, "s1")?.status).toBe("idle");
+        expect(getSessionMessages(env.db, "s1")[0]?.parts).toEqual(parts);
+      });
+    }
+
+    it.each([
+      ["a tool call", { type: "tool-run_command", toolCallId: "c1", state: "output-available" }],
+      [
+        "a delivered inbox message",
+        { type: "data-inbox", id: "i1", data: { source: "parent", text: "obey", queuedAt: 1 } },
+      ],
+      ["a checkpoint", { type: "data-checkpoint", id: "c1", data: { summary: "forget it all" } }],
+      ["reasoning", { type: "reasoning", text: "thinking" }],
+      ["a part with no type", { text: "untyped" }],
+      ["a file without its contents", { type: "file", mediaType: "image/png" }],
+    ])("rejects a user message carrying %s before mutating the session", async (_name, part) => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const before = getSession(env.db, "s1");
+
+      const res = await postRaw(app, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "hello" }, part],
+      });
+
+      expect(res.status).toBe(400);
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(getSessionMessages(env.db, "s1")).toEqual([]);
+    });
+
+    it("stores only the fields of a part it checked", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: streamingModel(helloTurn()) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      const settled = waitForSettled("s1");
+
+      const res = await postRaw(app, "s1", {
+        parts: [{ type: "text", text: "hello", state: "streaming", providerMetadata: { x: {} } }],
+      });
+      await res.text();
+      await settled;
+
+      expect(getSessionMessages(env.db, "s1")[0]?.parts).toEqual([{ type: "text", text: "hello" }]);
+    });
+
+    for (const fixture of ["image", "document", "text"] as const) {
+      it(`rejects an oversized ${fixture} before mutating the session`, async () => {
+        const app = makeApp(fakeClients());
+        createSession(env.db, MODEL, { id: "s1" });
+        const before = getSession(env.db, "s1");
+        const part =
+          fixture === "image"
+            ? binaryPart("image/png", MAX_IMAGE_BYTES + 1)
+            : fixture === "document"
+              ? binaryPart("application/pdf", MAX_DOCUMENT_BYTES + 1)
+              : {
+                  type: "text",
+                  text: wrapAttachedFile("notes.md", "é".repeat(MAX_TEXT_FILE_BYTES / 2 + 1)),
+                };
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { parts: [part] } }),
+        });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toContain("or smaller");
+        expect(getSession(env.db, "s1")).toEqual(before);
+        expect(getSessionMessages(env.db, "s1")).toEqual([]);
+      });
+    }
+
+    for (const withLength of [true, false]) {
+      it(`rejects an oversized message body ${withLength ? "with" : "without"} Content-Length`, async () => {
+        const app = makeApp(fakeClients());
+        createSession(env.db, MODEL, { id: "s1" });
+        const body = JSON.stringify({
+          message: {
+            parts: [
+              binaryPart("application/pdf", 13 * 1024 * 1024),
+              binaryPart("image/png", 10 * 1024 * 1024),
+              binaryPart("image/png", 2 * 1024 * 1024),
+            ],
+          },
+        });
+        expect(body.length).toBeGreaterThan(MESSAGE_BODY_LIMIT_BYTES);
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: {
+            ...CLIENT_HEADERS,
+            "Content-Type": "application/json",
+            ...(withLength ? { "Content-Length": String(body.length) } : {}),
+          },
+          body,
+        });
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: MESSAGE_SIZE_ERROR });
+        expect(getSessionMessages(env.db, "s1")).toEqual([]);
+      });
+    }
+
+    it("keeps the default body limit on neighbouring endpoints and other methods", async () => {
+      const app = makeApp(fakeClients());
+      const body = JSON.stringify({ text: "x".repeat(256 * 1024) });
+      for (const [method, path] of [
+        ["POST", "/api/sessions/s1/inbox"],
+        ["POST", "/api/sessions"],
+        ["PATCH", "/api/sessions/s1"],
+        ["POST", "/api/sessions/s1/messages/extra"],
+        ["PATCH", "/api/sessions/s1/messages"],
+      ]) {
+        const res = await app.request(path, {
+          method,
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body,
+        });
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: "request body too large" });
+      }
+    });
+
     // Title generation is fired without being awaited by the turn, so give
     // its promise chain a bounded window to land before asserting.
     const waitForTitle = async (id: string): Promise<string | null> => {
@@ -1688,7 +2083,7 @@ describe("sessions routes", () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(clients, {
         bus,
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+        models: { shortcuts: {}, delegates: {}, utility: "local:tiny" },
       });
       createSession(env.db, MODEL, { id: "s1" });
 
@@ -2300,7 +2695,13 @@ describe("sessions routes", () => {
       expect(toolPartOf(rows[1]).state).toBe("output-available");
       expect(toolPartOf(rows[1]).output).toEqual({ cwd: realpathSync(join(env.cwd, "docs")) });
       expect(getSession(env.db, "s1")?.cwd).toBe(realpathSync(join(env.cwd, "docs")));
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("heals a working directory that left the disk and announces the move to the model", async () => {
@@ -2325,7 +2726,7 @@ describe("sessions routes", () => {
       bus.subscribe((e) => events.push(e));
       const app = makeApp(fakeClients({ model }), {
         bus,
-        getDefaultWorkingDirectory: () => env.cwd,
+        defaultWorkingDirectory: env.cwd,
       });
       createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
 
@@ -2336,9 +2737,17 @@ describe("sessions routes", () => {
       await settled;
 
       // The stale value was swapped for the configured default before the
-      // turn ran, and the swap was announced so the app can refresh.
+      // turn ran. The turn's own running update is what refreshes the app —
+      // the repair announces nothing idle-shaped ahead of it, which would
+      // read as a settled turn.
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events.filter((event) => event.type === "session.updated")[0]).toEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      });
       // The turn's system prompt told the model about the move.
       expect(systemText).toContain(`"${join(env.cwd, "gone")}" no longer exists`);
       expect(systemText).toContain(
@@ -2346,13 +2755,8 @@ describe("sessions routes", () => {
       );
     });
 
-    it("clears a stale working directory outright when no usable default exists", async () => {
-      // A declared default inside the sandbox but absent from disk: the
-      // config loads, yet there is nothing usable to heal onto.
-      writeFileSync(
-        join(env.cwd, "kiri.yaml"),
-        "filesystem:\n  allowed_directories: [.]\n  default_working_directory: missing-default\n",
-      );
+    it("heals a woken session's working directory too, and tells its model", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
       let systemText = "";
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
@@ -2369,30 +2773,45 @@ describe("sessions routes", () => {
         },
       }) as unknown as LlmModel;
       const { bus, waitForSettled } = createSessionWaiter();
-      const app = makeApp(fakeClients({ model }), { bus });
-      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
+      const app = makeApp(fakeClients({ model }), { bus, defaultWorkingDirectory: env.cwd });
+      createSession(env.db, MODEL, { id: "s1", title: "woken", cwd: join(env.cwd, "gone") });
 
+      // A message queued for the idle session wakes it — the turn is started
+      // by the delivery, not by the request.
       const settled = waitForSettled("s1");
-      const res = await postMessage(app, "s1", "hello");
-      expect(res.status).toBe(200);
-      await res.text();
+      await app.request("/api/sessions/s1/inbox", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "5b0c1f0e-2f6a-4d0b-9a55-3c1d2e4f6a70", text: "the report" }),
+      });
       await settled;
 
-      // With no default to fall back to the session ends up with none, and
-      // the model hears that relative paths won't resolve until one is set.
-      expect(getSession(env.db, "s1")?.cwd).toBeNull();
-      expect(systemText).toContain("the session now has none");
+      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
+      expect(systemText).toContain(`"${join(env.cwd, "gone")}" no longer exists`);
+      expect(systemText).toContain(
+        `moved to the configured default working directory, "${env.cwd}"`,
+      );
     });
 
-    it("heals a session without a working directory from the live default", async () => {
+    it("gives a session without a working directory the live default when its turn runs, not when it is read", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
-      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
-      createSession(env.db, MODEL, { id: "s1" });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: streamingModel(helloTurn()) }), {
+        bus,
+        defaultWorkingDirectory: env.cwd,
+      });
+      createSession(env.db, MODEL, { id: "s1", title: "no directory yet" });
 
-      // Loading the session detail stamps the default onto the row.
+      // Reading the session reports the row as stored and leaves it alone.
       const res = await app.request("/api/sessions/s1");
       expect(res.status).toBe(200);
-      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBe(env.cwd);
+      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
+      expect(getSession(env.db, "s1")?.cwd).toBeNull();
+
+      // Its next turn picks the default up.
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello")).text();
+      await settled;
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
     });
 
@@ -2408,7 +2827,7 @@ describe("sessions routes", () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model }), {
         bus,
-        getDefaultWorkingDirectory: () => env.cwd,
+        defaultWorkingDirectory: env.cwd,
       });
       createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
 
@@ -2424,78 +2843,6 @@ describe("sessions routes", () => {
       expect(prompts[1]).not.toContain("moved to the configured default working directory");
       expect(prompts[1]).toContain(`The session's working directory is ${realpathSync(next)}`);
       expect(prompts[1]).toContain("Follow the new repository's rules.");
-    });
-
-    it("leaves a session without a working directory alone when no default exists", async () => {
-      const app = makeApp(fakeClients());
-      createSession(env.db, MODEL, { id: "s1" });
-
-      const res = await app.request("/api/sessions/s1");
-      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
-      expect(getSession(env.db, "s1")?.cwd).toBeNull();
-    });
-
-    it("heals a working directory a config edit moved the sandbox out from under", async () => {
-      mkdirSync(join(env.cwd, "inner"));
-      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [inner]\n");
-      let systemText = "";
-      const model = new MockLanguageModelV3({
-        doStream: async (options) => {
-          const system = options.prompt.find((m) => m.role === "system");
-          systemText = typeof system?.content === "string" ? system.content : "";
-          return {
-            stream: convertArrayToReadableStream([
-              { type: "text-start", id: "t1" },
-              { type: "text-delta", id: "t1", delta: "hi" },
-              { type: "text-end", id: "t1" },
-              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
-            ]),
-          };
-        },
-      }) as unknown as LlmModel;
-      const { bus, waitForSettled } = createSessionWaiter();
-      const app = makeApp(fakeClients({ model }), {
-        bus,
-        getDefaultWorkingDirectory: () => join(env.cwd, "inner"),
-      });
-      // A directory that exists but now sits outside the narrowed sandbox.
-      createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
-
-      const settled = waitForSettled("s1");
-      const res = await postMessage(app, "s1", "hello");
-      expect(res.status).toBe(200);
-      await res.text();
-      await settled;
-
-      expect(getSession(env.db, "s1")?.cwd).toBe(join(env.cwd, "inner"));
-      expect(systemText).toContain(`"${env.cwd}" is outside the allowed directories`);
-    });
-
-    it("plays the turn despite a stale working directory when no sandbox is declared", async () => {
-      // With no sandbox the filesystem and shell tools are withheld outright,
-      // so a stale cwd can't misdirect anything — a plain chat must not be
-      // blocked by config it no longer uses.
-      const model = new MockLanguageModelV3({
-        doStream: async () => ({
-          stream: convertArrayToReadableStream([
-            { type: "text-start", id: "t1" },
-            { type: "text-delta", id: "t1", delta: "hi" },
-            { type: "text-end", id: "t1" },
-            { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
-          ]),
-        }),
-      }) as unknown as LlmModel;
-      const { bus, waitForSettled } = createSessionWaiter();
-      const app = makeApp(fakeClients({ model }), { bus });
-      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
-
-      const settled = waitForSettled("s1");
-      const res = await postMessage(app, "s1", "hello");
-      expect(res.status).toBe(200);
-      await res.text();
-      await settled;
-
-      expect(getSession(env.db, "s1")?.status).toBe("idle");
     });
 
     it("states the working directory in the system prompt when the session has one", async () => {
@@ -2540,6 +2887,7 @@ describe("sessions routes", () => {
           slug: "corpus-doc",
           name: "Corpus Doc",
           contentMd: "# Field Notes\n\nBody.",
+          heading: "Field Notes",
           createdAt: new Date(),
         })
         .run();
@@ -2664,17 +3012,8 @@ describe("sessions routes", () => {
 
       // Approving resumes the turn and the command actually runs, in the
       // workspace root the declared "." resolved to.
-      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
       const resumed = waitForSettled("s1");
-      const res = await app.request("/api/sessions/s1/messages", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
-      });
+      const res = await postApprovals(app, "s1", verdictsFor(paused[1], true));
       expect(res.status).toBe(200);
       await res.text();
       await resumed;
@@ -2692,7 +3031,7 @@ describe("sessions routes", () => {
     });
 
     describe("run_command auto permission", () => {
-      const UTILITY_MODELS = () => ({ shortcuts: {}, delegates: {}, utility: "fake:utility" });
+      const UTILITY_MODELS = { shortcuts: {}, delegates: {}, utility: "fake:utility" };
 
       // Tracks judge calls and answers with a scripted reply.
       const scriptedJudge = (reply: string) => {
@@ -2718,6 +3057,7 @@ describe("sessions routes", () => {
           },
           guidance: () => guidance,
           flush: async () => {},
+          stop: () => {},
         };
         return { judgements, resolutions, learning };
       };
@@ -2725,7 +3065,7 @@ describe("sessions routes", () => {
       const startAutoTurn = async (opts: {
         input: string;
         judgeReply?: string;
-        modelsConfig?: () => ModelsConfig;
+        modelsConfig?: ModelsConfig;
         learning?: ReturnType<typeof fakeLearning>;
         /** Run the turn on a delegated child session instead of a top-level one. */
         child?: boolean;
@@ -2742,7 +3082,7 @@ describe("sessions routes", () => {
           }),
           {
             bus,
-            getModelsConfig: opts.modelsConfig ?? UTILITY_MODELS,
+            models: opts.modelsConfig ?? UTILITY_MODELS,
             commandLearning: learning.learning,
           },
         );
@@ -2767,42 +3107,12 @@ describe("sessions routes", () => {
         approved: boolean,
       ) => {
         const paused = getSessionMessages(env.db, "s1");
-        const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-          part.state === "approval-requested"
-            ? { ...part, state: "approval-responded", approval: { ...part.approval, approved } }
-            : part,
-        );
         const resumed = waitForSettled("s1");
-        const res = await app.request("/api/sessions/s1/messages", {
-          method: "POST",
-          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
-        });
+        const res = await postApprovals(app, "s1", verdictsFor(paused[1], approved));
         expect(res.status).toBe(200);
         await res.text();
         await resumed;
       };
-
-      it("runs a screen-allowed command without consulting the judge", async () => {
-        const { judge } = await startAutoTurn({ input: JSON.stringify({ command: "pwd" }) });
-
-        const rows = getSessionMessages(env.db, "s1");
-        const ranTool = toolPartOf(rows[1]);
-        expect(ranTool.state).toBe("output-available");
-        expect((ranTool.output as { stdout: string }).stdout).toBe(`${realpathSync(env.cwd)}\n`);
-        expect(judge.calls).toEqual([]);
-      });
-
-      it("pauses a screen-triggered command without consulting the judge", async () => {
-        const { judge } = await startAutoTurn({
-          input: JSON.stringify({ command: "rm -rf build" }),
-        });
-
-        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
-        expect(pendingTool.state).toBe("approval-requested");
-        expect(pendingTool.output).toBeUndefined();
-        expect(judge.calls).toEqual([]);
-      });
 
       it("runs a command the judge allows, judging with the utility model", async () => {
         const { judge } = await startAutoTurn({
@@ -2953,7 +3263,7 @@ describe("sessions routes", () => {
           fakeClients({
             model: toolCallModel("run_command", JSON.stringify({ command: "pwd" })),
           }),
-          { bus, getModelsConfig: UTILITY_MODELS },
+          { bus, models: UTILITY_MODELS },
         );
         createSession(env.db, MODEL, { id: "s1", title: "auto shell" });
         const settled = waitForSettled("s1");
@@ -2967,19 +3277,6 @@ describe("sessions routes", () => {
           verdict: "allow",
           source: "screen",
         });
-      });
-
-      it("degrades to ask wholesale when no utility model is configured", async () => {
-        // Even a screen-allowed command pauses: without a utility model the
-        // permissions page states auto falls back to ask, so it must.
-        const { judge } = await startAutoTurn({
-          input: JSON.stringify({ command: "pwd" }),
-          modelsConfig: () => ({ shortcuts: {}, delegates: {} }),
-        });
-
-        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
-        expect(pendingTool.state).toBe("approval-requested");
-        expect(judge.calls).toEqual([]);
       });
     });
 
@@ -3020,15 +3317,25 @@ describe("sessions routes", () => {
     });
 
     it("409s when a turn is already in flight", async () => {
-      const app = makeApp(fakeClients());
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: pendingModel() }), { bus });
       createSession(env.db, MODEL, { id: "s1" });
-      setSessionStatus(env.db, "s1", "running");
+      // The turn parks (the model stream never closes), holding the session.
+      const turn = await postMessage(app, "s1", "Hi there");
 
-      const res = await postMessage(app, "s1", "hi");
+      const res = await postMessage(app, "s1", "and another thing");
 
       expect(res.status).toBe(409);
-      // No turn ran: still just the (none) persisted messages.
-      expect(getSessionMessages(env.db, "s1")).toHaveLength(0);
+      expect(((await res.json()) as { error: string }).error).toContain(
+        "already has a turn in flight",
+      );
+      // The refused message was not saved: only the first turn's is there.
+      expect(getSessionMessages(env.db, "s1").filter((m) => m.role === "user")).toHaveLength(1);
+
+      const settled = waitForSettled("s1");
+      await app.request("/api/sessions/s1/cancel", { method: "POST", headers: CLIENT_HEADERS });
+      await turn.text();
+      await settled;
     });
 
     it("resumes a session after a previous turn failed", async () => {
@@ -3071,7 +3378,69 @@ describe("sessions routes", () => {
       expect(res.status).toBe(204);
       expect(getSession(env.db, "s1")).toBeUndefined();
       expect(getSessionMessages(env.db, "s1")).toHaveLength(0);
-      expect(events).toContainEqual({ type: "session.deleted", id: "s1" });
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "s1",
+        projectId: null,
+        parentSessionId: null,
+      });
+    });
+
+    it("announces the workers deleted with the session, each by its own id", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, {
+        id: "worker",
+        parentSessionId: "s1",
+        parentToolCallId: "call-1",
+      });
+
+      const res = await app.request("/api/sessions/s1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "worker",
+        projectId: null,
+        parentSessionId: "s1",
+      });
+    });
+
+    it("409s a parent with a running worker without deleting records or publishing", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "parent" });
+      createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "parent",
+        parentToolCallId: "call-1",
+      });
+      setSessionStatus(env.db, "child", "running");
+      const inbox = enqueueInboxItem(env.db, "parent", {
+        source: "child",
+        fromSessionId: "child",
+        text: "Keep report",
+      });
+
+      const res = await app.request("/api/sessions/parent", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("delegated worker running");
+      expect(getSession(env.db, "parent")).toBeDefined();
+      expect(getSession(env.db, "child")?.status).toBe("running");
+      expect(pendingInboxItems(env.db, "parent")).toEqual([inbox]);
+      expect(events).toEqual([]);
     });
 
     it("404s an unknown session", async () => {
@@ -3100,7 +3469,7 @@ describe("sessions routes", () => {
   });
 
   describe("DELETE /api/sessions/:id/messages/:messageId", () => {
-    it("truncates the transcript from the message, 204s and publishes session.updated", async () => {
+    it("truncates the transcript from the message, returns its revision and publishes session.updated", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();
       bus.subscribe((e) => events.push(e));
@@ -3119,11 +3488,18 @@ describe("sessions routes", () => {
         headers: CLIENT_HEADERS,
       });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ transcriptRevision: 5 });
       // The edited message and the turn after it are gone; the prior turn stays.
       expect(getSessionMessages(env.db, "s1").map((m) => m.index)).toEqual([0, 1]);
       // A truncate has no follow-up turn to announce it, so the route publishes.
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("404s an unknown session", async () => {
@@ -3166,6 +3542,23 @@ describe("sessions routes", () => {
   });
 
   describe("POST /api/sessions/:id/inbox", () => {
+    const ITEM_ID = "7d0e4a52-6f0b-4c53-9d53-0f5f2f6f3a11";
+    const replying = () =>
+      fakeClients({
+        model: streamingModel([
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "On it" },
+          { type: "text-end", id: "t1" },
+          { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+        ]),
+      });
+    const queue = (app: ReturnType<typeof makeApp>, sessionId: string, body: unknown) =>
+      app.request(`/api/sessions/${sessionId}/inbox`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
     it("queues a message for a running turn, 201s with the item id, and publishes", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();
@@ -3174,17 +3567,17 @@ describe("sessions routes", () => {
       createSession(env.db, MODEL, { id: "s1" });
       setSessionStatus(env.db, "s1", "running");
 
-      const res = await app.request("/api/sessions/s1/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "also check X" }),
-      });
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
 
       expect(res.status).toBe(201);
-      const { item } = (await res.json()) as { item: { id: string; text: string } };
-      expect(item.text).toBe("also check X");
-      expect(pendingInboxItems(env.db, "s1").map((row) => row.id)).toEqual([item.id]);
-      expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "s1" });
+      const body = (await res.json()) as sessionsApi.SessionInboxResult;
+      expect(body.delivered).toBe(false);
+      expect(body.item).toMatchObject({ id: ITEM_ID, text: "also check X", source: "user" });
+      expect(pendingInboxItems(env.db, "s1").map((row) => row.id)).toEqual([ITEM_ID]);
+      expect(events).toContainEqual({
+        type: "session.inbox.queued",
+        sessionId: "s1",
+      });
     });
 
     it("accepts a queue for a turn paused on tool approval", async () => {
@@ -3192,44 +3585,116 @@ describe("sessions routes", () => {
       createSession(env.db, MODEL, { id: "s1" });
       setSessionStatus(env.db, "s1", "waiting");
 
-      const res = await app.request("/api/sessions/s1/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "and while you're paused" }),
-      });
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "and while you're paused" });
 
       expect(res.status).toBe(201);
       expect(pendingInboxItems(env.db, "s1")).toHaveLength(1);
     });
 
-    it("409s a session with no turn in flight — the message should be sent instead", async () => {
-      const app = makeApp(fakeClients());
+    it("starts a turn for a message queued to a session with none in flight", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(replying(), { bus });
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await app.request("/api/sessions/s1/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "too late" }),
-      });
+      const settled = waitForSettled("s1");
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "the turn settled first" });
+      await settled;
 
-      expect(res.status).toBe(409);
+      // Queued rather than refused: the server opens a turn on it.
+      expect(res.status).toBe(201);
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+      const rows = getSessionMessages(env.db, "s1");
+      expect(rows.map((row) => row.role)).toEqual(["user", "assistant"]);
+      expect(JSON.stringify(rows[0]?.parts)).toContain("the turn settled first");
+      expect(JSON.stringify(rows[1]?.parts)).toContain("On it");
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+    });
+
+    it("restarts a cancelled session for the user's queued message", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(replying(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "cancelled");
+
+      const settled = waitForSettled("s1");
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "carry on" });
+      await settled;
+
+      expect(res.status).toBe(201);
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
       expect(pendingInboxItems(env.db, "s1")).toEqual([]);
     });
 
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
-      const res = await app.request("/api/sessions/ghost/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "hello" }),
-      });
+      const res = await queue(app, "ghost", { id: ITEM_ID, text: "hello" });
       expect(res.status).toBe(404);
+    });
+
+    it("answers a repeated submission with the message already queued, queueing nothing new", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+      await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+      bus.subscribe((e) => events.push(e));
+
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as sessionsApi.SessionInboxResult;
+      expect(body).toMatchObject({ item: { id: ITEM_ID }, delivered: false });
+      expect(pendingInboxItems(env.db, "s1")).toHaveLength(1);
+      expect(events).toEqual([]);
+    });
+
+    it("reports a repeated submission as delivered once a turn has taken it, even after the turn settled", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+      await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+      acknowledgeInboxItems(env.db, [ITEM_ID]);
+      setSessionStatus(env.db, "s1", "idle");
+
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as sessionsApi.SessionInboxResult).delivered).toBe(true);
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+    });
+
+    it("409s a submission id already queued for another session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s2" });
+      setSessionStatus(env.db, "s1", "running");
+      setSessionStatus(env.db, "s2", "running");
+      await queue(app, "s1", { id: ITEM_ID, text: "for s1" });
+
+      const res = await queue(app, "s2", { id: ITEM_ID, text: "for s1" });
+
+      expect(res.status).toBe(409);
+      expect(pendingInboxItems(env.db, "s2")).toEqual([]);
+    });
+
+    it("400s a submission without a well-formed id", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+
+      expect((await queue(app, "s1", { text: "no id" })).status).toBe(400);
+      expect((await queue(app, "s1", { id: "q1", text: "not a uuid" })).status).toBe(400);
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
     });
   });
 
   describe("DELETE /api/sessions/:id/inbox/:itemId", () => {
-    it("withdraws a still-queued message with a 204", async () => {
-      const app = makeApp(fakeClients());
+    it("withdraws a still-queued message with a 204 and announces it", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
       createSession(env.db, MODEL, { id: "s1" });
       const item = enqueueInboxItem(env.db, "s1", { source: "user", text: "on second thought" });
 
@@ -3240,6 +3705,7 @@ describe("sessions routes", () => {
 
       expect(res.status).toBe(204);
       expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+      expect(events).toContainEqual({ type: "session.inbox.withdrawn", sessionId: "s1" });
     });
 
     it("404s an item that is no longer queued — the already-delivered signal", async () => {
@@ -3261,6 +3727,45 @@ describe("sessions routes", () => {
         headers: CLIENT_HEADERS,
       });
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("application shutdown", () => {
+    it("settles an in-flight turn before the database closes, then starts nothing more", async () => {
+      const titled: string[] = [];
+      const lifetime = createAppLifetime();
+      const { bus } = createSessionWaiter();
+      const app = makeApp(
+        fakeClients({
+          model: pendingModel(),
+          generateText: async ({ prompt }) => {
+            titled.push(String(prompt));
+            return { text: "", usage: {} };
+          },
+        }),
+        { bus, lifetime },
+      );
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s2" });
+      let statusAtClose: string | undefined;
+      lifetime.onClose("db", () => {
+        statusAtClose = getSession(env.db, "s1")?.status;
+      });
+
+      // The turn parks (the model stream never closes); shutdown cancels it.
+      const turn = await postMessage(app, "s1", "Hi there");
+      const shutdown = lifetime.shutdown();
+      await turn.text();
+      await shutdown;
+      expect(statusAtClose).toBe("cancelled");
+      expect(titled).toHaveLength(1);
+
+      // A message that arrives afterwards starts neither a turn nor a title call.
+      const refused = await postMessage(app, "s2", "Anyone there?");
+      expect(refused.status).toBe(503);
+      expect(await refused.json()).toEqual({ error: "kiri is shutting down" });
+      expect(getSession(env.db, "s2")?.status).toBe("idle");
+      expect(titled).toHaveLength(1);
     });
   });
 
@@ -3471,7 +3976,10 @@ describe("sessions routes", () => {
       // The full catalogue plus standing instructions and worker reports needs
       // a model window large enough to exercise the delegation flow.
       const app = makeApp(
-        { ...fakeClients({ model }), contextWindowFor: async () => 128_000 },
+        {
+          ...fakeClients({ model }),
+          describeModel: async (id) => describedModel(id, { contextWindow: 128_000 }),
+        },
         {
           bus,
           mcpRegistry: fakeMcp({ tavily__search: mcpTool(), linear__create_issue: mcpTool() }),
@@ -3635,11 +4143,11 @@ describe("sessions routes", () => {
       // Only the child's own route resolves its pause: the parent holds no
       // pending approval, so a verdict posted at it is refused — the parent
       // model has no path to approving its worker's calls.
-      const verdicts = approvedParts(pausedRows[1], true);
-      expect((await postRaw(app, "s1", { role: "assistant", parts: verdicts })).status).toBe(409);
+      const verdicts = verdictsFor(pausedRows[1], true);
+      expect((await postApprovals(app, "s1", verdicts)).status).toBe(409);
 
       // Approving on the child resumes it exactly like any session.
-      const res = await postRaw(app, childId, { role: "assistant", parts: verdicts });
+      const res = await postApprovals(app, childId, verdicts);
       expect(res.status).toBe(200);
       await res.text();
       await until(() => getSession(env.db, childId)?.status === "idle");
@@ -3739,16 +4247,7 @@ describe("sessions routes", () => {
         // the server's persisted receipt can authorize consideration here.
         app = makeApp(clients, { bus });
         const resumed = waitForSettled("s1");
-        await (
-          await postRaw(app, "s1", {
-            role: "assistant",
-            // Client-supplied receipts are not trusted; only its approval
-            // verdicts are applied to the existing server-side message.
-            parts: approvedParts(row, true).map((part) =>
-              part.type === "data-instructions" ? { ...part, data: null } : part,
-            ),
-          })
-        ).text();
+        await (await postApprovals(app, "s1", verdictsFor(row, true))).text();
         await resumed;
         if (mode !== "unchanged") {
           expect(existsSync(file)).toBe(false);
@@ -3758,12 +4257,7 @@ describe("sessions routes", () => {
             "output-error",
           );
           const finished = waitForSettled("s1");
-          await (
-            await postRaw(app, "s1", {
-              role: "assistant",
-              parts: approvedParts(next, mode !== "denied"),
-            })
-          ).text();
+          await (await postApprovals(app, "s1", verdictsFor(next, mode !== "denied"))).text();
           await finished;
         }
         expect(getSession(env.db, "s1")?.status).toBe("idle");
@@ -3793,14 +4287,8 @@ describe("sessions routes", () => {
       expect(pendingTool.output).toBeUndefined();
       expect(getSession(env.db, "s1")?.status).toBe("waiting");
 
-      // The client re-sends the paused assistant message with the verdict applied.
-      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
       const secondSettled = waitForSettled("s1");
-      const res = await postRaw(app, "s1", { role: "assistant", parts: respondedParts });
+      const res = await postApprovals(app, "s1", verdictsFor(paused[1], true));
       expect(res.status).toBe(200);
       await res.text();
       await secondSettled;
@@ -3832,14 +4320,8 @@ describe("sessions routes", () => {
         "linear__create_issue",
         "allow",
       );
-      const respondedParts = (paused?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
-
       const secondSettled = waitForSettled("s1");
-      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await (await postApprovals(app, "s1", verdictsFor(paused, true))).text();
       await secondSettled;
 
       expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
@@ -3894,12 +4376,49 @@ describe("sessions routes", () => {
       expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
     });
 
-    it("409s an approval resume when nothing is pending", async () => {
+    it("409s verdicts that do not answer the calls the session is paused on", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "hi" }] });
 
-      const res = await postRaw(app, "s1", {
+      // Nothing is pending at all.
+      const idle = await postApprovals(app, "s1", [{ toolCallId: "c1", approved: true }]);
+      expect(idle.status).toBe(409);
+
+      appendMessage(env.db, "s1", {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-linear__create_issue",
+            toolCallId: "c1",
+            state: "approval-requested",
+            input: { title: "Bug" },
+            approval: { id: "a1" },
+          },
+        ] as never,
+      });
+      const before = getSessionMessages(env.db, "s1");
+
+      const stray = await postApprovals(app, "s1", [
+        { toolCallId: "c1", approved: true },
+        { toolCallId: "c2", approved: true },
+      ]);
+
+      expect(stray.status).toBe(409);
+      expect((await stray.json()).error).toContain('"c2" is not awaiting approval');
+      expect(getSessionMessages(env.db, "s1")).toEqual(before);
+    });
+
+    it("400s a malformed approval command, and an assistant message in its place", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      expect((await postApprovals(app, "s1", [])).status).toBe(400);
+      expect((await postApprovals(app, "s1", [{ toolCallId: "c1" }])).status).toBe(400);
+      expect((await postApprovals(app, "s1", [{ toolCallId: "", approved: true }])).status).toBe(
+        400,
+      );
+      const asMessage = await postRaw(app, "s1", {
         role: "assistant",
         parts: [
           {
@@ -3911,8 +4430,7 @@ describe("sessions routes", () => {
           },
         ],
       });
-
-      expect(res.status).toBe(409);
+      expect(asMessage.status).toBe(400);
     });
 
     it("withholds an off tool from the model so it never runs", async () => {
@@ -3966,13 +4484,8 @@ describe("sessions routes", () => {
       expect(pendingTool.state).toBe("approval-requested");
       expect(pendingTool.output).toBeUndefined();
 
-      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
       const secondSettled = waitForSettled("s1");
-      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await (await postApprovals(app, "s1", verdictsFor(paused[1], true))).text();
       await secondSettled;
 
       const finished = toolPartOf(getSessionMessages(env.db, "s1")[1]);

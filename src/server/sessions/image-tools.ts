@@ -1,8 +1,7 @@
-import { type JSONValue, type ToolSet, generateImage, tool } from "ai";
+import { type ToolSet, generateImage, tool } from "ai";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import type { LlmClients } from "../llm/index.ts";
-import { compactImageOutput } from "./image-tool-results.ts";
 import { getSession } from "./store.ts";
 
 /** Dependencies for the first-party image tools. */
@@ -15,7 +14,7 @@ export interface ImageToolsDeps {
 
 /**
  * First-party image tools for a session: `generate_image` renders a text
- * prompt with the session's selected image model. The session routes offer
+ * prompt with the session's selected image model. The tool assembly offers
  * the set only while an image model is selected, and the selection is re-read
  * on every call, so a mid-turn change applies immediately. The result carries
  * the image as a data URL for the transcript to render; the model only ever
@@ -55,10 +54,6 @@ export function imageTools(deps: ImageToolsDeps): ToolSet {
           image: `data:${image.mediaType};base64,${image.base64}`,
         };
       },
-      toModelOutput: ({ output }) => ({
-        type: "json" as const,
-        value: compactImageOutput(output) as JSONValue,
-      }),
     }),
   };
 }

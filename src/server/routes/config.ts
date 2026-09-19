@@ -1,16 +1,16 @@
 import { Hono } from "hono";
+import type * as configApi from "../../shared/api/config.ts";
 import {
   evaluateConfigHealth,
   evaluateModelListingHealth,
   evaluateProviderAuthHealth,
 } from "../config/health.ts";
-import { loadKiriConfig } from "../config/loader.ts";
-import type { ConfigStore } from "../config/store.ts";
+import type { ConfigService } from "../config/service.ts";
 import type { LlmClients } from "../llm/index.ts";
 
 export interface ConfigRoutesDeps {
-  /** Workspace config — the health check reads `kiri.yaml` against it. */
-  config: ConfigStore;
+  /** The workspace's effective config — the health check reports on its latest load. */
+  configService: ConfigService;
   /** Environment the health check resolves provider keys against. */
   env: Record<string, string | undefined>;
   /**
@@ -24,8 +24,8 @@ export interface ConfigRoutesDeps {
 /**
  * Build the Hono sub-app for configuration info. `GET /health` returns the
  * workspace's configuration-health report — the pure checks printed at boot,
- * plus local credential checks and listing-level model checks when an LLM surface is wired — read fresh
- * per request so it reflects edits the config watcher has picked up. Mounted
+ * plus local credential checks and listing-level model checks when an LLM surface is wired — taken
+ * from the config service per request, so it reflects the file as it is now. Mounted
  * under `/api/config` by `createApp`, unconditionally: it is how the client
  * learns *why* there may be no providers.
  */
@@ -33,13 +33,17 @@ export function configRoutes(deps: ConfigRoutesDeps): Hono {
   const app = new Hono();
 
   app.get("/health", async (c) => {
-    const kiriConfig = loadKiriConfig(deps.config, deps.env);
+    const kiriConfig = deps.configService.current();
     const health = evaluateConfigHealth({ kiriConfig, env: deps.env });
-    health.checks.push(...(await evaluateProviderAuthHealth(kiriConfig, deps.env)));
-    if (deps.llmClients) {
-      health.checks.push(...(await evaluateModelListingHealth(kiriConfig, deps.llmClients)));
+    // A failed load is the whole report. The snapshot still carries the last
+    // good providers, but checking those would describe a file that is gone.
+    if (!kiriConfig.diagnostics.failure) {
+      health.checks.push(...(await evaluateProviderAuthHealth(kiriConfig, deps.env)));
+      if (deps.llmClients) {
+        health.checks.push(...(await evaluateModelListingHealth(kiriConfig, deps.llmClients)));
+      }
     }
-    return c.json(health);
+    return c.json(health satisfies configApi.ConfigHealth);
   });
 
   return app;

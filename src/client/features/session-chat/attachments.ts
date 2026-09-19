@@ -1,69 +1,51 @@
-import type { FileUIPart } from "ai";
+import type { FileUIPart, UIMessage } from "ai";
+import { parseAttachedFile, wrapAttachedFile } from "../../../shared/attached-file.ts";
+import { DOCUMENT_TYPES } from "../../../shared/document-types.ts";
+import {
+  MAX_DOCUMENT_BYTES,
+  MAX_DOCUMENT_MB,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_MB,
+  MAX_TEXT_FILE_BYTES,
+  MAX_TEXT_FILE_KB,
+} from "../../../shared/message-limits.ts";
 
-// Pasted/uploaded images ride the message as data-URL file parts, so they are
-// stored and replayed with the transcript without a separate upload channel.
-// Cap the size so a stray large paste doesn't bloat the request or the stored
-// message — the model input limit bites long before anything generous would.
-export const MAX_IMAGE_MB = 10;
-const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
+// The composer stages three kinds of attachment in one list. Images and
+// documents (PDFs, Office files) ride the message as data-URL file parts, so
+// they are stored and replayed with the transcript without a separate upload
+// channel — but a document only reaches a model whose provider transport maps
+// the part, so which types are attachable comes from the session's model. Text
+// files are attached by value: their contents ride inline as a wrapped text
+// part (see `wrapAttachedFile`), so they reach every provider as plain text.
 
-/** A staged image in the composer, before it is sent as a message part. */
-export type PendingImage = { id: string; part: FileUIPart };
+/** The kinds of attachment the composer stages. */
+export type AttachmentKind = "image" | "document" | "text";
 
-/** The image files in a clipboard / file-input list; non-images are ignored. */
-export function imageFilesFrom(files: FileList | null | undefined): File[] {
-  if (!files) return [];
-  return Array.from(files).filter((file) => file.type.startsWith("image/"));
-}
-
-// Encode the file as a base64 data URL from its bytes. The image rides inline
-// in the message part, so there's no separate upload channel. Reading the byte
-// buffer (rather than FileReader's callback pair) keeps this a single path; a
-// read failure just rejects and bubbles.
-async function fileToDataUrl(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return `data:${file.type};base64,${btoa(binary)}`;
-}
-
-export type PendingImagesResult = { images: PendingImage[]; error?: string };
+/** A staged attachment whose contents are in hand, ready to send as a message part. */
+export type ReadAttachment =
+  | { id: string; kind: "image"; part: FileUIPart }
+  | { id: string; kind: "document"; part: FileUIPart }
+  | { id: string; kind: "text"; filename: string; content: string };
 
 /**
- * Read image files into pending attachments (data-URL file parts). Files over
- * the size cap are skipped and reported via `error`, so an over-large paste
- * surfaces a reason rather than silently vanishing.
+ * A staged attachment in the composer. A picked file holds its place in the
+ * list as `reading` until its contents arrive, so staging order is pick order
+ * however long each read takes.
  */
-export async function readPendingImages(files: File[]): Promise<PendingImagesResult> {
-  const images: PendingImage[] = [];
-  let error: string | undefined;
-  for (const file of files) {
-    if (file.size > MAX_IMAGE_BYTES) {
-      error = `Images must be under ${MAX_IMAGE_MB} MB.`;
-      continue;
-    }
-    const url = await fileToDataUrl(file);
-    images.push({
-      id: crypto.randomUUID(),
-      part: { type: "file", mediaType: file.type, filename: file.name, url },
-    });
-  }
-  return { images, error };
-}
+export type StagedAttachment = ReadAttachment | { id: string; kind: "reading"; filename: string };
 
-// Text files are attached by value: their contents ride inline in the message as
-// a wrapped text part (see `wrapAttachedFile`), so they reach every provider as
-// plain text — no per-provider file-part mapping and no separate upload channel.
-// Cap the size so a stray large file doesn't blow the model's context window;
-// text is far denser in tokens than an image of the same byte size.
-export const MAX_TEXT_FILE_KB = 256;
-const MAX_TEXT_FILE_BYTES = MAX_TEXT_FILE_KB * 1024;
+/** What the session's model can be sent: images at all, and which document media types. */
+export type AttachmentCapabilities = { images: boolean; documents: readonly string[] };
+
+/** A picked or pasted file the composer can attach, with the kind it stages as. */
+export type PickedFile =
+  | { file: File; kind: "image" | "document"; mediaType: string }
+  | { file: File; kind: "text" };
 
 // Attachable text is detected by file extension, not MIME type: browsers report
 // an empty type for many text files (e.g. `.md`), so the extension is the only
-// reliable signal.
+// reliable signal. Documents are detected the same way, because browsers report
+// an empty or generic type for many Office files.
 const TEXT_FILE_EXTENSIONS = new Set([
   ".md",
   ".markdown",
@@ -84,63 +66,174 @@ const TEXT_FILE_EXTENSIONS = new Set([
   ".sh",
 ]);
 
-/** The `accept` value for the composer's file picker: images plus text files. */
-export const ATTACHMENT_ACCEPT = ["image/*", ...TEXT_FILE_EXTENSIONS].join(",");
-
-/** The picker `accept` value when the model can't read images: text files only. */
-export const TEXT_ATTACHMENT_ACCEPT = [...TEXT_FILE_EXTENSIONS].join(",");
-
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot).toLowerCase();
 };
 
-/** A staged text file in the composer, before it is sent as a wrapped text part. */
-export type PendingTextFile = { id: string; filename: string; content: string };
+/**
+ * The composer file picker's `accept` value: text files always, images when
+ * the model reads them, and each document type the model's provider carries.
+ */
+export function attachmentAccept({ images, documents }: AttachmentCapabilities): string {
+  return [
+    ...(images ? ["image/*"] : []),
+    ...DOCUMENT_TYPES.filter((type) => documents.includes(type.mediaType)).map(
+      (type) => type.extension,
+    ),
+    ...TEXT_FILE_EXTENSIONS,
+  ].join(",");
+}
 
-/** The attachable text files in a clipboard / file-input list; others are ignored. */
-export function textFilesFrom(files: FileList | null | undefined): File[] {
+/**
+ * The attachable files in a clipboard / file-input list, in the order given,
+ * each with the kind it stages as; anything else is ignored.
+ */
+export function pickedFilesFrom(files: FileList | null | undefined): PickedFile[] {
   if (!files) return [];
-  return Array.from(files).filter((file) => TEXT_FILE_EXTENSIONS.has(extensionOf(file.name)));
+  return Array.from(files).flatMap((file): PickedFile[] => {
+    if (file.type.startsWith("image/")) return [{ file, kind: "image", mediaType: file.type }];
+    const extension = extensionOf(file.name);
+    const document = DOCUMENT_TYPES.find((type) => type.extension === extension);
+    if (document) return [{ file, kind: "document", mediaType: document.mediaType }];
+    return TEXT_FILE_EXTENSIONS.has(extension) ? [{ file, kind: "text" }] : [];
+  });
 }
 
-export type PendingTextFilesResult = { textFiles: PendingTextFile[]; error?: string };
+// Cap each kind's size so a stray large file doesn't bloat the request or the
+// stored message. Text is far denser in tokens than binary of the same byte
+// size, so its cap is much tighter.
+const SIZE_CAPS: Record<AttachmentKind, { bytes: number; error: string }> = {
+  image: { bytes: MAX_IMAGE_BYTES, error: `Images must be ${MAX_IMAGE_MB} MiB or smaller.` },
+  document: {
+    bytes: MAX_DOCUMENT_BYTES,
+    error: `Documents must be ${MAX_DOCUMENT_MB} MiB or smaller.`,
+  },
+  text: {
+    bytes: MAX_TEXT_FILE_BYTES,
+    error: `Text files must be ${MAX_TEXT_FILE_KB} KiB or smaller.`,
+  },
+};
 
-/**
- * Read text files into pending attachments (filename + contents). Files over the
- * size cap are skipped and reported via `error`, so an over-large file surfaces a
- * reason rather than silently vanishing.
- */
-export async function readPendingTextFiles(files: File[]): Promise<PendingTextFilesResult> {
-  const textFiles: PendingTextFile[] = [];
-  let error: string | undefined;
-  for (const file of files) {
-    if (file.size > MAX_TEXT_FILE_BYTES) {
-      error = `Text files must be under ${MAX_TEXT_FILE_KB} KB.`;
-      continue;
-    }
-    textFiles.push({ id: crypto.randomUUID(), filename: file.name, content: await file.text() });
+// Why the model can't be sent a binary attachment, if it can't. A document is
+// named by its extension — or, for a media type outside the shared vocabulary,
+// by the type itself.
+function modelRefusal(
+  kind: "image" | "document",
+  mediaType: string,
+  capabilities: AttachmentCapabilities,
+): string | undefined {
+  if (kind === "image") {
+    return capabilities.images
+      ? undefined
+      : "This model reads text only. Switch model to attach images.";
   }
-  return { textFiles, error };
+  if (capabilities.documents.includes(mediaType)) return;
+  const extension = DOCUMENT_TYPES.find((type) => type.mediaType === mediaType)?.extension;
+  return `This model can't read ${extension ?? mediaType} files. Switch model to attach it.`;
 }
 
-const ATTACHED_FILE_RE = /^<attached-file name="([^"]*)">\n([\s\S]*)\n<\/attached-file>$/;
-
-/**
- * Wrap a text file's contents as an `<attached-file>` text part: a delimiter that
- * marks it as quoted, untrusted file content and lets the transcript render it
- * back as a chip. Quotes in the name are normalised so it round-trips through
- * `parseAttachedFile`.
- */
-export function wrapAttachedFile(filename: string, content: string): string {
-  return `<attached-file name="${filename.replace(/"/g, "'")}">\n${content}\n</attached-file>`;
+// Why a picked file can't be staged, if it can't: the model doesn't read its
+// kind, or it is over its kind's size cap.
+function refusal(picked: PickedFile, capabilities: AttachmentCapabilities): string | undefined {
+  const unreadable =
+    picked.kind === "text" ? undefined : modelRefusal(picked.kind, picked.mediaType, capabilities);
+  if (unreadable) return unreadable;
+  if (picked.file.size > SIZE_CAPS[picked.kind].bytes) return SIZE_CAPS[picked.kind].error;
 }
 
 /**
- * Parse an `<attached-file>` text part back into its filename and contents, or
- * null when the text isn't a wrapped attachment (i.e. ordinary typed text).
+ * Split picked files into those that can be staged and the distinct reasons the
+ * rest can't, so a refused file surfaces why rather than silently vanishing.
+ * Needs no file contents — the picker's `accept` narrows the dialog, but a real
+ * picker can still hand over anything via "All Files", and a paste bypasses it.
  */
-export function parseAttachedFile(text: string): { filename: string; content: string } | null {
-  const match = ATTACHED_FILE_RE.exec(text);
-  return match ? { filename: match[1], content: match[2] } : null;
+export function screenPickedFiles(
+  files: PickedFile[],
+  capabilities: AttachmentCapabilities,
+): { accepted: PickedFile[]; errors: string[] } {
+  const accepted: PickedFile[] = [];
+  const errors = new Set<string>();
+  for (const picked of files) {
+    const error = refusal(picked, capabilities);
+    if (error) errors.add(error);
+    else accepted.push(picked);
+  }
+  return { accepted, errors: [...errors] };
+}
+
+/**
+ * The distinct reasons the model can't be sent these staged attachments — the
+ * staging screen again, for a model switched (or a message sent) since.
+ */
+export function unreadableAttachmentErrors(
+  attachments: readonly ReadAttachment[],
+  capabilities: AttachmentCapabilities,
+): string[] {
+  const errors = attachments.flatMap((attachment) => {
+    if (attachment.kind === "text") return [];
+    return modelRefusal(attachment.kind, attachment.part.mediaType, capabilities) ?? [];
+  });
+  return [...new Set(errors)];
+}
+
+// Encode the file as a base64 data URL from its bytes. Reading the byte buffer
+// (rather than FileReader's callback pair) keeps this a single path; a read
+// failure just rejects and bubbles.
+async function fileToDataUrl(file: File, mediaType: string): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return `data:${mediaType};base64,${btoa(binary)}`;
+}
+
+/**
+ * Read a picked file into the attachment staged as `id`: a data-URL file part,
+ * or a text file's contents.
+ */
+export async function readAttachment(id: string, picked: PickedFile): Promise<ReadAttachment> {
+  const { file } = picked;
+  if (picked.kind === "text") {
+    return { id, kind: "text", filename: file.name, content: await file.text() };
+  }
+  const { kind, mediaType } = picked;
+  const url = await fileToDataUrl(file, mediaType);
+  return { id, kind, part: { type: "file", mediaType, filename: file.name, url } };
+}
+
+/** The name a staged attachment shows under; restored file parts may carry none. */
+export function attachmentName(attachment: StagedAttachment): string {
+  if (attachment.kind === "text" || attachment.kind === "reading") return attachment.filename;
+  return (
+    attachment.part.filename ??
+    (attachment.kind === "image" ? "Attached image" : "Attached document")
+  );
+}
+
+/**
+ * The message parts staged attachments are sent as, in staging order. Text
+ * files ride as `<attached-file>` text parts, which reach every provider as
+ * plain text.
+ */
+export function attachmentParts(attachments: readonly ReadAttachment[]): UIMessage["parts"] {
+  return attachments.map((attachment) =>
+    attachment.kind === "text"
+      ? { type: "text", text: wrapAttachedFile(attachment.filename, attachment.content) }
+      : attachment.part,
+  );
+}
+
+/** A sent message's attachments, restaged in the order they were sent — for editing it. */
+export function stagedAttachmentsFrom(message: UIMessage): ReadAttachment[] {
+  return message.parts.flatMap((part, index): ReadAttachment[] => {
+    const id = `${message.id}-${index}`;
+    if (part.type === "file") {
+      return [{ id, kind: part.mediaType.startsWith("image/") ? "image" : "document", part }];
+    }
+    if (part.type !== "text") return [];
+    const file = parseAttachedFile(part.text);
+    return file ? [{ id, kind: "text", ...file }] : [];
+  });
 }

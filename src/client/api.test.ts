@@ -7,6 +7,7 @@ import {
   cancelRun,
   deleteRun,
   deleteSession,
+  fetchLatestRelease,
   fetchRun,
   fetchRunsPage,
   fetchWorkflows,
@@ -19,6 +20,19 @@ import {
 } from "./api.ts";
 
 describe("api client", () => {
+  it("rejects malformed release metadata with an API error", async () => {
+    server.use(
+      http.get("https://api.github.com/repos/LeeCheneler/kiri/releases/latest", () =>
+        HttpResponse.json({ tag_name: "v1.0.0" }),
+      ),
+    );
+    await expect(fetchLatestRelease()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 502,
+      message: "malformed latest-release payload",
+    });
+  });
+
   it("returns the workflow registry from the default handler", async () => {
     expect(await fetchWorkflows()).toEqual([]);
   });
@@ -274,7 +288,7 @@ describe("api client", () => {
     }
   });
 
-  it("truncates a session's transcript from a message and resolves on 204", async () => {
+  it("truncates a session's transcript from a message and returns its revision", async () => {
     const seen: { method: string; header: string | null; id: string; messageId: string }[] = [];
     server.use(
       http.delete("*/api/sessions/:id/messages/:messageId", ({ request, params }) => {
@@ -284,12 +298,12 @@ describe("api client", () => {
           id: String(params.id),
           messageId: String(params.messageId),
         });
-        return new HttpResponse(null, { status: 204 });
+        return HttpResponse.json({ transcriptRevision: 3 });
       }),
     );
 
     const result = await truncateSessionMessages("s1", "m2");
-    expect(result).toBeUndefined();
+    expect(result).toEqual({ transcriptRevision: 3 });
     expect(seen).toEqual([{ method: "DELETE", header: "kiri-ui", id: "s1", messageId: "m2" }]);
   });
 
@@ -330,23 +344,24 @@ describe("api client", () => {
           id: String(params.id),
           body: await request.json(),
         });
-        return HttpResponse.json({ item }, { status: 201 });
+        return HttpResponse.json({ item, delivered: false }, { status: 201 });
       }),
     );
 
-    expect(await queueSessionMessage("s1", "also check X")).toEqual({
+    expect(await queueSessionMessage("s1", "q1", "also check X")).toEqual({
       item: { ...item, source: "user" },
+      delivered: false,
     });
     expect(seen).toEqual([
-      { method: "POST", header: "kiri-ui", id: "s1", body: { text: "also check X" } },
+      { method: "POST", header: "kiri-ui", id: "s1", body: { id: "q1", text: "also check X" } },
     ]);
   });
 
-  it("throws an ApiError carrying 409 when the queue races the turn settling", async () => {
+  it("throws an ApiError carrying the status of a refused queue", async () => {
     server.use(
       http.post("*/api/sessions/:id/inbox", () =>
         HttpResponse.json(
-          { error: 'session "s1" has no turn in flight to queue for' },
+          { error: 'message "q1" was queued for another session' },
           {
             status: 409,
           },
@@ -355,7 +370,7 @@ describe("api client", () => {
     );
 
     try {
-      await queueSessionMessage("s1", "too late");
+      await queueSessionMessage("s1", "q1", "too late");
       throw new Error("expected queueSessionMessage to throw");
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);

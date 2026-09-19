@@ -46,8 +46,8 @@ describe("llm model listing", () => {
     ]);
     expect(result.models.every((m) => m.provider === "fake")).toBe(true);
     // The stub's `paint` reports an image output modality; the rest are chat.
-    expect(result.models.find((m) => m.id === "fake:paint")?.output).toBe("image");
-    expect(result.models.find((m) => m.id === "fake:echo")?.output).toBe("text");
+    expect(result.models.find((m) => m.id === "fake:paint")?.model.output).toBe("image");
+    expect(result.models.find((m) => m.id === "fake:echo")?.model.output).toBe("text");
   });
 
   it("collects an unreachable provider as a failure while live ones still resolve", async () => {
