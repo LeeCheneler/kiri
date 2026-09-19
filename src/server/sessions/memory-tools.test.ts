@@ -83,18 +83,6 @@ describe("memoryTools", () => {
       };
       expect(read.content_md).toBe("New body.");
     });
-
-    it("strips the diff from what the model receives via toModelOutput", async () => {
-      const result = await tools.save_memory.toModelOutput?.({
-        toolCallId: "c1",
-        input: { name: "prefers-bun", description: "d", content_md: "b" },
-        output: { name: "prefers-bun", saved: "updated", diff: "-a\n+b" },
-      });
-      expect(result).toEqual({
-        type: "json",
-        value: { name: "prefers-bun", saved: "updated" },
-      });
-    });
   });
 
   describe("read_memory", () => {

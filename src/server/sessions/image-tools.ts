@@ -1,8 +1,7 @@
-import { type JSONValue, type ToolSet, generateImage, tool } from "ai";
+import { type ToolSet, generateImage, tool } from "ai";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import type { LlmClients } from "../llm/index.ts";
-import { compactImageOutput } from "./image-tool-results.ts";
 import { getSession } from "./store.ts";
 
 /** Dependencies for the first-party image tools. */
@@ -55,10 +54,6 @@ export function imageTools(deps: ImageToolsDeps): ToolSet {
           image: `data:${image.mediaType};base64,${image.base64}`,
         };
       },
-      toModelOutput: ({ output }) => ({
-        type: "json" as const,
-        value: compactImageOutput(output) as JSONValue,
-      }),
     }),
   };
 }

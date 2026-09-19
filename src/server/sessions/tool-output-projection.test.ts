@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import type { UIMessage } from "ai";
+import { type UIMessage, tool } from "ai";
+import { z } from "zod";
+import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import {
   historyProjectionTools,
   projectToolOutput,
   toolModelOutput,
+  withLiveProjection,
 } from "./tool-output-projection.ts";
 
 const records = {
@@ -110,5 +113,48 @@ describe("historyProjectionTools", () => {
     for (const hook of Object.values(historyProjectionTools(history))) {
       expect(hook.execute).toBeUndefined();
     }
+  });
+});
+
+describe("withLiveProjection", () => {
+  const echo = tool({ inputSchema: z.object({}), execute: async () => "ok" });
+
+  // The payload a descriptor declares app-only must stay away from the model
+  // on the turn that produced it and on every turn that replays it, and the
+  // two must be the same bytes — a difference would re-bill the cached prefix
+  // the moment a result became history.
+  it("projects a live built-in result exactly as history replays it", async () => {
+    const payloads = { diff: { diff: "@@", diffTruncated: true }, image: { image: "data:," } };
+
+    for (const { name, output } of BUILTIN_TOOLS) {
+      if (output === undefined) continue;
+      const call = { toolCallId: "c1", input: {}, output: { kept: true, ...payloads[output] } };
+      const history: UIMessage[] = [
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            { type: `tool-${name}`, state: "output-available", ...call },
+          ] as UIMessage["parts"],
+        },
+      ];
+
+      const live = await withLiveProjection({ [name]: echo })[name]?.toModelOutput?.(call);
+      const replayed = await historyProjectionTools(history)[name]?.toModelOutput?.(call);
+
+      expect({ name, live }).toEqual({ name, live: { type: "json", value: { kept: true } } });
+      expect(replayed).toEqual(live);
+    }
+  });
+
+  it("keeps the tool runnable", () => {
+    expect(withLiveProjection({ read_file: echo }).read_file?.execute).toBe(echo.execute);
+  });
+
+  it("leaves an MCP tool the projection its own adapter gave it", () => {
+    const toModelOutput = () => ({ type: "text" as const, value: "from the adapter" });
+    const tools = withLiveProjection({ linear__search: { ...echo, toModelOutput } });
+
+    expect(tools.linear__search?.toModelOutput).toBe(toModelOutput);
   });
 });

@@ -1,9 +1,9 @@
-import { type JSONValue, type ToolSet, tool } from "ai";
+import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { getProject, updateProject } from "../projects/store.ts";
-import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
+import { MAX_DIFF_LENGTH, unifiedDiff } from "./write-tool-diffs.ts";
 
 /**
  * The first-party tool that lets a project session rewrite its project's
@@ -54,10 +54,6 @@ export function projectTools(
           ...unifiedDiff(before, after, MAX_DIFF_LENGTH),
         };
       },
-      toModelOutput: ({ output }) => ({
-        type: "json" as const,
-        value: compactWriteOutput(output) as JSONValue,
-      }),
     }),
   };
 }

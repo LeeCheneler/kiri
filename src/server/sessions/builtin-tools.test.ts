@@ -88,35 +88,4 @@ describe("BUILTIN_TOOLS", () => {
       Object.keys(offered).sort(),
     );
   });
-
-  // The send-time history strip reads a tool's declared output; the live
-  // result is projected by the tool itself. A declaration the tool doesn't
-  // honour would leak the payload to the model on the turn that produced it.
-  it("declares an app-only output exactly for the tools that strip it from their live result", () => {
-    const offered = firstPartyTools();
-    // Both ways: a tool projecting its result without declaring an output
-    // would go unstripped once its result is history.
-    expect(
-      Object.keys(offered)
-        .filter((name) => offered[name]?.toModelOutput !== undefined)
-        .sort(),
-    ).toEqual(
-      BUILTIN_TOOLS.filter((tool) => tool.output !== undefined)
-        .map((tool): string => tool.name)
-        .sort(),
-    );
-    const payloads = { diff: { diff: "@@", diffTruncated: true }, image: { image: "data:," } };
-    for (const { name, output } of BUILTIN_TOOLS) {
-      if (output === undefined) continue;
-      const projected = offered[name]?.toModelOutput?.({
-        toolCallId: "call_1",
-        input: {},
-        output: { kept: true, ...payloads[output] },
-      });
-      expect({ name, projected }).toEqual({
-        name,
-        projected: { type: "json", value: { kept: true } },
-      });
-    }
-  });
 });

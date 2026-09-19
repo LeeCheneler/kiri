@@ -1009,21 +1009,6 @@ describe("filesystemTools", () => {
       expect(tiny.diff).toBe("@@ -");
     });
 
-    it("strips the diff from what the model receives via toModelOutput", async () => {
-      const output = { path: "/ws/a.md", created: false, diff: "-a\n+b", diffTruncated: true };
-      const result = await tools().write_file.toModelOutput?.({
-        toolCallId: "call-1",
-        input: { path: "/ws/a.md", content: "b\n" },
-        output,
-      });
-      expect(result).toEqual({
-        type: "json",
-        value: { path: "/ws/a.md", created: false },
-      });
-      // The persisted output object itself is untouched.
-      expect(output.diff).toBe("-a\n+b");
-    });
-
     it("writes empty content as an empty file", async () => {
       await run(tools().write_file, { path: join(workspace, "empty.md"), content: "" });
       expect(readFileSync(join(workspace, "empty.md"), "utf8")).toBe("");

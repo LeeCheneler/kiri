@@ -46,7 +46,7 @@ import {
   updateMessage,
 } from "./store.ts";
 import type { StreamSink } from "./stream-registry.ts";
-import { historyProjectionTools } from "./tool-output-projection.ts";
+import { historyProjectionTools, withLiveProjection } from "./tool-output-projection.ts";
 import type { TurnLease, TurnSettlement } from "./turn-lifecycle.ts";
 
 export interface RunTurnDeps {
@@ -529,7 +529,8 @@ async function streamCore(
         // tools, the turn runs as a multi-step loop (call a tool, feed the
         // result back, continue) capped at MAX_TURN_STEPS. An empty set leaves
         // the call tool-less, a single-step plain chat.
-        const turnTools = typeof tools === "function" ? tools({ writer }) : tools;
+        const offeredTools = typeof tools === "function" ? tools({ writer }) : tools;
+        const turnTools = offeredTools === undefined ? undefined : withLiveProjection(offeredTools);
         const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
         const thinking = providerOptions?.anthropic?.thinking;
         const reasoningTokens =

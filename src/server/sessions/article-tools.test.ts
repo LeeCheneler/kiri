@@ -116,18 +116,6 @@ describe("articleTools", () => {
       expect(output).toMatchObject({ slug: "notes", name: "Meeting Notes" });
     });
 
-    it("strips the diff from what the model receives via toModelOutput", async () => {
-      const result = await tools.replace_article.toModelOutput?.({
-        toolCallId: "c1",
-        input: { slug: "notes", content_md: "# New" },
-        output: { slug: "notes", name: "Notes", diff: "-# Old\n+# New" },
-      });
-      expect(result).toEqual({
-        type: "json",
-        value: { slug: "notes", name: "Notes" },
-      });
-    });
-
     it("rejects an unknown slug", () => {
       expect(run(tools.replace_article, { slug: "ghost", content_md: "# X" })).rejects.toThrow(
         'No article with slug "ghost" in this session',

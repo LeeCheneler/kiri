@@ -84,24 +84,4 @@ describe("projectTools", () => {
       run(orphan.update_project_instructions, { instructions_md: "Anything." }),
     ).rejects.toThrow("no longer exists");
   });
-
-  it("strips the diff from what the model receives via toModelOutput", async () => {
-    const output = {
-      project: "Atlas",
-      instructions: "updated",
-      diff: "-a\n+b",
-      diffTruncated: true,
-    };
-
-    const result = await tools.update_project_instructions.toModelOutput?.({
-      toolCallId: "call-1",
-      input: { instructions_md: "b" },
-      output,
-    });
-
-    expect(result).toEqual({
-      type: "json",
-      value: { project: "Atlas", instructions: "updated" },
-    });
-  });
 });

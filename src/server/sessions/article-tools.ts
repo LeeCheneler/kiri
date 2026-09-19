@@ -1,4 +1,4 @@
-import { type JSONValue, type ToolSet, tool } from "ai";
+import { type ToolSet, tool } from "ai";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { resolveArticleName } from "../../shared/article-name.ts";
@@ -6,7 +6,7 @@ import type { KiriDb } from "../db/index.ts";
 import { articles } from "../db/schema.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { articleSlugSchema } from "../workflows/schema.ts";
-import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
+import { MAX_DIFF_LENGTH, unifiedDiff } from "./write-tool-diffs.ts";
 
 type Article = typeof articles.$inferSelect;
 
@@ -130,14 +130,10 @@ export function articleTools(
           .run();
         written(slug);
         // The diff is app-only: the transcript renders the rewrite as the
-        // change it made, while toModelOutput and the send-time strip keep it
-        // out of what the model is paid for.
+        // change it made, while the result's projection keeps it out
+        // of what the model is paid for.
         return { slug, name: resolved, ...unifiedDiff(row.contentMd, after, MAX_DIFF_LENGTH) };
       },
-      toModelOutput: ({ output }) => ({
-        type: "json" as const,
-        value: compactWriteOutput(output) as JSONValue,
-      }),
     }),
 
     edit_article: tool({

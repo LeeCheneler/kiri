@@ -50,6 +50,30 @@ export function toolModelOutput(name: string, output: unknown): ProjectedToolOut
   return { type: "json", value: (projected ?? null) as JSONValue };
 }
 
+const BUILTIN_NAMES: ReadonlySet<string> = new Set(BUILTIN_TOOLS.map((tool) => tool.name));
+
+/**
+ * A turn's tools with each built-in's live result sent through
+ * `toolModelOutput` — the projection that replays it from history on later
+ * turns, so the two are the same bytes and an app-only payload reaches the
+ * model in neither. Any other tool keeps the projection its own adapter gave
+ * it: an MCP result can carry content, such as images, that only that
+ * adapter knows how to present.
+ */
+export function withLiveProjection(tools: ToolSet): ToolSet {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, offered]) => [
+      name,
+      BUILTIN_NAMES.has(name)
+        ? {
+            ...offered,
+            toModelOutput: ({ output }: { output: unknown }) => toolModelOutput(name, output),
+          }
+        : offered,
+    ]),
+  );
+}
+
 /**
  * The conversion hooks for sending `history` to the model: one entry per tool
  * the history names, each carrying only `toModelOutput`. Built from the
