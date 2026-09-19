@@ -9,7 +9,6 @@ import type * as errorsApi from "../../shared/api/errors.ts";
 import type * as modelsApi from "../../shared/api/models.ts";
 import type { PageQuery } from "../../shared/api/pagination.ts";
 import type * as sessionsApi from "../../shared/api/sessions.ts";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import {
   MESSAGE_BODY_LIMIT_BYTES,
   MESSAGE_SIZE_ERROR,
@@ -409,7 +408,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         name: article.name,
         contentMd: article.contentMd,
         createdAt: article.createdAt.toISOString(),
-        heading: extractFirstHeading(article.contentMd),
+        heading: article.heading,
       } satisfies articlesApi.SessionArticleDetail);
     },
   );

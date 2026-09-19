@@ -6,7 +6,6 @@ import type * as errorsApi from "../../shared/api/errors.ts";
 import type * as memoriesApi from "../../shared/api/memories.ts";
 import type { PageQuery } from "../../shared/api/pagination.ts";
 import type * as projectsApi from "../../shared/api/projects.ts";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { deleteArticle, getArticle, listArticleSummaries } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions } from "../db/schema.ts";
@@ -262,7 +261,13 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         );
       }
       const rows = db
-        .select()
+        .select({
+          id: articles.id,
+          slug: articles.slug,
+          name: articles.name,
+          heading: articles.heading,
+          createdAt: articles.createdAt,
+        })
         .from(articles)
         .where(
           and(
@@ -282,7 +287,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         articles: rows.map((article) => ({
           slug: article.slug,
           name: article.name,
-          heading: extractFirstHeading(article.contentMd),
+          heading: article.heading,
           createdAt: article.createdAt.toISOString(),
         })),
         nextCursor: rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null,
@@ -378,7 +383,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         name: article.name,
         contentMd: article.contentMd,
         createdAt: article.createdAt.toISOString(),
-        heading: extractFirstHeading(article.contentMd),
+        heading: article.heading,
       } satisfies projectsApi.ProjectArticleDetail);
     },
   );

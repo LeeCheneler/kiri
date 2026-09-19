@@ -531,10 +531,10 @@ export class SessionConflictError extends Error {
   }
 }
 
-/** What a move into a project changed: the sessions moved, and their articles as they stood before. */
+/** What a move into a project changed: the sessions moved, and the articles that went with them, named by the session each left. */
 export interface SessionMove {
   family: Session[];
-  articles: (typeof articles.$inferSelect)[];
+  articles: { id: string; slug: string; sessionId: string | null }[];
 }
 
 /**
@@ -563,7 +563,11 @@ export function moveSessionToProject(db: KiriDb, session: Session, projectId: st
     }
 
     const ids = family.map((row) => row.id);
-    const moving = db.select().from(articles).where(inArray(articles.sessionId, ids)).all();
+    const moving = db
+      .select({ id: articles.id, slug: articles.slug, sessionId: articles.sessionId })
+      .from(articles)
+      .where(inArray(articles.sessionId, ids))
+      .all();
     const slugs = new Set(
       db
         .select({ slug: articles.slug })

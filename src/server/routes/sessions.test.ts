@@ -13,6 +13,7 @@ import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
 import type * as sessionsApi from "../../shared/api/sessions.ts";
 import { wrapAttachedFile } from "../../shared/attached-file.ts";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import {
   MAX_DOCUMENT_BYTES,
   MAX_IMAGE_BYTES,
@@ -320,6 +321,7 @@ describe("sessions routes", () => {
         slug: `notes-${sessionId}`,
         name: "Notes",
         contentMd: "# Research\n\nOriginal content",
+        heading: "Research",
         createdAt: new Date(1000),
       }));
       env.db.insert(articles).values(rows).run();
@@ -854,6 +856,7 @@ describe("sessions routes", () => {
           slug: "notes",
           name: "Notes",
           contentMd: "# Meeting notes\n\nbody",
+          heading: "Meeting notes",
           createdAt: new Date(1500),
         })
         .run();
@@ -1080,6 +1083,7 @@ describe("sessions routes", () => {
           slug,
           name: "Notes",
           contentMd,
+          heading: extractFirstHeading(contentMd),
           createdAt,
         })
         .run();
@@ -1217,6 +1221,7 @@ describe("sessions routes", () => {
           slug: "corpus-doc",
           name: "Doc",
           contentMd: "# Doc",
+          heading: "Doc",
           createdAt: new Date(),
         })
         .run();
@@ -2805,6 +2810,7 @@ describe("sessions routes", () => {
           slug: "corpus-doc",
           name: "Corpus Doc",
           contentMd: "# Field Notes\n\nBody.",
+          heading: "Field Notes",
           createdAt: new Date(),
         })
         .run();

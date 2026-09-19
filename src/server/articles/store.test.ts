@@ -119,6 +119,17 @@ describe("articles store", () => {
       expect(updated).toMatchObject({ name: "Notes", contentMd: "New." });
     });
 
+    it("keeps the listed heading in step with each rewrite, including one that drops it", () => {
+      const article = createArticle(db, { sessionId }, { slug: "notes", contentMd: "# First" });
+      const listed = () => listArticleSummaries(db, { sessionId }).map((entry) => entry.heading);
+
+      updateArticle(db, article.id, { contentMd: "# Second\n\nBody." });
+      expect(listed()).toEqual(["Second"]);
+
+      updateArticle(db, article.id, { contentMd: "Body alone." });
+      expect(listed()).toEqual([null]);
+    });
+
     it("renames alongside the rewrite when a name is given", () => {
       const article = createArticle(db, { sessionId }, { slug: "notes", contentMd: "Old." });
 
@@ -147,7 +158,7 @@ describe("articles store", () => {
       createArticle(db, { sessionId }, { slug: "elsewhere", contentMd: "Body." });
     });
 
-    it("lists one owner's entries oldest first, deriving each heading from its body", () => {
+    it("lists one owner's entries oldest first, each with its body's heading", () => {
       expect(listArticleSummaries(db, { projectId })).toMatchObject([
         { slug: "first", name: "First", heading: "First heading" },
         { slug: "second", name: "Second", heading: null },

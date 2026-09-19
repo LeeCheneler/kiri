@@ -6,7 +6,6 @@ import type * as activityApi from "../../shared/api/activity.ts";
 import type { ArticleProducer } from "../../shared/api/activity.ts";
 import type * as errorsApi from "../../shared/api/errors.ts";
 import type { PageQuery } from "../../shared/api/pagination.ts";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
@@ -87,7 +86,7 @@ function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs
 // rendered ownerless.
 function resolveProducers(
   db: KiriDb,
-  rows: Array<typeof articles.$inferSelect>,
+  rows: Pick<typeof articles.$inferSelect, "id" | "runId" | "sessionId" | "projectId">[],
 ): Map<string, ArticleProducer> {
   const byArticleId = new Map<string, ArticleProducer>();
 
@@ -279,8 +278,18 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
           );
       }
 
+      // The feed names articles without showing them, so bodies stay unread.
       const rows = db
-        .select()
+        .select({
+          id: articles.id,
+          runId: articles.runId,
+          sessionId: articles.sessionId,
+          projectId: articles.projectId,
+          slug: articles.slug,
+          name: articles.name,
+          heading: articles.heading,
+          createdAt: articles.createdAt,
+        })
         .from(articles)
         .where(
           anchor
@@ -302,7 +311,7 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
           {
             slug: row.slug,
             name: row.name,
-            heading: extractFirstHeading(row.contentMd),
+            heading: row.heading,
             createdAt: row.createdAt.toISOString(),
             producer,
           },

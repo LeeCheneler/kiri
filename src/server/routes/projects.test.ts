@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import {
   articles,
   memories,
@@ -50,7 +51,15 @@ describe("projects routes", () => {
   ) => {
     env.db
       .insert(articles)
-      .values({ id, projectId, slug, name: "Doc", contentMd, createdAt })
+      .values({
+        id,
+        projectId,
+        slug,
+        name: "Doc",
+        contentMd,
+        heading: extractFirstHeading(contentMd),
+        createdAt,
+      })
       .run();
   };
 

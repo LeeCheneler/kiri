@@ -7,7 +7,6 @@ import { z } from "zod";
 import type * as articlesApi from "../../shared/api/articles.ts";
 import type * as errorsApi from "../../shared/api/errors.ts";
 import type * as runsApi from "../../shared/api/runs.ts";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { articleSummariesByOwner, getArticle, listArticleSummaries } from "../articles/store.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -169,7 +168,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         contentMd: article.contentMd,
         createdAt: article.createdAt.toISOString(),
         workflowName: run.workflowName,
-        heading: extractFirstHeading(article.contentMd),
+        heading: article.heading,
         gitSha: run.gitSha,
         gitDirty: run.gitDirty,
         startedAt: run.startedAt.toISOString(),

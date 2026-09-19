@@ -799,7 +799,7 @@ describe("sessions store", () => {
         ["s1", "p1"],
         ["child", "p1"],
       ]);
-      expect(moved.articles).toMatchObject([{ id: "a1", sessionId: "child", projectId: null }]);
+      expect(moved.articles).toEqual([{ id: "a1", slug: "notes", sessionId: "child" }]);
       expect(getSession(db, "child")?.projectId).toBe("p1");
       expect(getSession(db, "other")?.projectId).toBeNull();
       expect(db.select().from(articles).where(eq(articles.id, "a1")).get()).toMatchObject({

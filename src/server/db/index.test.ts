@@ -36,6 +36,37 @@ describe("db", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("gives existing articles their stored heading and leaves headless ones without", () => {
+    migrate(db);
+    // Recreate the immediately preceding schema with articles already written.
+    db.$client.run("ALTER TABLE articles DROP COLUMN heading");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0045_add_article_heading'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    const insert = db.$client.prepare(
+      "INSERT INTO articles (id, session_id, slug, name, content_md, created_at) VALUES (?, 'old', ?, ?, ?, 1)",
+    );
+    insert.run("a1", "herons", "Herons", "Sure, here it is.\n\n# Wading **birds**\n\nBody.");
+    insert.run("a2", "notes", "Notes", "No heading here.");
+
+    migrate(db);
+
+    const headings = db
+      .select({ id: articles.id, heading: articles.heading })
+      .from(articles)
+      .orderBy(articles.id)
+      .all();
+    expect(headings).toEqual([
+      { id: "a1", heading: "Wading birds" },
+      { id: "a2", heading: null },
+    ]);
+    // The search index still mirrors an article the backfill rewrote.
+    expect(
+      db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'wading'").all(),
+    ).toHaveLength(1);
+  });
+
   it("marks existing messages as the legacy parts format and keeps their parts", () => {
     migrate(db);
     // Recreate the immediately preceding schema with an existing conversation.

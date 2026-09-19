@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import migration0000 from "../../../drizzle/0000_initial.sql" with { type: "text" };
 import migration0001 from "../../../drizzle/0001_index_run_nodes_run_id.sql" with { type: "text" };
 import migration0002 from "../../../drizzle/0002_rename_run_nodes_to_run_steps.sql" with {
@@ -67,11 +68,18 @@ import migration0043 from "../../../drizzle/0043_add_message_parts_format.sql" w
 import migration0044 from "../../../drizzle/0044_enforce_message_order_and_lineage.sql" with {
   type: "text",
 };
+import migration0045 from "../../../drizzle/0045_add_article_heading.sql" with { type: "text" };
+import { backfillArticleHeadings } from "./backfill-article-headings.ts";
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
   name: string;
   sql: string;
+  /**
+   * Fills values SQL cannot derive. Runs after the statements, inside the
+   * migration's transaction, so a migration and its backfill apply as one.
+   */
+  backfill?: (sqlite: Database) => void;
 }
 
 /**
@@ -99,6 +107,11 @@ interface Migration {
  * `0028_add_session_title` extends the index with triggers on
  * `sessions` mirroring each top-level session's title. `0040_index_memories`
  * adds memory names, descriptions, and bodies for explicit knowledge retrieval.
+ *
+ * `0045_add_article_heading` stores each article's first heading so indexes
+ * never load bodies to derive it. Its backfill applies the heading rules as
+ * they stood when it ran; a change to those rules needs a migration that
+ * recomputes the column.
  */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
@@ -146,6 +159,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0042_add_inbox_delivered_at", sql: migration0042 },
   { name: "0043_add_message_parts_format", sql: migration0043 },
   { name: "0044_enforce_message_order_and_lineage", sql: migration0044 },
+  { name: "0045_add_article_heading", sql: migration0045, backfill: backfillArticleHeadings },
 ];
 
 /**
@@ -183,6 +197,7 @@ export function migrate(db: KiriDb): void {
       for (const statement of statements) {
         sqlite.run(statement);
       }
+      migration.backfill?.(sqlite);
       sqlite
         .prepare("INSERT INTO __kiri_migrations (name, applied_at) VALUES (?, ?)")
         .run(migration.name, Date.now());

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { articles, messages, projects, recommendations, runs, sessions } from "../db/schema.ts";
 import { createApp } from "../index.ts";
 import { setSessionStatus } from "../sessions/store.ts";
@@ -181,6 +182,7 @@ describe("activity routes", () => {
           slug: "weekly",
           name: "Weekly",
           contentMd: "# Weekly digest\n\nbody",
+          heading: "Weekly digest",
           createdAt: new Date(150),
         })
         .run();
@@ -209,6 +211,7 @@ describe("activity routes", () => {
           slug: "notes",
           name: "Notes",
           contentMd: "# Meeting notes\n\nbody",
+          heading: "Meeting notes",
           createdAt: new Date(250),
         })
         .run();
@@ -328,7 +331,15 @@ describe("activity routes", () => {
     ) => {
       env.db
         .insert(articles)
-        .values({ id, ...owner, slug: id, name: id, contentMd, createdAt: new Date(createdAtMs) })
+        .values({
+          id,
+          ...owner,
+          slug: id,
+          name: id,
+          contentMd,
+          heading: extractFirstHeading(contentMd),
+          createdAt: new Date(createdAtMs),
+        })
         .run();
     };
 

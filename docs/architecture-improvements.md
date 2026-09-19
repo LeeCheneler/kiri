@@ -128,7 +128,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** The UI and model tools operate on the same records, but some business rules and queries live inside one adapter. Shared operations and appropriate constraints reduce drift without adding generic CRUD or repository abstractions.
 
-- [ ] **22 — Make routine reads proportional to their output**
+- [x] **22 — Make routine reads proportional to their output**
 
   **What:** Query session previews and latest activity directly instead of loading whole histories. Avoid repeatedly loading article bodies just to derive headings. Introduce maintained projections or indexes only where actual read patterns justify them, using representative fixtures and query plans.
 

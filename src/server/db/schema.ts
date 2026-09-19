@@ -161,6 +161,12 @@ export const articles = sqliteTable(
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     contentMd: text("content_md").notNull(),
+    /**
+     * The body's first heading as plain display text, or null when it has
+     * none. Derived from `contentMd` on every write so indexes can name an
+     * article without loading its body.
+     */
+    heading: text("heading"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [

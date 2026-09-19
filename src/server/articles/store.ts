@@ -14,7 +14,7 @@ export type Article = typeof articles.$inferSelect;
  */
 export type ArticleOwner = { runId: string } | { sessionId: string } | { projectId: string };
 
-/** One entry of an article index: summary metadata plus the body's derived first heading. */
+/** One entry of an article index: summary metadata plus the body's first heading. */
 export interface ArticleSummary {
   slug: string;
   name: string;
@@ -28,12 +28,19 @@ const ownedBy = (owner: ArticleOwner) => {
   return eq(articles.projectId, owner.projectId);
 };
 
-const toSummary = (article: Article): ArticleSummary => ({
-  slug: article.slug,
-  name: article.name,
-  heading: extractFirstHeading(article.contentMd),
-  createdAt: article.createdAt,
-});
+// An index entry's columns. The body stays unread: its heading is stored beside it.
+const summaryColumns = {
+  slug: articles.slug,
+  name: articles.name,
+  heading: articles.heading,
+  createdAt: articles.createdAt,
+};
+
+// A body as it is stored, with the heading the indexes show for it.
+const storedBody = (contentMd: string) => {
+  const body = contentMd.trimEnd();
+  return { contentMd: body, heading: extractFirstHeading(body) };
+};
 
 /**
  * The owner of the articles a session reads and writes: its project's shared
@@ -56,9 +63,8 @@ export function getArticle(db: KiriDb, owner: ArticleOwner, slug: string): Artic
 }
 
 /**
- * An owner's article index, oldest first unless `newestFirst` is set. The
- * body is read only to derive each entry's heading, never returned — detail
- * surfaces serve it.
+ * An owner's article index, oldest first unless `newestFirst` is set. Bodies
+ * are never read — detail surfaces serve them.
  */
 export function listArticleSummaries(
   db: KiriDb,
@@ -66,7 +72,7 @@ export function listArticleSummaries(
   opts: { newestFirst?: boolean } = {},
 ): ArticleSummary[] {
   return db
-    .select()
+    .select(summaryColumns)
     .from(articles)
     .where(ownedBy(owner))
     .orderBy(
@@ -74,8 +80,7 @@ export function listArticleSummaries(
         ? [desc(articles.createdAt), desc(articles.id)]
         : [asc(articles.createdAt)]),
     )
-    .all()
-    .map(toSummary);
+    .all();
 }
 
 /**
@@ -93,17 +98,16 @@ export function articleSummariesByOwner(
   if (ownerIds.length === 0) return byOwner;
 
   const rows = db
-    .select()
+    .select({ ownerId: articles[kind], ...summaryColumns })
     .from(articles)
     .where(inArray(articles[kind], ownerIds))
     .orderBy(asc(articles.createdAt))
     .all();
 
-  for (const row of rows) {
-    const ownerId = row[kind] as string;
-    const list = byOwner.get(ownerId);
-    if (list) list.push(toSummary(row));
-    else byOwner.set(ownerId, [toSummary(row)]);
+  for (const { ownerId, ...summary } of rows) {
+    const list = byOwner.get(ownerId as string);
+    if (list) list.push(summary);
+    else byOwner.set(ownerId as string, [summary]);
   }
 
   return byOwner;
@@ -111,9 +115,9 @@ export function articleSummariesByOwner(
 
 /**
  * Create an article under `owner`. The display name defaults to a humanised
- * form of the slug, and the body is stored without trailing whitespace. A slug
- * the owner already uses throws from the unique index. Returns the persisted
- * row.
+ * form of the slug, and the body is stored without trailing whitespace, its
+ * first heading beside it. A slug the owner already uses throws from the
+ * unique index. Returns the persisted row.
  */
 export function createArticle(
   db: KiriDb,
@@ -127,7 +131,7 @@ export function createArticle(
       ...owner,
       slug: input.slug,
       name: resolveArticleName(input.slug, input.name),
-      contentMd: input.contentMd.trimEnd(),
+      ...storedBody(input.contentMd),
       createdAt: new Date(),
     })
     .run();
@@ -137,7 +141,8 @@ export function createArticle(
 
 /**
  * Rewrite an article's body, and its display name when one is given. The body
- * is stored without trailing whitespace. Returns the updated row.
+ * is stored without trailing whitespace and its stored heading follows it.
+ * Returns the updated row.
  */
 export function updateArticle(
   db: KiriDb,
@@ -146,7 +151,7 @@ export function updateArticle(
 ): Article {
   db.update(articles)
     .set({
-      contentMd: patch.contentMd.trimEnd(),
+      ...storedBody(patch.contentMd),
       ...(patch.name !== undefined ? { name: patch.name } : {}),
     })
     .where(eq(articles.id, id))
