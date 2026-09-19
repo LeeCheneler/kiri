@@ -116,7 +116,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** SDK formats are part of the durable storage contract. A compatibility boundary prevents future upgrades from spreading migration logic through storage, rendering, and execution. Continue using SDK messages internally.
 
-- [ ] **20 — Validate incoming messages and use explicit approval commands**
+- [x] **20 — Validate incoming messages and use explicit approval commands**
 
   **What:** Validate the user message parts Kiri accepts and represent approval submission as a compact command against persisted pending calls. Derive trusted tool inputs and approval-learning records from server state. Preserve compact approval requests and attachment limits.
 
