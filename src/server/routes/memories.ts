@@ -1,13 +1,18 @@
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import type * as errorsApi from "../../shared/api/errors.ts";
 import type * as memoriesApi from "../../shared/api/memories.ts";
 import type { KiriDb } from "../db/index.ts";
-import { memories } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
-import { getScopedMemory, listMemories, memoryNameSchema } from "../sessions/index.ts";
+import {
+  deleteMemory,
+  getScopedMemory,
+  listMemories,
+  memoryNameSchema,
+  updateMemory,
+} from "../memories/store.ts";
+import { serializeMemory, serializeMemorySummary } from "./serializers/memories.ts";
 import { onZodFail } from "./shared.ts";
 
 const memoryNameParamSchema = z.object({ name: memoryNameSchema });
@@ -40,7 +45,7 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
 
   app.get("/", (c) =>
     c.json({
-      memories: listMemories(db).map((row) => ({ ...row, updatedAt: row.updatedAt.toISOString() })),
+      memories: listMemories(db).map(serializeMemorySummary),
     } satisfies memoriesApi.MemoriesResult),
   );
 
@@ -55,15 +60,7 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
           { error: `memory "${name}" not found` } satisfies errorsApi.ApiErrorBody,
           404,
         );
-      return c.json({
-        memory: {
-          name: memory.name,
-          description: memory.description,
-          contentMd: memory.contentMd,
-          createdAt: memory.createdAt.toISOString(),
-          updatedAt: memory.updatedAt.toISOString(),
-        },
-      } satisfies memoriesApi.MemoryResult);
+      return c.json({ memory: serializeMemory(memory) } satisfies memoriesApi.MemoryResult);
     },
   );
 
@@ -73,34 +70,19 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
     zValidator("json", patchMemoryBodySchema, onZodFail("invalid memory")),
     (c) => {
       const { name } = c.req.valid("param");
-      const { description, contentMd } = c.req.valid("json");
+      const patch = c.req.valid("json");
       const memory = byName(name);
       if (!memory)
         return c.json(
           { error: `memory "${name}" not found` } satisfies errorsApi.ApiErrorBody,
           404,
         );
-      if (description !== undefined || contentMd !== undefined) {
-        db.update(memories)
-          .set({
-            ...(description !== undefined ? { description } : {}),
-            ...(contentMd !== undefined ? { contentMd: contentMd.trimEnd() } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(memories.id, memory.id))
-          .run();
-        bus?.publish({ type: "memory.saved", name });
-      }
-      const updated = byName(name) as typeof memory;
-      return c.json({
-        memory: {
-          name: updated.name,
-          description: updated.description,
-          contentMd: updated.contentMd,
-          createdAt: updated.createdAt.toISOString(),
-          updatedAt: updated.updatedAt.toISOString(),
-        },
-      } satisfies memoriesApi.MemoryResult);
+
+      const updated = updateMemory(db, memory.id, patch);
+      // An empty patch changed nothing, so there is nothing to announce.
+      if (Object.keys(patch).length > 0) bus?.publish({ type: "memory.saved", name });
+
+      return c.json({ memory: serializeMemory(updated) } satisfies memoriesApi.MemoryResult);
     },
   );
 
@@ -115,8 +97,10 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
           { error: `memory "${name}" not found` } satisfies errorsApi.ApiErrorBody,
           404,
         );
-      db.delete(memories).where(eq(memories.id, memory.id)).run();
+
+      deleteMemory(db, memory.id);
       bus?.publish({ type: "memory.deleted", name });
+
       return c.body(null, 204);
     },
   );

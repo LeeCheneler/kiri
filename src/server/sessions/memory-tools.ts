@@ -1,80 +1,15 @@
 import { type ToolSet, tool } from "ai";
-import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
-import { memories } from "../db/schema.ts";
 import type { KiriEvent } from "../events/index.ts";
+import {
+  type Memory,
+  deleteMemory,
+  getScopedMemory,
+  memoryNameSchema,
+  saveMemory,
+} from "../memories/store.ts";
 import { MAX_DIFF_LENGTH, unifiedDiff } from "./write-tool-diffs.ts";
-
-/** A persisted memory row. */
-export type Memory = typeof memories.$inferSelect;
-
-/**
- * Pattern that constrains a memory's `name`. Re-used by the HTTP routes
- * that address memories by name so the regex lives once and the validation
- * surface matches the tools exactly.
- */
-export const memoryNameSchema = z.string().regex(/^[a-z0-9-]+$/, {
-  message: "memory name must match ^[a-z0-9-]+$",
-});
-
-/** One memory's index entry: everything but the body. */
-export interface MemorySummary {
-  name: string;
-  description: string;
-  updatedAt: Date;
-}
-
-// One scope's index entries, alphabetically by name. Alphabetical order keeps
-// the system prompt's memory index stable across turns — a save reorders
-// nothing.
-function listScopedMemories(db: KiriDb, projectId: string | null): MemorySummary[] {
-  return db
-    .select({
-      name: memories.name,
-      description: memories.description,
-      updatedAt: memories.updatedAt,
-    })
-    .from(memories)
-    .where(projectId === null ? isNull(memories.projectId) : eq(memories.projectId, projectId))
-    .orderBy(asc(memories.name))
-    .all();
-}
-
-/**
- * List every workspace-global memory's index entry, alphabetically by name.
- * Project-scoped memories are excluded — they belong to their project's index.
- */
-export function listMemories(db: KiriDb): MemorySummary[] {
-  return listScopedMemories(db, null);
-}
-
-/** List one project's memory index entries, alphabetically by name. */
-export function listProjectMemories(db: KiriDb, projectId: string): MemorySummary[] {
-  return listScopedMemories(db, projectId);
-}
-
-/**
- * Read one memory by name within a single scope: the given project's when
- * `projectId` is set, the workspace's global memories when it is null. Names
- * are unique per scope, so the pair addresses at most one row.
- */
-export function getScopedMemory(
-  db: KiriDb,
-  projectId: string | null,
-  name: string,
-): Memory | undefined {
-  return db
-    .select()
-    .from(memories)
-    .where(
-      and(
-        eq(memories.name, name),
-        projectId === null ? isNull(memories.projectId) : eq(memories.projectId, projectId),
-      ),
-    )
-    .get();
-}
 
 /**
  * First-party tools that let a session save, recall, and delete memories —
@@ -141,37 +76,22 @@ export function memoryTools(
           ),
       }),
       execute: async ({ name, description, content_md }) => {
-        const now = new Date();
-        const after = content_md.trimEnd();
         // Writes stay in the session's own scope: a project session never
         // rewrites a global memory of the same name, it saves alongside it.
-        const existing = getScopedMemory(db, projectId, name);
-        if (existing) {
-          db.update(memories)
-            .set({ description, contentMd: after, updatedAt: now })
-            .where(eq(memories.id, existing.id))
-            .run();
-        } else {
-          db.insert(memories)
-            .values({
-              id: crypto.randomUUID(),
-              projectId,
-              name,
-              description,
-              contentMd: after,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .run();
-        }
+        const { memory, previous } = saveMemory(db, projectId, {
+          name,
+          description,
+          contentMd: content_md,
+        });
         announce("memory.saved", name, projectId);
+
         // The diff is app-only — a create diffs against nothing, so the body
         // renders as additions; the result's projection keeps it out of what
         // the model is paid for.
         return {
           name,
-          saved: existing ? "updated" : "created",
-          ...unifiedDiff(existing?.contentMd ?? "", after, MAX_DIFF_LENGTH),
+          saved: previous ? "updated" : "created",
+          ...unifiedDiff(previous?.contentMd ?? "", memory.contentMd, MAX_DIFF_LENGTH),
         };
       },
     }),
@@ -201,7 +121,7 @@ export function memoryTools(
       }),
       execute: async ({ name }) => {
         const row = requireMemory(name);
-        db.delete(memories).where(eq(memories.id, row.id)).run();
+        deleteMemory(db, row.id);
         announce("memory.deleted", row.name, row.projectId);
         return { name, deleted: true };
       },

@@ -53,15 +53,7 @@ export {
   type LiveConsoleSnapshot,
   liveConsoleEmitter,
 } from "./live-console.ts";
-export {
-  type Memory,
-  type MemorySummary,
-  getScopedMemory,
-  listMemories,
-  listProjectMemories,
-  memoryNameSchema,
-  memoryTools,
-} from "./memory-tools.ts";
+export { memoryTools } from "./memory-tools.ts";
 export { projectTools } from "./project-tools.ts";
 export { type TaskListSummary, summariseTaskList, taskTools } from "./task-tools.ts";
 export {

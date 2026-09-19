@@ -8,8 +8,15 @@ import type { PageQuery } from "../../shared/api/pagination.ts";
 import type * as projectsApi from "../../shared/api/projects.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, memories, sessions } from "../db/schema.ts";
+import { articles, sessions } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
+import {
+  deleteMemory,
+  getScopedMemory,
+  listProjectMemories,
+  memoryNameSchema,
+  updateMemory,
+} from "../memories/store.ts";
 import {
   createProject,
   deleteProject,
@@ -19,14 +26,10 @@ import {
   updateProject,
 } from "../projects/store.ts";
 import { countOpenTasksByProject } from "../projects/tasks.ts";
-import {
-  buildSessionListEntries,
-  getScopedMemory,
-  listProjectMemories,
-  memoryNameSchema,
-} from "../sessions/index.ts";
+import { buildSessionListEntries } from "../sessions/index.ts";
 import { projectTasksRoutes } from "./project-tasks.ts";
 import { serializeArticleSummary } from "./serializers/articles.ts";
+import { serializeMemory, serializeMemorySummary } from "./serializers/memories.ts";
 import { serializeProject } from "./serializers/projects.ts";
 import { serializeSessionListEntry } from "./serializers/sessions.ts";
 import { articleParamSchema, runIdParamSchema as idParamSchema, onZodFail } from "./shared.ts";
@@ -143,10 +146,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     return c.json({
       project: serializeProject(project),
       articles: listProjectArticles(db, id).map(serializeArticleSummary),
-      memories: listProjectMemories(db, id).map((row) => ({
-        ...row,
-        updatedAt: row.updatedAt.toISOString(),
-      })),
+      memories: listProjectMemories(db, id).map(serializeMemorySummary),
       // The full listing projection, so the page renders the same rows as
       // the feed — in scoped dress, so the redundant project link is the
       // display site's decision rather than a hole in the data.
@@ -174,10 +174,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         .get()?.count;
       return c.json({
         project: serializeProject(project),
-        memories: listProjectMemories(db, id).map((row) => ({
-          ...row,
-          updatedAt: row.updatedAt.toISOString(),
-        })),
+        memories: listProjectMemories(db, id).map(serializeMemorySummary),
         articleCount: articleCount ?? 0,
         sessionCount: sessionCount ?? 0,
       } satisfies projectsApi.ProjectOverview);
@@ -414,16 +411,6 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
           error: `memory "${name}" not found on project "${projectId}"`,
         });
 
-  const memoryBody = (memory: NonNullable<ReturnType<typeof getScopedMemory>>) => ({
-    memory: {
-      name: memory.name,
-      description: memory.description,
-      contentMd: memory.contentMd,
-      createdAt: memory.createdAt.toISOString(),
-      updatedAt: memory.updatedAt.toISOString(),
-    },
-  });
-
   app.get(
     "/:id/memories/:name",
     zValidator("param", projectMemoryParamSchema, onZodFail("invalid memory name")),
@@ -431,7 +418,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       const { id, name } = c.req.valid("param");
       const found = requireProjectMemory(id, name);
       if ("error" in found) return c.json(found satisfies errorsApi.ApiErrorBody, 404);
-      return c.json(memoryBody(found) satisfies memoriesApi.MemoryResult);
+      return c.json({ memory: serializeMemory(found) } satisfies memoriesApi.MemoryResult);
     },
   );
 
@@ -441,25 +428,16 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     zValidator("json", patchMemoryBodySchema, onZodFail("invalid memory")),
     (c) => {
       const { id, name } = c.req.valid("param");
-      const { description, contentMd } = c.req.valid("json");
+      const patch = c.req.valid("json");
       const found = requireProjectMemory(id, name);
       if ("error" in found) return c.json(found satisfies errorsApi.ApiErrorBody, 404);
-      if (description !== undefined || contentMd !== undefined) {
-        db.update(memories)
-          .set({
-            ...(description !== undefined ? { description } : {}),
-            ...(contentMd !== undefined ? { contentMd: contentMd.trimEnd() } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(memories.id, found.id))
-          .run();
+
+      const updated = updateMemory(db, found.id, patch);
+      // An empty patch changed nothing, so there is nothing to announce.
+      if (Object.keys(patch).length > 0)
         bus?.publish({ type: "memory.saved", name, projectId: id });
-      }
-      return c.json(
-        memoryBody(
-          getScopedMemory(db, id, name) as typeof found,
-        ) satisfies memoriesApi.MemoryResult,
-      );
+
+      return c.json({ memory: serializeMemory(updated) } satisfies memoriesApi.MemoryResult);
     },
   );
 
@@ -470,8 +448,10 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       const { id, name } = c.req.valid("param");
       const found = requireProjectMemory(id, name);
       if ("error" in found) return c.json(found satisfies errorsApi.ApiErrorBody, 404);
-      db.delete(memories).where(eq(memories.id, found.id)).run();
+
+      deleteMemory(db, found.id);
       bus?.publish({ type: "memory.deleted", name, projectId: id });
+
       return c.body(null, 204);
     },
   );

@@ -1,6 +1,7 @@
 import type { DelegateRole } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { Effort } from "../llm/index.ts";
+import type { MemorySummary } from "../memories/store.ts";
 import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
 import type { InstructionContext } from "./instruction-context.ts";
 import {
@@ -10,7 +11,6 @@ import {
   type StandingInstructions,
   resolveStandingInstructions,
 } from "./instructions.ts";
-import type { MemorySummary } from "./memory-tools.ts";
 import type { SkillSummary } from "./skills.ts";
 import type { Session } from "./store.ts";
 import type { TaskListSummary } from "./task-tools.ts";
