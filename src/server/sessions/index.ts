@@ -43,6 +43,7 @@ export { type InstructionContext, createInstructionContext } from "./instruction
 export {
   type InboxItem,
   enqueueInboxItem,
+  getInboxItem,
   pendingInboxItems,
   withdrawInboxItem,
 } from "./inbox.ts";

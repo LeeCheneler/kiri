@@ -11,6 +11,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
+import type * as sessionsApi from "../../shared/api/sessions.ts";
 import { wrapAttachedFile } from "../../shared/attached-file.ts";
 import {
   MAX_DOCUMENT_BYTES,
@@ -35,6 +36,7 @@ import type { McpRegistry } from "../mcp/registry.ts";
 import { listTaskGroups } from "../projects/tasks.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import type { KnowledgePage, searchKnowledge } from "../search/knowledge.ts";
+import { acknowledgeInboxItems } from "../sessions/inbox.ts";
 import {
   type CommandJudgementEvent,
   type CommandLearning,
@@ -3416,6 +3418,14 @@ describe("sessions routes", () => {
   });
 
   describe("POST /api/sessions/:id/inbox", () => {
+    const ITEM_ID = "7d0e4a52-6f0b-4c53-9d53-0f5f2f6f3a11";
+    const queue = (app: ReturnType<typeof makeApp>, sessionId: string, body: unknown) =>
+      app.request(`/api/sessions/${sessionId}/inbox`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
     it("queues a message for a running turn, 201s with the item id, and publishes", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();
@@ -3424,16 +3434,13 @@ describe("sessions routes", () => {
       createSession(env.db, MODEL, { id: "s1" });
       setSessionStatus(env.db, "s1", "running");
 
-      const res = await app.request("/api/sessions/s1/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "also check X" }),
-      });
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
 
       expect(res.status).toBe(201);
-      const { item } = (await res.json()) as { item: { id: string; text: string } };
-      expect(item.text).toBe("also check X");
-      expect(pendingInboxItems(env.db, "s1").map((row) => row.id)).toEqual([item.id]);
+      const body = (await res.json()) as sessionsApi.SessionInboxResult;
+      expect(body.delivered).toBe(false);
+      expect(body.item).toMatchObject({ id: ITEM_ID, text: "also check X", source: "user" });
+      expect(pendingInboxItems(env.db, "s1").map((row) => row.id)).toEqual([ITEM_ID]);
       expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "s1" });
     });
 
@@ -3442,11 +3449,7 @@ describe("sessions routes", () => {
       createSession(env.db, MODEL, { id: "s1" });
       setSessionStatus(env.db, "s1", "waiting");
 
-      const res = await app.request("/api/sessions/s1/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "and while you're paused" }),
-      });
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "and while you're paused" });
 
       expect(res.status).toBe(201);
       expect(pendingInboxItems(env.db, "s1")).toHaveLength(1);
@@ -3456,11 +3459,7 @@ describe("sessions routes", () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await app.request("/api/sessions/s1/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "too late" }),
-      });
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "too late" });
 
       expect(res.status).toBe(409);
       expect(pendingInboxItems(env.db, "s1")).toEqual([]);
@@ -3468,12 +3467,65 @@ describe("sessions routes", () => {
 
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
-      const res = await app.request("/api/sessions/ghost/inbox", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "hello" }),
-      });
+      const res = await queue(app, "ghost", { id: ITEM_ID, text: "hello" });
       expect(res.status).toBe(404);
+    });
+
+    it("answers a repeated submission with the message already queued, queueing nothing new", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+      await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+      bus.subscribe((e) => events.push(e));
+
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as sessionsApi.SessionInboxResult;
+      expect(body).toMatchObject({ item: { id: ITEM_ID }, delivered: false });
+      expect(pendingInboxItems(env.db, "s1")).toHaveLength(1);
+      expect(events).toEqual([]);
+    });
+
+    it("reports a repeated submission as delivered once a turn has taken it, even after the turn settled", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+      await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+      acknowledgeInboxItems(env.db, [ITEM_ID]);
+      setSessionStatus(env.db, "s1", "idle");
+
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "also check X" });
+
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as sessionsApi.SessionInboxResult).delivered).toBe(true);
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+    });
+
+    it("409s a submission id already queued for another session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s2" });
+      setSessionStatus(env.db, "s1", "running");
+      setSessionStatus(env.db, "s2", "running");
+      await queue(app, "s1", { id: ITEM_ID, text: "for s1" });
+
+      const res = await queue(app, "s2", { id: ITEM_ID, text: "for s1" });
+
+      expect(res.status).toBe(409);
+      expect(pendingInboxItems(env.db, "s2")).toEqual([]);
+    });
+
+    it("400s a submission without a well-formed id", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+
+      expect((await queue(app, "s1", { text: "no id" })).status).toBe(400);
+      expect((await queue(app, "s1", { id: "q1", text: "not a uuid" })).status).toBe(400);
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
     });
   });
 

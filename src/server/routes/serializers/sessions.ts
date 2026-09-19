@@ -19,9 +19,12 @@ export const serializeMessage = (row: typeof messages.$inferSelect): SessionMess
   ...row,
   createdAt: row.createdAt.toISOString(),
 });
-/** Serialize an undelivered inbox row. */
+/** Serialize an inbox row. */
 export const serializeInboxItem = (row: typeof sessionInbox.$inferSelect): SessionInboxItem => ({
-  ...row,
+  id: row.id,
+  source: row.source,
+  text: row.text,
+  fromSessionId: row.fromSessionId,
   createdAt: row.createdAt.toISOString(),
 });
 /** Serialize a session listing with its article timestamps. */

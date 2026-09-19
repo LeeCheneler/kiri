@@ -665,7 +665,7 @@ describe("<SessionChat>", () => {
     // The message rides the inbox, not the turn endpoint, and renders queued.
     expect(await screen.findByText("also check the docs")).toBeDefined();
     expect(screen.getByText("queued")).toBeDefined();
-    expect(queued).toEqual([{ text: "also check the docs" }]);
+    expect(queued).toEqual([{ id: expect.any(String), text: "also check the docs" }]);
   });
 
   it("hides a chip once its delivery has streamed into the transcript", async () => {

@@ -300,7 +300,7 @@ export function useSessionConversation(opts: {
   const queueMessage = useCallback(
     async (text: string) => {
       try {
-        const { item } = await queueSessionMessage(session.id, text);
+        const { item } = await queueSessionMessage(session.id, crypto.randomUUID(), text);
         inboxCache.append(item);
       } catch {
         // The queue failed — usually the 409 of racing the turn's settle,

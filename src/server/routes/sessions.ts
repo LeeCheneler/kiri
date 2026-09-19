@@ -34,6 +34,7 @@ import {
   enqueueInboxItem,
   generateSessionTitle,
   generateSuggestedReplies,
+  getInboxItem,
   getSession,
   getSessionChildren,
   getSessionLabels,
@@ -103,9 +104,10 @@ export const TRANSCRIBE_PATH = "/api/transcribe";
 const TRANSCRIBE_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 
 // A message queued for a running turn. Text only: images can't ride the inbox,
-// and the client blocks queueing them rather than dropping parts.
+// and the client blocks queueing them rather than dropping parts. The sender
+// names the submission so it can repeat one whose outcome it never learned.
 const inboxBodySchema = z
-  .object({ text: z.string().trim().min(1) })
+  .object({ id: z.string().uuid(), text: z.string().trim().min(1) })
   .strict() satisfies z.ZodType<sessionsApi.QueueSessionMessageRequest>;
 
 const inboxItemParamSchema = z.object({ id: z.string().min(1), itemId: z.string().min(1) });
@@ -840,10 +842,28 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", inboxBodySchema, onZodFail("invalid message")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { text } = c.req.valid("json");
+      const { id: itemId, text } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
+      // A repeated submission answers with the message it already queued,
+      // whatever has happened to the session since — the sender is asking
+      // what became of it, not queueing another.
+      const accepted = getInboxItem(db, itemId);
+      if (accepted && accepted.sessionId !== id) {
+        return c.json(
+          {
+            error: `message "${itemId}" was queued for another session`,
+          } satisfies errorsApi.ApiErrorBody,
+          409,
+        );
+      }
+      if (accepted) {
+        return c.json({
+          item: serializeInboxItem(accepted),
+          delivered: accepted.deliveredAt !== null,
+        } satisfies sessionsApi.SessionInboxResult);
+      }
       // Queueing only makes sense against a turn that can still deliver it:
       // one running now, or paused awaiting a tool approval (delivered on
       // resume). Anything else takes a normal message — the 409 tells the
@@ -856,10 +876,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           409,
         );
       }
-      const item = enqueueInboxItem(db, id, { source: "user", text });
+      const item = enqueueInboxItem(db, id, { id: itemId, source: "user", text });
       bus?.publish({ type: "session.inbox.queued", sessionId: id });
       return c.json(
-        { item: serializeInboxItem(item) } satisfies sessionsApi.SessionInboxResult,
+        {
+          item: serializeInboxItem(item),
+          delivered: false,
+        } satisfies sessionsApi.SessionInboxResult,
         201,
       );
     },

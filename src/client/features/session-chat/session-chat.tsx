@@ -329,7 +329,8 @@ function ChatView({
         .map((part) => (part.type === "text" ? part.text : ""))
         .filter((text) => text !== "")
         .join("\n\n");
-      if (jsonBytes({ text }) > API_BODY_LIMIT_BYTES) {
+      // Measured with an id of the length the submission will carry.
+      if (jsonBytes({ id: crypto.randomUUID(), text }) > API_BODY_LIMIT_BYTES) {
         setQueueError(
           "Queued messages must fit within 256 KiB. Shorten the message or wait for the turn to finish.",
         );

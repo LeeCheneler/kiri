@@ -122,8 +122,12 @@ export type TranscriptionResult = { text: string };
 /** SessionCancel response body. */
 export type SessionCancelResult = { sessionId: string };
 
-/** SessionInbox response body. */
-export type SessionInboxResult = { item: SessionInboxItem };
+/**
+ * SessionInbox response body. `delivered` is true when a repeated submission
+ * finds its message already handed to a turn: it is in the transcript, not
+ * the backlog.
+ */
+export type SessionInboxResult = { item: SessionInboxItem; delivered: boolean };
 
 /** CreateSession request body. */
 export type CreateSessionRequest = { model: string; imageModel?: string; projectId?: string };
@@ -139,8 +143,12 @@ export type PatchSessionRequest = {
 /** MoveSession request body. */
 export type MoveSessionRequest = { projectId: string };
 
-/** QueueSessionMessage request body. */
-export type QueueSessionMessageRequest = { text: string };
+/**
+ * QueueSessionMessage request body. `id` is chosen by the sender and names the
+ * submission: repeating it returns the message already queued under it rather
+ * than queueing another.
+ */
+export type QueueSessionMessageRequest = { id: string; text: string };
 
 /** SessionTurn request body. */
 export type SessionTurnRequest = {

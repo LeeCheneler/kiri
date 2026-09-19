@@ -344,15 +344,16 @@ describe("api client", () => {
           id: String(params.id),
           body: await request.json(),
         });
-        return HttpResponse.json({ item }, { status: 201 });
+        return HttpResponse.json({ item, delivered: false }, { status: 201 });
       }),
     );
 
-    expect(await queueSessionMessage("s1", "also check X")).toEqual({
+    expect(await queueSessionMessage("s1", "q1", "also check X")).toEqual({
       item: { ...item, source: "user" },
+      delivered: false,
     });
     expect(seen).toEqual([
-      { method: "POST", header: "kiri-ui", id: "s1", body: { text: "also check X" } },
+      { method: "POST", header: "kiri-ui", id: "s1", body: { id: "q1", text: "also check X" } },
     ]);
   });
 
@@ -369,7 +370,7 @@ describe("api client", () => {
     );
 
     try {
-      await queueSessionMessage("s1", "too late");
+      await queueSessionMessage("s1", "q1", "too late");
       throw new Error("expected queueSessionMessage to throw");
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
