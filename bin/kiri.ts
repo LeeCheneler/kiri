@@ -18,6 +18,7 @@ import {
   renderHealth,
   renderReady,
 } from "../src/server/launch-screen.ts";
+import { createAppLifetime } from "../src/server/lifetime.ts";
 import { startServer } from "../src/server/listen.ts";
 import { createLlmClients, createLlmProviderRegistry } from "../src/server/llm/index.ts";
 import { createLogger, printRows } from "../src/server/log.ts";
@@ -189,6 +190,10 @@ for (const failure of initial.failures) {
   log.workflows.error(`failed to load ${failure.path}: ${failure.reason}`);
 }
 
+// What runs registers with the lifetime, which settles it at shutdown before
+// closing what it depends on.
+const lifetime = createAppLifetime();
+
 const watcher = watchWorkflows(config, registry, initial, { bus, getProviderNames });
 // Hot-reload kiri.yaml the way workflows already reload: swap the provider
 // registry, then revalidate workflows so `llm:` steps re-check their provider.
@@ -197,6 +202,11 @@ const configWatcher = watchKiriConfig(config, configService, llmRegistry, proces
   bus,
   mcpRegistry,
 });
+// Registered ahead of the app's own work, so reloads stop being scheduled
+// before turns and runs are asked to cancel. The config watcher goes first so
+// it can't schedule a revalidate after the workflow watcher is torn down.
+lifetime.own("config watcher", () => configWatcher.stop());
+lifetime.own("workflow watcher", () => watcher.stop());
 const app = createApp({
   db,
   registry,
@@ -211,6 +221,7 @@ const app = createApp({
   version: VERSION,
   env: process.env,
   getProviderNames,
+  lifetime,
 });
 const port = resolvePort(process.env);
 const server = startServer({ app, port });
@@ -227,16 +238,15 @@ printRows(
   }),
 );
 
-const shutdown = async () => {
-  // Stop the config watcher first so it can't schedule a revalidate after the
-  // workflow watcher is torn down.
-  configWatcher.stop();
-  watcher.stop();
-  server.stop();
-  // Close MCP connections so spawned stdio subprocesses are terminated cleanly.
-  await mcpRegistry.close();
-  db.$client.close();
-  process.exit(0);
-};
+// Stop accepting connections; requests in flight carry on. Not awaited: the
+// event feed never ends on its own, and exiting cuts whatever is still open.
+lifetime.own("http listener", () => void server.stop());
+// Once the work has settled, close MCP so spawned stdio subprocesses
+// terminate cleanly, then the database.
+lifetime.onClose("mcp", () => mcpRegistry.close());
+lifetime.onClose("database", () => db.$client.close());
+
+// A repeated signal joins the shutdown already in progress.
+const shutdown = () => void lifetime.shutdown().then(() => process.exit(0));
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

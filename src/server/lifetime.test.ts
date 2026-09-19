@@ -108,6 +108,19 @@ describe("createAppLifetime", () => {
     expect(warned).not.toHaveBeenCalled();
   });
 
+  it("leaves behind a dependency whose close never finishes", async () => {
+    const lifetime = createAppLifetime({ timeoutMs: 10 });
+    let closed = false;
+    lifetime.onClose("http", () => new Promise<void>(() => {}));
+    lifetime.onClose("db", () => {
+      closed = true;
+    });
+
+    await lifetime.shutdown();
+    expect(closed).toBe(true);
+    expect(String(warned.mock.calls[0]?.[0])).toContain("closing http did not finish");
+  });
+
   it("joins the shutdown in progress on a repeated call", async () => {
     const lifetime = createAppLifetime();
     let stops = 0;

@@ -22,7 +22,8 @@ export interface AppLifetime {
   track(name: string, task: Promise<unknown>): void;
   /**
    * Register a dependency the running work uses. Closed only after that work
-   * has settled or run out of time, one at a time, in the order registered.
+   * has settled or run out of time, one at a time, in the order registered. A
+   * close that outlasts the bound is left behind like any other work.
    */
   onClose(name: string, close: () => Promise<void> | void): void;
   /**
@@ -43,7 +44,8 @@ interface Named<T> {
  * Create the lifetime an application's parts register with. Work that has not
  * settled within `timeoutMs` is named in the log and left behind: its
  * dependencies close regardless, and what it left unfinished is reconciled at
- * the next start.
+ * the next start. Each close is held to the same bound, so nothing a
+ * dependency does can keep the application from stopping.
  */
 export function createAppLifetime(options: { timeoutMs?: number } = {}): AppLifetime {
   const { timeoutMs = DEFAULT_TIMEOUT_MS } = options;
@@ -52,6 +54,17 @@ export function createAppLifetime(options: { timeoutMs?: number } = {}): AppLife
   const closers: Named<() => Promise<void> | void>[] = [];
   const tasks = new Set<Named<Promise<unknown>>>();
   let shuttingDown: Promise<void> | undefined;
+
+  // Resolves false when `work` is still going once the bound has passed.
+  const within = async (work: Promise<unknown>): Promise<boolean> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    const settled = await Promise.race([work.then(() => true as const), timedOut]);
+    clearTimeout(timer);
+    return settled;
+  };
 
   const settleWork = async () => {
     const outstanding = new Set<Named<unknown>>();
@@ -72,13 +85,7 @@ export function createAppLifetime(options: { timeoutMs?: number } = {}): AppLife
         ),
       ),
     ];
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, timeoutMs);
-    });
-    await Promise.race([Promise.all(work), timedOut]);
-    clearTimeout(timer);
-    if (outstanding.size > 0) {
+    if (!(await within(Promise.all(work)))) {
       const names = [...outstanding].map(({ name }) => name).join(", ");
       log.warn(`shutdown did not settle within ${timeoutMs}ms: ${names}`);
     }
@@ -87,11 +94,10 @@ export function createAppLifetime(options: { timeoutMs?: number } = {}): AppLife
   const closeDependencies = async () => {
     for (const { name, value: close } of closers) {
       // One dependency failing to close must not leave the rest open.
-      try {
-        await close();
-      } catch (cause) {
-        log.error(`closing ${name} failed`, cause);
-      }
+      const closed = (async () => close())().catch((cause) =>
+        log.error(`closing ${name} failed`, cause),
+      );
+      if (!(await within(closed))) log.warn(`closing ${name} did not finish within ${timeoutMs}ms`);
     }
   };
 

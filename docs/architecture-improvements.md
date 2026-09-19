@@ -104,7 +104,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Context policy is buried inside stream callbacks and mutable flags. Explicit inputs make boundary cases testable and allow policy changes without modifying the execution protocol.
 
-- [ ] **18 — Own application shutdown and disposal**
+- [x] **18 — Own application shutdown and disposal**
 
   **What:** Track active turns, workflow runs, background utility tasks, subscriptions, and pending reloads at application scope. Stop new scheduling, request cancellation, await settlement within a bound, then close MCP and SQLite. Make repeated shutdown signals safe and retain crash reconciliation.
 
