@@ -49,6 +49,9 @@ export type TestTurnDeps = Omit<RunTurnDeps, "bus"> & {
   canceller?: TurnCanceller;
 };
 
+// These starters have no learning loop to tell of settled approvals.
+const ignoreResolved = () => {};
+
 // A starter over a preparation that hands back `deps` as they stand, so a test
 // states a turn's dependencies directly and still starts it the way every
 // driver does.
@@ -67,6 +70,7 @@ const starterFor = ({ streamRegistry, lifecycle, canceller, ...deps }: TestTurnD
     llmClients: deps.llmClients,
     lifecycle: turns,
     prepareTurn: (session) => ({ session, turnDeps: { ...deps, bus } }),
+    onApprovalsResolved: ignoreResolved,
   });
 };
 
@@ -86,6 +90,7 @@ export const turnStarter = (deps: {
       streamRegistry: createStreamRegistry(),
     }),
     prepareTurn: deps.prepareTurn,
+    onApprovalsResolved: ignoreResolved,
   });
 
 type Args = Pick<RunTurnArgs, "session">;

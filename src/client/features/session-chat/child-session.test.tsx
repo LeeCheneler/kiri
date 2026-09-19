@@ -289,12 +289,7 @@ describe("<ChildSession>", () => {
     await userEvent.click(screen.getByRole("button", { name: "Allow" }));
 
     await waitFor(() => expect(resumes).toHaveLength(1));
-    const body = resumes[0] as {
-      message: { role: string; parts: { state?: string; approval?: { approved?: boolean } }[] };
-    };
-    expect(body.message.role).toBe("assistant");
-    const verdict = body.message.parts.find((part) => part.state === "approval-responded");
-    expect(verdict?.approval?.approved).toBe(true);
+    expect(resumes[0]).toEqual({ approvals: [{ toolCallId: "t1", approved: true }] });
   });
 
   it("surfaces a transcript that fails to load", async () => {

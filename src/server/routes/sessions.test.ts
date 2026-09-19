@@ -275,13 +275,20 @@ describe("sessions routes", () => {
       body: JSON.stringify({ message }),
     });
 
-  // Flip a paused assistant message's approval requests to responses.
-  const approvedParts = (row: { parts: unknown } | undefined, approved: boolean) =>
-    (row?.parts as ToolPart[]).map((part) =>
+  // One verdict for each call a paused assistant message awaits approval on.
+  const verdictsFor = (row: { parts: unknown } | undefined, approved: boolean) =>
+    (row?.parts as ToolPart[]).flatMap((part) =>
       part.state === "approval-requested"
-        ? { ...part, state: "approval-responded", approval: { ...part.approval, approved } }
-        : part,
+        ? [{ toolCallId: part.toolCallId as string, approved }]
+        : [],
     );
+
+  const postApprovals = (app: ReturnType<typeof createApp>, id: string, approvals: unknown) =>
+    app.request(`/api/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ approvals }),
+    });
 
   describe("POST /api/sessions/:id/move", () => {
     const move = (app: ReturnType<typeof createApp>, id = "s1", projectId: unknown = "p1") =>
@@ -2950,17 +2957,8 @@ describe("sessions routes", () => {
 
       // Approving resumes the turn and the command actually runs, in the
       // workspace root the declared "." resolved to.
-      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
       const resumed = waitForSettled("s1");
-      const res = await app.request("/api/sessions/s1/messages", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
-      });
+      const res = await postApprovals(app, "s1", verdictsFor(paused[1], true));
       expect(res.status).toBe(200);
       await res.text();
       await resumed;
@@ -3054,17 +3052,8 @@ describe("sessions routes", () => {
         approved: boolean,
       ) => {
         const paused = getSessionMessages(env.db, "s1");
-        const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-          part.state === "approval-requested"
-            ? { ...part, state: "approval-responded", approval: { ...part.approval, approved } }
-            : part,
-        );
         const resumed = waitForSettled("s1");
-        const res = await app.request("/api/sessions/s1/messages", {
-          method: "POST",
-          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
-        });
+        const res = await postApprovals(app, "s1", verdictsFor(paused[1], approved));
         expect(res.status).toBe(200);
         await res.text();
         await resumed;
@@ -4059,11 +4048,11 @@ describe("sessions routes", () => {
       // Only the child's own route resolves its pause: the parent holds no
       // pending approval, so a verdict posted at it is refused — the parent
       // model has no path to approving its worker's calls.
-      const verdicts = approvedParts(pausedRows[1], true);
-      expect((await postRaw(app, "s1", { role: "assistant", parts: verdicts })).status).toBe(409);
+      const verdicts = verdictsFor(pausedRows[1], true);
+      expect((await postApprovals(app, "s1", verdicts)).status).toBe(409);
 
       // Approving on the child resumes it exactly like any session.
-      const res = await postRaw(app, childId, { role: "assistant", parts: verdicts });
+      const res = await postApprovals(app, childId, verdicts);
       expect(res.status).toBe(200);
       await res.text();
       await until(() => getSession(env.db, childId)?.status === "idle");
@@ -4163,16 +4152,7 @@ describe("sessions routes", () => {
         // the server's persisted receipt can authorize consideration here.
         app = makeApp(clients, { bus });
         const resumed = waitForSettled("s1");
-        await (
-          await postRaw(app, "s1", {
-            role: "assistant",
-            // Client-supplied receipts are not trusted; only its approval
-            // verdicts are applied to the existing server-side message.
-            parts: approvedParts(row, true).map((part) =>
-              part.type === "data-instructions" ? { ...part, data: null } : part,
-            ),
-          })
-        ).text();
+        await (await postApprovals(app, "s1", verdictsFor(row, true))).text();
         await resumed;
         if (mode !== "unchanged") {
           expect(existsSync(file)).toBe(false);
@@ -4182,12 +4162,7 @@ describe("sessions routes", () => {
             "output-error",
           );
           const finished = waitForSettled("s1");
-          await (
-            await postRaw(app, "s1", {
-              role: "assistant",
-              parts: approvedParts(next, mode !== "denied"),
-            })
-          ).text();
+          await (await postApprovals(app, "s1", verdictsFor(next, mode !== "denied"))).text();
           await finished;
         }
         expect(getSession(env.db, "s1")?.status).toBe("idle");
@@ -4217,14 +4192,8 @@ describe("sessions routes", () => {
       expect(pendingTool.output).toBeUndefined();
       expect(getSession(env.db, "s1")?.status).toBe("waiting");
 
-      // The client re-sends the paused assistant message with the verdict applied.
-      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
       const secondSettled = waitForSettled("s1");
-      const res = await postRaw(app, "s1", { role: "assistant", parts: respondedParts });
+      const res = await postApprovals(app, "s1", verdictsFor(paused[1], true));
       expect(res.status).toBe(200);
       await res.text();
       await secondSettled;
@@ -4256,14 +4225,8 @@ describe("sessions routes", () => {
         "linear__create_issue",
         "allow",
       );
-      const respondedParts = (paused?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
-
       const secondSettled = waitForSettled("s1");
-      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await (await postApprovals(app, "s1", verdictsFor(paused, true))).text();
       await secondSettled;
 
       expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
@@ -4318,12 +4281,49 @@ describe("sessions routes", () => {
       expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
     });
 
-    it("409s an approval resume when nothing is pending", async () => {
+    it("409s verdicts that do not answer the calls the session is paused on", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "hi" }] });
 
-      const res = await postRaw(app, "s1", {
+      // Nothing is pending at all.
+      const idle = await postApprovals(app, "s1", [{ toolCallId: "c1", approved: true }]);
+      expect(idle.status).toBe(409);
+
+      appendMessage(env.db, "s1", {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-linear__create_issue",
+            toolCallId: "c1",
+            state: "approval-requested",
+            input: { title: "Bug" },
+            approval: { id: "a1" },
+          },
+        ] as never,
+      });
+      const before = getSessionMessages(env.db, "s1");
+
+      const stray = await postApprovals(app, "s1", [
+        { toolCallId: "c1", approved: true },
+        { toolCallId: "c2", approved: true },
+      ]);
+
+      expect(stray.status).toBe(409);
+      expect((await stray.json()).error).toContain('"c2" is not awaiting approval');
+      expect(getSessionMessages(env.db, "s1")).toEqual(before);
+    });
+
+    it("400s a malformed approval command, and an assistant message in its place", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      expect((await postApprovals(app, "s1", [])).status).toBe(400);
+      expect((await postApprovals(app, "s1", [{ toolCallId: "c1" }])).status).toBe(400);
+      expect((await postApprovals(app, "s1", [{ toolCallId: "", approved: true }])).status).toBe(
+        400,
+      );
+      const asMessage = await postRaw(app, "s1", {
         role: "assistant",
         parts: [
           {
@@ -4335,8 +4335,7 @@ describe("sessions routes", () => {
           },
         ],
       });
-
-      expect(res.status).toBe(409);
+      expect(asMessage.status).toBe(400);
     });
 
     it("withholds an off tool from the model so it never runs", async () => {
@@ -4390,13 +4389,8 @@ describe("sessions routes", () => {
       expect(pendingTool.state).toBe("approval-requested");
       expect(pendingTool.output).toBeUndefined();
 
-      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-        part.state === "approval-requested"
-          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
-          : part,
-      );
       const secondSettled = waitForSettled("s1");
-      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await (await postApprovals(app, "s1", verdictsFor(paused[1], true))).text();
       await secondSettled;
 
       const finished = toolPartOf(getSessionMessages(env.db, "s1")[1]);

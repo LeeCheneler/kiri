@@ -8,6 +8,7 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  getToolName,
   isToolUIPart,
   streamText,
 } from "ai";
@@ -160,10 +161,29 @@ export interface ResumeTurnArgs {
   approved: AppliedApprovals;
 }
 
+/** A pending tool call a verdict settled, described from the stored call rather than the request. */
+export interface ResolvedApproval {
+  toolCallId: string;
+  toolName: string;
+  /** The input the model issued the call with. */
+  input: unknown;
+  approved: boolean;
+}
+
 /** A paused assistant message with the user's verdicts applied, ready to be saved as its turn resumes. */
 export interface AppliedApprovals {
   messageId: string;
   parts: UIMessage["parts"];
+  /** Each call the verdicts settled, in transcript order. */
+  resolved: ResolvedApproval[];
+}
+
+/** Thrown when verdicts don't answer exactly the tool calls a session is paused on. */
+export class ApprovalCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalCommandError";
+  }
 }
 
 export interface StartedTurn {
@@ -306,9 +326,10 @@ export async function runWakeTurn(
 
 /**
  * Apply the user's verdicts to the session's last (assistant) message — each
- * pending tool call flipped to allowed or denied. Reads only: throws if the
- * session isn't actually awaiting approval, or if no verdict matches a pending
- * request.
+ * pending tool call flipped to allowed or denied. Reads only. The verdicts
+ * must answer exactly the calls the session is paused on, once each: a call
+ * left unanswered would reach the model without a result, and a verdict for
+ * anything else has nothing to settle. Throws `ApprovalCommandError` otherwise.
  */
 export function applyPendingApprovals(
   db: KiriDb,
@@ -316,14 +337,31 @@ export function applyPendingApprovals(
   approvals: ToolApprovalDecision[],
 ): AppliedApprovals {
   const last = getSessionMessages(db, session.id).at(-1);
-  if (!last || last.role !== "assistant") {
-    throw new Error(`session "${session.id}" has no turn awaiting tool approval`);
+  const pendingIds = new Set(
+    last?.role === "assistant"
+      ? last.parts.flatMap((part) =>
+          isToolUIPart(part) && part.state === "approval-requested" ? [part.toolCallId] : [],
+        )
+      : [],
+  );
+  if (!last || pendingIds.size === 0) {
+    throw new ApprovalCommandError(`session "${session.id}" has no turn awaiting tool approval`);
   }
-  const { parts, applied } = applyApprovals(last.parts, approvals);
-  if (applied === 0) {
-    throw new Error(`session "${session.id}" has no pending tool approval matching the response`);
+  const answered = new Set(approvals.map((approval) => approval.toolCallId));
+  if (answered.size !== approvals.length) {
+    throw new ApprovalCommandError("each tool call takes one verdict");
   }
-  return { messageId: last.id, parts };
+  const stray = approvals.find((approval) => !pendingIds.has(approval.toolCallId));
+  if (stray) {
+    throw new ApprovalCommandError(`tool call "${stray.toolCallId}" is not awaiting approval`);
+  }
+  const unanswered = [...pendingIds].find((id) => !answered.has(id));
+  if (unanswered !== undefined) {
+    throw new ApprovalCommandError(
+      `tool call "${unanswered}" is awaiting approval and has no verdict`,
+    );
+  }
+  return { messageId: last.id, ...applyApprovals(last.parts, approvals) };
 }
 
 /**
@@ -351,19 +389,23 @@ const DENIAL_REASON =
 // carrying the matching verdict and keeping the approval id the request was
 // issued under. A denial with no explicit reason gets a standing one so the
 // model is told why. Parts with no matching verdict (and non-tool parts) pass
-// through untouched. Returns the rewritten parts and how many verdicts landed,
-// so the caller can reject a resume that matched nothing.
+// through untouched. Returns the rewritten parts and the calls they settled.
 function applyApprovals(
   parts: UIMessage["parts"],
   approvals: ToolApprovalDecision[],
-): { parts: UIMessage["parts"]; applied: number } {
+): Pick<AppliedApprovals, "parts" | "resolved"> {
   const byToolCallId = new Map(approvals.map((a) => [a.toolCallId, a]));
-  let applied = 0;
+  const resolved: ResolvedApproval[] = [];
   const next = parts.map((part) => {
     if (!isToolUIPart(part) || part.state !== "approval-requested") return part;
     const decision = byToolCallId.get(part.toolCallId);
     if (!decision) return part;
-    applied += 1;
+    resolved.push({
+      toolCallId: part.toolCallId,
+      toolName: getToolName(part),
+      input: part.input,
+      approved: decision.approved,
+    });
     const reason = decision.approved ? decision.reason : (decision.reason ?? DENIAL_REASON);
     return {
       ...part,
@@ -371,7 +413,7 @@ function applyApprovals(
       approval: { ...part.approval, approved: decision.approved, reason },
     };
   });
-  return { parts: next, applied };
+  return { parts: next, resolved };
 }
 
 // Approval continuations and later checkpoints update the same assistant row.
@@ -418,9 +460,6 @@ async function streamCore(
   const transcriptRevision = getSession(db, session.id)?.transcriptRevision ?? 0;
   const history = rows.map(toUiMessage);
   const last = history.at(-1);
-  const hasPendingApprovals =
-    last?.role === "assistant" &&
-    last.parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
   instructionContext?.restore(
     session.status === "waiting" && last?.role === "assistant" ? last.parts : [],
   );
@@ -649,7 +688,6 @@ async function streamCore(
                 limits,
                 requestTokens: prepared.tokens,
                 fixedTokens: estimateContextTokens({ system, messages: [], tools: toolSchemas }),
-                pendingApprovals: hasPendingApprovals,
                 stepNumber,
                 incomingMessageCount,
                 previousMessageCount,

@@ -1101,50 +1101,6 @@ describe("runTurn", () => {
     expect(JSON.stringify(capture.prompt)).not.toContain("x".repeat(1000));
   });
 
-  it("keeps unanswered approvals out of compaction when only one verdict is submitted", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    appendMessage(db, "s1", {
-      role: "assistant",
-      parts: [
-        { type: "text", text: "x".repeat(48000) },
-        ...["c1", "c2"].map((id) => ({
-          type: "tool-echo" as const,
-          toolCallId: id,
-          state: "approval-requested" as const,
-          input: { value: "hi" },
-          approval: { id: `ap-${id}` },
-        })),
-      ],
-    });
-    setSessionStatus(db, "s1", "waiting");
-    const resumed = await resumeTurn(
-      {
-        db,
-        tools: gatedEchoTools,
-        llmClients: {
-          ...clientsFor(capturingModel({})),
-          describeModel: async (id) => describedModel(id, { contextWindow: 20000 }),
-          generateText: async () => {
-            throw new Error("Pending approvals must not be summarized");
-          },
-        },
-      },
-      { session, approvals: [{ toolCallId: "c1", approved: true }] },
-    );
-    await resumed.done;
-    // The SDK rejects a partial verdict's unpaired call. Compaction must not
-    // hide that pending approval inside a summary and make it unrecoverable.
-    expect(getSession(db, "s1")).toMatchObject({
-      status: "failed",
-      error: { message: "Tool result is missing for tool call c2." },
-    });
-    const parts = getSessionMessages(db, "s1")[0].parts as UIMessage["parts"];
-    expect(parts.filter(isCheckpointPart)).toHaveLength(0);
-    expect(parts).toContainEqual(
-      expect.objectContaining({ toolCallId: "c2", state: "approval-requested" }),
-    );
-  });
-
   it("keeps the work-step limit and uses compacted context for its final handoff", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", {
@@ -2550,7 +2506,7 @@ describe("runTurn", () => {
         { db, llmClients: clientsFor(streamingModel([])) },
         { session, approvals: [{ toolCallId: "does-not-exist", approved: true }] },
       ),
-    ).rejects.toThrow(/no pending tool approval matching/);
+    ).rejects.toThrow(/"does-not-exist" is not awaiting approval/);
   });
 
   it("sends the composed system prompt to the model when a builder is provided", async () => {

@@ -155,15 +155,16 @@ export type SessionUserPart =
   | { type: "text"; text: string }
   | { type: "file"; mediaType: string; url: string; filename?: string };
 
+/** The user's verdict on one tool call a turn is paused on. */
+export type ToolApprovalVerdict = { toolCallId: string; approved: boolean };
+
 /**
  * SessionTurn request body: a new user message, or — resuming a turn paused
- * on tool approval — the paused assistant message's verdict-bearing parts.
+ * on tool approval — one verdict for each call it is paused on.
  */
-export type SessionTurnRequest = {
-  message:
-    | { id?: string; role?: "user"; parts: SessionUserPart[] }
-    | { id?: string; role: "assistant"; parts: unknown[] };
-};
+export type SessionTurnRequest =
+  | { message: { id?: string; parts: SessionUserPart[] } }
+  | { approvals: ToolApprovalVerdict[] };
 
 /** Committed revision after truncating a transcript. */
 export interface TranscriptMutationResult {

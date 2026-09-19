@@ -14,7 +14,6 @@ const step = (overrides: Partial<StepContext> = {}): StepContext => ({
   limits,
   requestTokens: 1000,
   fixedTokens: 500,
-  pendingApprovals: false,
   stepNumber: 1,
   incomingMessageCount: 0,
   previousMessageCount: 0,
@@ -91,12 +90,6 @@ describe("decideStep", () => {
     expect(decideStep({ ...opening, requestTokens: threshold })).toEqual({ action: "continue" });
     expect(decideStep({ ...opening, requestTokens: limits.workInputTokens + 1 })).toEqual({
       action: "stop",
-    });
-  });
-
-  it("leaves an unanswered approval out of compaction", () => {
-    expect(decideStep(step({ requestTokens: threshold, pendingApprovals: true }))).toEqual({
-      action: "continue",
     });
   });
 

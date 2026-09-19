@@ -6,6 +6,7 @@ import type { Session } from "./store.ts";
 import type { TurnLease, TurnLifecycle } from "./turn-lifecycle.ts";
 import {
   type PreparedTurn,
+  type ResolvedApproval,
   type StartedTurn,
   type ToolApprovalDecision,
   applyPendingApprovals,
@@ -39,6 +40,11 @@ export interface TurnStarterDeps {
   lifecycle: TurnLifecycle;
   /** Makes the session ready to run (see `TurnPreparation.prepareTurn`). */
   prepareTurn: (session: Session) => PreparedTurn;
+  /**
+   * Told of the calls a user's verdicts settled, described from the stored
+   * transcript, once their turn is about to resume — never for a refused start.
+   */
+  onApprovalsResolved: (resolved: ResolvedApproval[]) => void;
 }
 
 /**
@@ -54,7 +60,7 @@ export interface TurnStarterDeps {
  * session as a settled `failed` turn — which is what tells a worker's parent.
  */
 export function createTurnStarter(deps: TurnStarterDeps): StartTurn {
-  const { db, llmClients, lifecycle, prepareTurn } = deps;
+  const { db, llmClients, lifecycle, prepareTurn, onApprovalsResolved } = deps;
 
   const run = (session: Session, start: TurnStart, lease: TurnLease) => {
     // Whatever can refuse the start outright is settled before preparation,
@@ -65,7 +71,10 @@ export function createTurnStarter(deps: TurnStarterDeps): StartTurn {
       start.kind === "approvals" ? applyPendingApprovals(db, session, start.approvals) : null;
     const prepared = prepareTurn(session);
     const args = { session: prepared.session, lease, model };
-    if (approved) return resumeTurn(prepared.turnDeps, { ...args, approved });
+    if (approved) {
+      onApprovalsResolved(approved.resolved);
+      return resumeTurn(prepared.turnDeps, { ...args, approved });
+    }
     if (start.kind === "message") {
       return runTurn(prepared.turnDeps, { ...args, userMessage: start.userMessage });
     }

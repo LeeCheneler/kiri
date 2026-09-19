@@ -53,8 +53,6 @@ export interface StepContext {
   requestTokens: number;
   /** Heuristic size of what no summary can shrink: the system prompt and tool schemas. */
   fixedTokens: number;
-  /** An unanswered approval must stay a real tool part for its later resume. */
-  pendingApprovals: boolean;
   stepNumber: number;
   /** Messages that opened this turn; zero for a continuation. */
   incomingMessageCount: number;
@@ -79,9 +77,9 @@ export type StepDecision =
 
 /**
  * Decide how a step boundary goes on. History is summarised once the request
- * reaches the compaction threshold — unless an approval is pending, there is
- * nothing to summarise, or the fixed context alone reaches the threshold, in
- * which case no summary could bring the request under it. A boundary
+ * reaches the compaction threshold — unless there is nothing to summarise, or
+ * the fixed context alone reaches the threshold, in which case no summary
+ * could bring the request under it. A boundary
  * compacts at most once. Otherwise the step runs while the request fits the
  * work allowance.
  */
@@ -95,7 +93,6 @@ export function decideStep(context: StepContext): StepDecision {
     : context.messageCount;
   if (
     !context.compacted &&
-    !context.pendingApprovals &&
     summarise > 0 &&
     context.fixedTokens < limits.compactionThreshold &&
     requestTokens >= limits.compactionThreshold

@@ -26,7 +26,6 @@ import { getProject, listProjectArticles } from "../projects/store.ts";
 import { withoutContextCalibration } from "../sessions/context-calibration.ts";
 import {
   SESSION_TITLE_MAX_LENGTH,
-  type ToolApprovalDecision,
   buildSessionListEntries,
   createSession,
   deleteMessagesFrom,
@@ -48,6 +47,7 @@ import {
 import type { SessionRuntime } from "../sessions/runtime.ts";
 import { ShuttingDownError, TurnInFlightError } from "../sessions/turn-lifecycle.ts";
 import type { TurnStart } from "../sessions/turn-start.ts";
+import { ApprovalCommandError } from "../sessions/turn.ts";
 import { defaultWorkingDirectory } from "../sessions/working-directory.ts";
 import {
   serializeInboxItem,
@@ -147,44 +147,26 @@ const userPartSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-// Only the trailing message rides the request; the server loads the prior turns
-// from the DB. Usually a new `user` message; on an approval resume the client
-// re-sends the paused `assistant` message carrying the user's verdicts, whose
-// parts are read for those verdicts alone.
-const turnBodySchema = z.object({
-  message: z.union([
-    z.object({
+// Only what is new rides the request; the server loads the prior turns from
+// the DB. A turn opens on a user message, or resumes on the user's verdicts
+// for the tool calls it paused on — named by call id alone, so everything
+// else about a call is read from the stored transcript.
+const turnBodySchema = z.union([
+  z.object({
+    message: z.object({
       id: z.string().min(1).optional(),
-      role: z.literal("user").optional(),
       parts: z.array(userPartSchema).min(1),
     }),
-    z.object({
-      id: z.string().min(1).optional(),
-      role: z.literal("assistant"),
-      parts: z.array(z.unknown()).min(1),
-    }),
-  ]),
-}) satisfies z.ZodType<sessionsApi.SessionTurnRequest>;
+  }),
+  z.object({
+    approvals: z.array(z.object({ toolCallId: z.string().min(1), approved: z.boolean() })).min(1),
+  }),
+]) satisfies z.ZodType<sessionsApi.SessionTurnRequest>;
 
 // Whether a message awaits the user's verdict — its last assistant turn called a
 // tool that hasn't been allowed or denied yet.
 const hasPendingApproval = (parts: UIMessage["parts"]): boolean =>
   parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
-
-// Pull the user's tool-approval verdicts out of a resumed assistant message.
-const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => {
-  const decisions: ToolApprovalDecision[] = [];
-  for (const part of parts) {
-    if (isToolUIPart(part) && part.state === "approval-responded") {
-      decisions.push({
-        toolCallId: part.toolCallId,
-        approved: part.approval.approved,
-        reason: part.approval.reason,
-      });
-    }
-  }
-  return decisions;
-};
 
 /**
  * Build the Hono sub-app for the agentic session surface: model listing,
@@ -194,7 +176,7 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const { db, configService, llmClients, bus, runtime } = deps;
-  const { streamRegistry, commandLearning } = runtime;
+  const { streamRegistry } = runtime;
   const app = new Hono();
 
   const modelsConfig = (): ModelsConfig => configService.current().models;
@@ -688,9 +670,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", turnBodySchema, onZodFail("invalid message")),
     async (c) => {
       const { id } = c.req.valid("param");
-      const { message } = c.req.valid("json");
-      if (message.role !== "assistant") {
-        const error = messagePartsError(message.parts);
+      const body = c.req.valid("json");
+      if ("message" in body) {
+        const error = messagePartsError(body.message.parts);
         if (error) return c.json({ error } satisfies errorsApi.ApiErrorBody, 400);
       }
       const session = getSession(db, id);
@@ -703,51 +685,27 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         try {
           return (await runtime.startTurn(session, turn)).response;
         } catch (cause) {
-          if (cause instanceof TurnInFlightError)
+          if (cause instanceof TurnInFlightError || cause instanceof ApprovalCommandError)
             return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
           if (cause instanceof ShuttingDownError)
             return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 503);
           throw cause;
         }
       };
-      const priorMessages = getSessionMessages(db, id);
-      const last = priorMessages.at(-1);
-      const pending = last?.role === "assistant" && hasPendingApproval(last.parts);
 
       // The turn checkpoints and finalises its own persistence, so the route
       // just hands back the streamed response. The turn is drained
       // server-side, so a client that disconnects doesn't cancel it; only an
       // explicit cancel through `POST /api/sessions/:id/cancel` does.
 
-      // An assistant message carries the user's verdicts on a paused turn's tool
-      // calls: resume it rather than starting a new turn.
-      if (message.role === "assistant") {
-        if (!pending) {
-          return c.json(
-            {
-              error: `session "${id}" has no pending tool approval to resolve`,
-            } satisfies errorsApi.ApiErrorBody,
-            409,
-          );
-        }
-        const parts = message.parts as UIMessage["parts"];
-        // Every answered run_command feeds the learning loop — under "ask" as
-        // much as "auto", since an approval is precedent either way.
-        for (const part of parts) {
-          if (
-            isToolUIPart(part) &&
-            part.state === "approval-responded" &&
-            part.type === "tool-run_command"
-          ) {
-            commandLearning.recordResolution({
-              toolCallId: part.toolCallId,
-              command: (part.input as { command?: string })?.command ?? "",
-              approved: part.approval.approved,
-            });
-          }
-        }
-        return start({ kind: "approvals", approvals: extractApprovals(parts) });
-      }
+      // Verdicts resume the paused turn rather than starting a new one; the
+      // start checks them against the calls the session is actually paused on.
+      if ("approvals" in body) return start({ kind: "approvals", approvals: body.approvals });
+
+      const { message } = body;
+      const priorMessages = getSessionMessages(db, id);
+      const last = priorMessages.at(-1);
+      const pending = last?.role === "assistant" && hasPendingApproval(last.parts);
 
       // A new user message can't start while a tool approval is still pending —
       // the model can't continue past an unanswered tool call.

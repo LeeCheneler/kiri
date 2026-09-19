@@ -35,17 +35,24 @@ import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocatio
 // Tool-call states that mean a call is still running.
 const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
 
-const sessionTurnMessage = (message: UIMessage | undefined): UIMessage | undefined => {
-  if (message?.role !== "assistant") return message;
-  const approvals = message.parts.filter(
-    (part) => isToolUIPart(part) && part.state === "approval-responded",
-  );
-  return approvals.length > 0 ? { ...message, parts: approvals } : message;
+// An answered assistant turn resumes on its verdicts alone, each naming its
+// call by id: the server holds the calls themselves, so nothing of the paused
+// turn — which can dwarf the API body limit — travels back.
+const sessionTurnBody = (message: UIMessage | undefined) => {
+  const approvals =
+    message?.role === "assistant"
+      ? message.parts.flatMap((part) =>
+          isToolUIPart(part) && part.state === "approval-responded"
+            ? [{ toolCallId: part.toolCallId, approved: part.approval.approved }]
+            : [],
+        )
+      : [];
+  return approvals.length > 0 ? { approvals } : { message };
 };
 
-/** Build a compact approval or user-turn body; reject requests over the wire limit. */
+/** Build an approval or user-turn body; reject requests over the wire limit. */
 export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] }) => {
-  const body = { message: sessionTurnMessage(messages.at(-1)) };
+  const body = sessionTurnBody(messages.at(-1));
   if (jsonBytes(body) > MESSAGE_BODY_LIMIT_BYTES) throw new Error(MESSAGE_SIZE_ERROR);
   return { body };
 };

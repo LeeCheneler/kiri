@@ -245,10 +245,10 @@ describe("transcript reconciliation", () => {
         approval: { id: `approval-${n}` },
       })),
     };
-    let posted: { message: UIMessage } | undefined;
+    let posted: unknown;
     server.use(
       http.post("*/api/sessions/:id/messages", async ({ request }) => {
-        posted = (await request.json()) as { message: UIMessage };
+        posted = await request.json();
         return createUIMessageStreamResponse({
           stream: createUIMessageStream({
             execute: ({ writer }) => {
@@ -272,16 +272,12 @@ describe("transcript reconciliation", () => {
     expect(posted).toBeUndefined();
     act(() => result.current.onToolDecision(second, "deny"));
     await waitFor(() =>
-      expect(posted?.message.parts).toEqual([
-        expect.objectContaining({
-          state: "approval-responded",
-          approval: { id: "approval-1", approved: true },
-        }),
-        expect.objectContaining({
-          state: "approval-responded",
-          approval: { id: "approval-2", approved: false },
-        }),
-      ]),
+      expect(posted).toEqual({
+        approvals: [
+          { toolCallId: "c1", approved: true },
+          { toolCallId: "c2", approved: false },
+        ],
+      }),
     );
     await waitFor(() => expect(result.current.messages).toEqual([message("done")]));
   });

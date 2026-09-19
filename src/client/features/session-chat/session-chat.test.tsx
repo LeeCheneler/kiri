@@ -211,13 +211,6 @@ const runningToolTranscript = () => [
   },
 ];
 
-// The tool part of a resume request's assistant message.
-const sentToolPart = (body: unknown) => {
-  const parts = (body as { message: { parts: { type: string }[] } }).message.parts;
-  const part = parts.find((p) => p.type.startsWith("tool-"));
-  return part as unknown as { state: string; approval: { approved: boolean } };
-};
-
 // happy-dom has no layout, so the page never actually scrolls. Stand in for it:
 // track the page offset and the foot it can scroll to, and capture the chat's own
 // scrolls. The chat always asks to scroll to the foot and a real browser clamps
@@ -1042,9 +1035,7 @@ describe("<SessionChat>", () => {
     await user.click(await screen.findByRole("button", { name: "Allow" }));
 
     expect(await screen.findByText("Created the issue.")).toBeDefined();
-    const toolPart = sentToolPart(resumeBody);
-    expect(toolPart.state).toBe("approval-responded");
-    expect(toolPart.approval.approved).toBe(true);
+    expect(resumeBody).toEqual({ approvals: [{ toolCallId: "c1", approved: true }] });
   });
 
   it("always-allows a paused tool, recording a grant before resuming", async () => {
@@ -1113,7 +1104,7 @@ describe("<SessionChat>", () => {
     await user.click(await screen.findByRole("button", { name: "Deny" }));
 
     expect(await screen.findByText("Okay, I won't.")).toBeDefined();
-    expect(sentToolPart(resumeBody).approval.approved).toBe(false);
+    expect(resumeBody).toEqual({ approvals: [{ toolCallId: "c1", approved: false }] });
     expect(grantCalled).toBe(false);
   });
 

@@ -23,6 +23,7 @@ import {
 import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
 import { TurnInFlightError, type TurnLifecycle, createTurnLifecycle } from "./turn-lifecycle.ts";
 import { createTurnStarter } from "./turn-start.ts";
+import { ApprovalCommandError } from "./turn.ts";
 
 const MODEL = "test:model";
 
@@ -88,6 +89,7 @@ describe("createTurnStarter", () => {
   let streamRegistry: StreamRegistry;
   let lifecycle: TurnLifecycle;
   let prepared: string[];
+  let resolutions: unknown[];
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-turn-start-"));
@@ -99,6 +101,7 @@ describe("createTurnStarter", () => {
     streamRegistry = createStreamRegistry();
     lifecycle = createTurnLifecycle({ db, bus, streamRegistry });
     prepared = [];
+    resolutions = [];
   });
 
   afterEach(() => {
@@ -120,7 +123,25 @@ describe("createTurnStarter", () => {
           turnDeps: { db, bus, llmClients },
         };
       },
+      onApprovalsResolved: (resolved) => resolutions.push(...resolved),
     });
+
+  // A session paused on the given calls, as a gated turn leaves it.
+  const pauseOn = (...calls: Array<{ id: string; tool: string; input: unknown }>) => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: calls.map(({ id, tool, input }) => ({
+        type: `tool-${tool}`,
+        toolCallId: id,
+        state: "approval-requested",
+        input,
+        approval: { id: `approval-${id}` },
+      })) as UIMessage["parts"],
+    });
+    setSessionStatus(db, "s1", "waiting");
+    return session;
+  };
 
   const settledEvents = () => events.filter((event) => event.type === "session.turn.settled");
 
@@ -167,7 +188,7 @@ describe("createTurnStarter", () => {
     ).rejects.toThrow("unknown provider");
   });
 
-  it("rejects verdicts that match no pending call before preparing the session", async () => {
+  it("rejects verdicts for a session paused on nothing before preparing it", async () => {
     const startTurn = starter(clientsFor(replyingModel()));
     const session = createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: "done" }] });
@@ -175,10 +196,85 @@ describe("createTurnStarter", () => {
 
     await expect(
       startTurn(session, { kind: "approvals", approvals: [{ toolCallId: "c9", approved: true }] }),
-    ).rejects.toThrow("no pending tool approval matching");
+    ).rejects.toBeInstanceOf(ApprovalCommandError);
 
     expect(prepared).toEqual([]);
     expect(getSession(db, "s1")).toMatchObject({ status: "waiting", cwd: null });
+  });
+
+  it.each([
+    ["a call that is not pending", [{ toolCallId: "c9", approved: true }], /"c9" is not awaiting/],
+    ["only some of the pending calls", [{ toolCallId: "c1", approved: true }], /"c2" is awaiting/],
+    [
+      "one call twice",
+      [
+        { toolCallId: "c1", approved: true },
+        { toolCallId: "c1", approved: false },
+        { toolCallId: "c2", approved: true },
+      ],
+      /one verdict/,
+    ],
+  ])(
+    "rejects verdicts that answer %s, leaving the pause as it was",
+    async (_name, approvals, message) => {
+      const startTurn = starter(clientsFor(replyingModel()));
+      const session = pauseOn(
+        { id: "c1", tool: "run_command", input: { command: "ls" } },
+        { id: "c2", tool: "run_command", input: { command: "pwd" } },
+      );
+      const before = getSessionMessages(db, "s1");
+
+      await expect(startTurn(session, { kind: "approvals", approvals })).rejects.toThrow(message);
+
+      expect(prepared).toEqual([]);
+      expect(resolutions).toEqual([]);
+      expect(getSessionMessages(db, "s1")).toEqual(before);
+      expect(getSession(db, "s1")?.status).toBe("waiting");
+    },
+  );
+
+  it("reports each settled call from the stored transcript as its turn resumes", async () => {
+    const startTurn = starter(clientsFor(replyingModel()));
+    const session = pauseOn(
+      { id: "c1", tool: "run_command", input: { command: "rm -rf build" } },
+      { id: "c2", tool: "write_file", input: { path: "a.txt" } },
+    );
+
+    const turn = await startTurn(session, {
+      kind: "approvals",
+      approvals: [
+        { toolCallId: "c2", approved: true },
+        { toolCallId: "c1", approved: false },
+      ],
+    });
+    await turn.response.text();
+    await turn.done;
+
+    expect(resolutions).toEqual([
+      {
+        toolCallId: "c1",
+        toolName: "run_command",
+        input: { command: "rm -rf build" },
+        approved: false,
+      },
+      { toolCallId: "c2", toolName: "write_file", input: { path: "a.txt" }, approved: true },
+    ]);
+  });
+
+  it("reports nothing for verdicts a held session refuses", async () => {
+    const startTurn = starter(clientsFor(parkedModel()));
+    const session = pauseOn({ id: "c1", tool: "run_command", input: { command: "ls" } });
+    const approvals = [{ toolCallId: "c1", approved: true }];
+    const first = await startTurn(session, { kind: "approvals", approvals });
+    resolutions.length = 0;
+
+    await expect(startTurn(session, { kind: "approvals", approvals })).rejects.toBeInstanceOf(
+      TurnInFlightError,
+    );
+
+    expect(resolutions).toEqual([]);
+    lifecycle.cancel("s1");
+    await first.done;
   });
 
   it("fails a turn that cannot carry on after the session was marked running", async () => {

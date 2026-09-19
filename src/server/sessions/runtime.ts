@@ -64,8 +64,6 @@ export interface SessionRuntimeDeps {
 export interface SessionRuntime {
   /** In-flight turn streams: a running turn fills it, a reconnecting client reads it. */
   streamRegistry: StreamRegistry;
-  /** The auto shell permission's learning loop: judgements and user verdicts in, distilled precedent out. */
-  commandLearning: CommandLearning;
   /** Start a session's turn (see `createTurnStarter`). */
   startTurn: StartTurn;
   /** Abort the session's executing turn, which settles as `cancelled`. False when none is executing. */
@@ -128,6 +126,15 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     llmClients,
     lifecycle,
     prepareTurn: preparation.prepareTurn,
+    // Every answered run_command is precedent for the learning loop, under
+    // "ask" as much as "auto".
+    onApprovalsResolved: (resolved) => {
+      for (const { toolCallId, toolName, input, approved } of resolved) {
+        if (toolName !== "run_command") continue;
+        const command = (input as { command?: string } | undefined)?.command ?? "";
+        commandLearning.recordResolution({ toolCallId, command, approved });
+      }
+    },
   });
 
   const unmountMessaging = mountDelegationMessaging({ db, bus, startTurn });
@@ -141,7 +148,6 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
 
   return {
     streamRegistry,
-    commandLearning,
     startTurn,
     cancelTurn: lifecycle.cancel,
     background(name, task) {

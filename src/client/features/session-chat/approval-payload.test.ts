@@ -30,31 +30,17 @@ const approvalMessage = (approved: boolean): UIMessage => ({
 
 describe("prepareSessionTurnRequest", () => {
   for (const approved of [true, false]) {
-    it(`projects an oversized assistant turn to its ${approved ? "allowed" : "denied"} tool response`, () => {
+    it(`reduces an oversized assistant turn to its ${approved ? "allowed" : "denied"} verdict`, () => {
       const message = approvalMessage(approved);
 
       expect(new TextEncoder().encode(JSON.stringify({ message })).byteLength).toBeGreaterThan(
         API_BODY_LIMIT_BYTES,
       );
 
-      const projected = prepareSessionTurnRequest({ messages: [message] }).body.message;
+      const { body } = prepareSessionTurnRequest({ messages: [message] });
 
-      expect(projected).toEqual({
-        id: "assistant-1",
-        role: "assistant",
-        parts: [
-          {
-            type: "tool-run_command",
-            toolCallId: "command-1",
-            state: "approval-responded",
-            input: { command: "bun test", cwd: "/workspace", timeout_seconds: 120 },
-            approval: { id: "approval-1", approved },
-          },
-        ],
-      });
-      expect(
-        new TextEncoder().encode(JSON.stringify({ message: projected })).byteLength,
-      ).toBeLessThan(API_BODY_LIMIT_BYTES);
+      // The call is named by id alone: its input stays with the server.
+      expect(body).toEqual({ approvals: [{ toolCallId: "command-1", approved }] });
     });
   }
 
@@ -87,6 +73,6 @@ describe("prepareSessionTurnRequest", () => {
       ),
     };
 
-    expect(prepareSessionTurnRequest({ messages: [message] }).body.message).toBe(message);
+    expect(prepareSessionTurnRequest({ messages: [message] }).body).toEqual({ message });
   });
 });
