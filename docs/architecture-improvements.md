@@ -164,4 +164,10 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Fewer characters do not necessarily mean fewer provider tokens or better understanding. An extra transformation should earn its maintenance cost through useful workload evidence.
 
+- [ ] **28 — Let an open view join a turn the server started**
+
+  **What:** Expose the executing turn's identity to the browser: on the session detail while a turn is in flight, and on the message and stream responses a view attaches through. Have a view resume the live stream when the session's turn is not the one it is attached to, and only then. Cover a wake that follows straight after the view's own turn, a worker report waking an idle session, a second tab, and the window between a stream ending and its turn settling.
+
+  **Why:** A view joins a live stream once, as it mounts. A turn the server starts afterwards — every inbox wake — shows only as busy, and its reply appears when the turn settles. Session status cannot fix this safely: the browser's stream can end before the server settles that same turn, and resuming then replays the turn into a duplicate, while a settle and the wake after it usually reach the browser as one change.
+
 As behavior moves below HTTP, move its policy tests with it. Retain focused integration coverage for application limits, SDK conversion, persistence/approval ordering, and reconnect behavior. Mark an item complete when its behavior is verified and its obsolete paths are removed, rather than when files have merely been rearranged.
