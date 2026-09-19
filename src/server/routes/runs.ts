@@ -8,6 +8,7 @@ import type * as articlesApi from "../../shared/api/articles.ts";
 import type * as errorsApi from "../../shared/api/errors.ts";
 import type * as runsApi from "../../shared/api/runs.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import { articleSummariesByOwner, getArticle, listArticleSummaries } from "../articles/store.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
@@ -110,45 +111,17 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
 
     const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
 
-    // Single aggregation across the page rather than per-row N+1. Empty page
-    // skips the query entirely so the common no-articles feed pays nothing.
-    // `content_md` is pulled to derive each entry's first-h1 byline but not
-    // echoed back — the body itself is fetched by the article page.
-    type ArticleProjection = {
-      slug: string;
-      name: string;
-      heading: string | null;
-      createdAt: Date;
-    };
-    // Key widened to `string | null` to match `articles.runId`'s nullable
-    // type; the `inArray` filter below means only this page's run ids appear.
-    const articlesByRunId = new Map<string | null, ArticleProjection[]>();
+    // Single aggregation across the page rather than per-row N+1. The bodies
+    // are read to derive each entry's first-h1 byline but not echoed back —
+    // the body itself is fetched by the article page.
+    const articlesByRunId = articleSummariesByOwner(
+      db,
+      "runId",
+      rows.map((r) => r.id),
+    );
     const recommendationCountByRunId = new Map<string, number>();
     if (rows.length > 0) {
       const runIds = rows.map((r) => r.id);
-      const allArticles = db
-        .select({
-          runId: articles.runId,
-          slug: articles.slug,
-          name: articles.name,
-          contentMd: articles.contentMd,
-          createdAt: articles.createdAt,
-        })
-        .from(articles)
-        .where(inArray(articles.runId, runIds))
-        .orderBy(asc(articles.createdAt))
-        .all();
-      for (const { runId, slug, name, contentMd, createdAt } of allArticles) {
-        const list = articlesByRunId.get(runId);
-        const entry: ArticleProjection = {
-          slug,
-          name,
-          heading: extractFirstHeading(contentMd),
-          createdAt,
-        };
-        if (list) list.push(entry);
-        else articlesByRunId.set(runId, [entry]);
-      }
       // Single grouped count across the page; runs with no recs are simply
       // absent from the map and fall back to 0 below.
       const recCounts = db
@@ -181,11 +154,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
       if (!run)
         return c.json({ error: `run "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      const article = db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.runId, id), eq(articles.slug, slug)))
-        .get();
+      const article = getArticle(db, { runId: id }, slug);
       if (!article) {
         return c.json(
           { error: `article "${slug}" not found on run "${id}"` } satisfies errorsApi.ApiErrorBody,
@@ -229,21 +198,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     // Lives on `run.articles` so every RunListEntry — list or detail —
     // shares the same shape; chip rendering and the articles-section row
     // both read from one place.
-    const articleRows = db
-      .select({
-        slug: articles.slug,
-        name: articles.name,
-        contentMd: articles.contentMd,
-        createdAt: articles.createdAt,
-      })
-      .from(articles)
-      .where(eq(articles.runId, id))
-      .orderBy(asc(articles.createdAt))
-      .all()
-      .map(({ contentMd, ...row }) => ({
-        ...row,
-        heading: extractFirstHeading(contentMd),
-      }));
+    const articleRows = listArticleSummaries(db, { runId: id });
     // Self-join `runs` aliased to the actioned target so a triggered
     // recommendation ships the destination run's status with it — the UI
     // renders it as a status-badged link without a follow-up round-trip.

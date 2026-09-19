@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import { type ArticleSummary, articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
@@ -296,7 +296,7 @@ export function getSessionsWithWaitingChildren(db: KiriDb, sessionIds: string[])
  */
 export type SessionListEntry = Session & {
   preview: string | null;
-  articles: { slug: string; name: string; heading: string | null; createdAt: Date }[];
+  articles: ArticleSummary[];
   projectName: string | null;
   hasWaitingChild: boolean;
   hasRunningChild: boolean;
@@ -324,26 +324,7 @@ export function buildSessionListEntries(db: KiriDb, rows: Session[]): SessionLis
           .flatMap((row) => row.parentSessionId ?? [])
       : [],
   );
-  const articlesBySessionId = new Map<string | null, SessionListEntry["articles"]>();
-  if (ids.length > 0) {
-    const articleRows = db
-      .select()
-      .from(articles)
-      .where(inArray(articles.sessionId, ids))
-      .orderBy(asc(articles.createdAt))
-      .all();
-    for (const article of articleRows) {
-      const entry = {
-        slug: article.slug,
-        name: article.name,
-        heading: extractFirstHeading(article.contentMd),
-        createdAt: article.createdAt,
-      };
-      const list = articlesBySessionId.get(article.sessionId);
-      if (list) list.push(entry);
-      else articlesBySessionId.set(article.sessionId, [entry]);
-    }
-  }
+  const articlesBySessionId = articleSummariesByOwner(db, "sessionId", ids);
   const projectIds = [...new Set(rows.flatMap((row) => row.projectId ?? []))];
   const projectNames = new Map(
     projectIds.length > 0

@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { type UIMessage, UI_MESSAGE_STREAM_HEADERS, isToolUIPart } from "ai";
-import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -15,6 +15,12 @@ import {
   MESSAGE_SIZE_ERROR,
   messagePartsError,
 } from "../../shared/message-limits.ts";
+import {
+  deleteArticle,
+  getArticle,
+  listArticleSummaries,
+  sessionArticleOwner,
+} from "../articles/store.ts";
 import type { ModelsConfig } from "../config/schema.ts";
 import type { ConfigService } from "../config/service.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -22,7 +28,7 @@ import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients, toModelInfo } from "../llm/index.ts";
 import { createLogger } from "../log.ts";
-import { getProject, listProjectArticles } from "../projects/store.ts";
+import { getProject } from "../projects/store.ts";
 import { withoutContextCalibration } from "../sessions/context-calibration.ts";
 import {
   SESSION_TITLE_MAX_LENGTH,
@@ -49,6 +55,7 @@ import { ShuttingDownError, TurnInFlightError } from "../sessions/turn-lifecycle
 import type { TurnStart } from "../sessions/turn-start.ts";
 import { ApprovalCommandError } from "../sessions/turn.ts";
 import { defaultWorkingDirectory } from "../sessions/working-directory.ts";
+import { serializeArticleSummary } from "./serializers/articles.ts";
 import {
   serializeInboxItem,
   serializeMessage,
@@ -338,21 +345,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id } = c.req.valid("param");
       if (!getSession(db, id))
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      // The same projection as a run's article list: the body is fetched only
-      // to derive the heading, never echoed — the detail route serves it.
-      const rows = db
-        .select()
-        .from(articles)
-        .where(eq(articles.sessionId, id))
-        .orderBy(asc(articles.createdAt))
-        .all();
+
       return c.json({
-        articles: rows.map((article) => ({
-          slug: article.slug,
-          name: article.name,
-          heading: extractFirstHeading(article.contentMd),
-          createdAt: article.createdAt.toISOString(),
-        })),
+        articles: listArticleSummaries(db, { sessionId: id }).map(serializeArticleSummary),
       } satisfies articlesApi.ArticlesResult);
     },
   );
@@ -364,11 +359,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id, slug } = c.req.valid("param");
       if (!getSession(db, id))
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      const article = db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.sessionId, id), eq(articles.slug, slug)))
-        .get();
+
+      const article = getArticle(db, { sessionId: id }, slug);
       if (!article) {
         return c.json(
           {
@@ -377,8 +369,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           404,
         );
       }
-      db.delete(articles).where(eq(articles.id, article.id)).run();
+
+      deleteArticle(db, article.id);
       bus?.publish({ type: "article.deleted", sessionId: id, slug });
+
       return c.body(null, 204);
     },
   );
@@ -391,18 +385,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const session = getSession(db, id);
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      const article = db
-        .select()
-        .from(articles)
-        .where(
-          and(
-            session.projectId === null
-              ? eq(articles.sessionId, id)
-              : eq(articles.projectId, session.projectId),
-            eq(articles.slug, slug),
-          ),
-        )
-        .get();
+
+      const article = getArticle(db, sessionArticleOwner(session), slug);
       if (!article) {
         return c.json(
           {
@@ -622,7 +606,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .from(articles)
         .where(inArray(articles.sessionId, ids))
         .all();
-      const slugs = new Set(listProjectArticles(db, projectId).map((article) => article.slug));
+      const slugs = new Set(listArticleSummaries(db, { projectId }).map((article) => article.slug));
       for (const article of movingArticles) {
         if (slugs.has(article.slug)) {
           return c.json(

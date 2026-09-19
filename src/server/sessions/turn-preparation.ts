@@ -1,3 +1,4 @@
+import { listArticleSummaries } from "../articles/store.ts";
 import { configuredDelegateRoles } from "../config/schema.ts";
 import type { ConfigService, ConfigSnapshot } from "../config/service.ts";
 import type { ConfigStore } from "../config/store.ts";
@@ -5,7 +6,7 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import { listMemories, listProjectMemories } from "../memories/store.ts";
-import { getProject, listProjectArticles } from "../projects/store.ts";
+import { getProject } from "../projects/store.ts";
 import { createInstructionContext } from "./instruction-context.ts";
 import { listSkills } from "./skills.ts";
 import { type Session, getSession } from "./store.ts";
@@ -54,10 +55,12 @@ export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparatio
     if (!project) return null;
     return {
       name: project.name,
-      articles: listProjectArticles(db, project.id).map((article) => ({
-        slug: article.slug,
-        heading: article.heading ?? article.name,
-      })),
+      articles: listArticleSummaries(db, { projectId: project.id }, { newestFirst: true }).map(
+        (article) => ({
+          slug: article.slug,
+          heading: article.heading ?? article.name,
+        }),
+      ),
       memories: listProjectMemories(db, project.id),
       instructions: project.instructions,
       tasks: summariseTaskList(db, project.id),

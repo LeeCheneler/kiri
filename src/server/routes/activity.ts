@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import type * as activityApi from "../../shared/api/activity.ts";
@@ -7,6 +7,7 @@ import type { ArticleProducer } from "../../shared/api/activity.ts";
 import type * as errorsApi from "../../shared/api/errors.ts";
 import type { PageQuery } from "../../shared/api/pagination.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import { articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
 import { buildSessionListEntries, getSessionLabels } from "../sessions/index.ts";
@@ -46,47 +47,19 @@ const decodeCursor = (raw: string): { startedAt: Date; id: string } | undefined 
   return { startedAt: new Date(ms), id };
 };
 
-type ArticleProjection = {
-  slug: string;
-  name: string;
-  heading: string | null;
-  createdAt: Date;
-};
-
 // Assemble the feed shape for a page of runs — the base row plus its produced
 // articles and a recommendation count, both batched across the page — keyed by
 // id so each run can be slotted back into the merged activity order. Mirrors the
 // per-run-feed assembly in the runs route.
 function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs.$inferSelect>) {
-  // Key widened to `string | null` to match `articles.runId`'s nullable
-  // type; the `inArray` filter below means only this page's run ids appear.
-  const articlesByRunId = new Map<string | null, ArticleProjection[]>();
+  const articlesByRunId = articleSummariesByOwner(
+    db,
+    "runId",
+    rows.map((r) => r.id),
+  );
   const recommendationCountByRunId = new Map<string, number>();
   if (rows.length > 0) {
     const runIds = rows.map((r) => r.id);
-    const allArticles = db
-      .select({
-        runId: articles.runId,
-        slug: articles.slug,
-        name: articles.name,
-        contentMd: articles.contentMd,
-        createdAt: articles.createdAt,
-      })
-      .from(articles)
-      .where(inArray(articles.runId, runIds))
-      .orderBy(asc(articles.createdAt))
-      .all();
-    for (const { runId, slug, name, contentMd, createdAt } of allArticles) {
-      const entry: ArticleProjection = {
-        slug,
-        name,
-        heading: extractFirstHeading(contentMd),
-        createdAt,
-      };
-      const list = articlesByRunId.get(runId);
-      if (list) list.push(entry);
-      else articlesByRunId.set(runId, [entry]);
-    }
     const recCounts = db
       .select({ runId: recommendations.runId, count: count() })
       .from(recommendations)

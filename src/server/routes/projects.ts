@@ -7,6 +7,7 @@ import type * as memoriesApi from "../../shared/api/memories.ts";
 import type { PageQuery } from "../../shared/api/pagination.ts";
 import type * as projectsApi from "../../shared/api/projects.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import { deleteArticle, getArticle, listArticleSummaries } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -21,7 +22,6 @@ import {
   createProject,
   deleteProject,
   getProject,
-  listProjectArticles,
   listProjects,
   updateProject,
 } from "../projects/store.ts";
@@ -145,7 +145,9 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     const rows = projectSessions(db, id);
     return c.json({
       project: serializeProject(project),
-      articles: listProjectArticles(db, id).map(serializeArticleSummary),
+      articles: listArticleSummaries(db, { projectId: id }, { newestFirst: true }).map(
+        serializeArticleSummary,
+      ),
       memories: listProjectMemories(db, id).map(serializeMemorySummary),
       // The full listing projection, so the page renders the same rows as
       // the feed — in scoped dress, so the redundant project link is the
@@ -350,11 +352,8 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       const { id, slug } = c.req.valid("param");
       if (!getProject(db, id))
         return c.json({ error: `project "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      const article = db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.projectId, id), eq(articles.slug, slug)))
-        .get();
+
+      const article = getArticle(db, { projectId: id }, slug);
       if (!article) {
         return c.json(
           {
@@ -363,8 +362,10 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
           404,
         );
       }
-      db.delete(articles).where(eq(articles.id, article.id)).run();
+
+      deleteArticle(db, article.id);
       bus?.publish({ type: "article.deleted", projectId: id, slug });
+
       return c.body(null, 204);
     },
   );
@@ -376,11 +377,8 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       const { id, slug } = c.req.valid("param");
       if (!getProject(db, id))
         return c.json({ error: `project "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      const article = db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.projectId, id), eq(articles.slug, slug)))
-        .get();
+
+      const article = getArticle(db, { projectId: id }, slug);
       if (!article) {
         return c.json(
           {
