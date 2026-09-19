@@ -80,7 +80,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** DELETE followed by POST can lose a queued message between requests. Browser and server scheduling policies overlap, and treating every queue failure as permission to send again can obscure whether the first request succeeded. Cancellation must remain an explicit stop.
 
-- [ ] **14 — Consolidate built-in tool policy**
+- [x] **14 — Consolidate built-in tool policy**
 
   **What:** Give each built-in a typed descriptor for its stable name, default permission, worker availability, management visibility, and output projection. Derive mechanical catalogue behavior from it. Keep executable factories, client rendering, and capability-grouped prompt prose in their appropriate layers.
 
