@@ -8,6 +8,7 @@ import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TURN_ID_HEADER } from "../../../shared/api/sessions.ts";
 import {
   MESSAGE_BODY_LIMIT_BYTES,
   MESSAGE_SIZE_ERROR,
@@ -32,7 +33,7 @@ import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./
 import { submitQueuedMessage } from "./queue-submission.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
-// How many times in a row a view re-reads the transcript and rejoins a turn
+// How many times in a row a view re-reads the transcript and rejoins the turn
 // whose stream ended under it. A rejoin that keeps ending is not going to
 // take; the view then shows the session as busy until the turn settles.
 const MAX_REJOINS = 3;
@@ -140,9 +141,10 @@ export interface SessionConversation {
 
 /**
  * Drive one session's live conversation: wires `useChat` to the session's turn
- * endpoint, rejoins an in-flight turn's stream on mount, reconciles a turn
- * that finished or ran elsewhere while this view wasn't streaming, and exposes
- * the send / resubmit / cancel / tool-approval handlers. The page chat and the
+ * endpoint, joins the stream of any turn it is not already attached to — one
+ * in flight as the view mounts, or one the server starts later — reconciles a
+ * turn that finished while this view wasn't streaming, and exposes the send /
+ * resubmit / cancel / tool-approval handlers. The page chat and the
  * embedded child-session view share this engine; each renders its own chrome
  * around it.
  */
@@ -152,24 +154,28 @@ export function useSessionConversation(opts: {
   initialMessages: UIMessage[];
   /** Revision belonging to initialMessages, including a stream replay baseline. */
   transcriptRevision: number;
+  /** The turn streaming for the session as of that read, or null when none was. */
+  turnId: string | null;
 }): SessionConversation {
-  const { session, initialMessages, transcriptRevision } = opts;
-  const sync = useRef({
+  const { session, initialMessages, transcriptRevision, turnId } = opts;
+  const entered = (): {
+    id: string;
+    revision: number;
+    generation: number;
+    protected: boolean;
+    rejoins: number;
+    /** The turn whose stream this view last attached to, or set out to. */
+    turnId: string | null;
+  } => ({
     id: session.id,
     revision: transcriptRevision,
     generation: 0,
     protected: false,
     rejoins: 0,
+    turnId: null,
   });
-  if (sync.current.id !== session.id) {
-    sync.current = {
-      id: session.id,
-      revision: transcriptRevision,
-      generation: 0,
-      protected: false,
-      rejoins: 0,
-    };
-  }
+  const sync = useRef(entered());
+  if (sync.current.id !== session.id) sync.current = entered();
   const transcript = sync.current;
   const refreshDetail = useRefreshSessionDetail(session.id);
   const protectTranscript = useCallback(() => {
@@ -195,6 +201,15 @@ export function useSessionConversation(opts: {
       prepareReconnectToStreamRequest: () => ({
         api: sessionStreamEndpoint(session.id, sync.current.revision),
       }),
+      // Every stream this view attaches through names its turn. A rejoin can
+      // land on a newer turn than the one it set out for, so the response,
+      // not the request, says which turn the view now holds.
+      fetch: (async (input, init) => {
+        const response = await fetch(input, init);
+        const attached = response.headers.get(TURN_ID_HEADER);
+        if (attached !== null && sync.current.id === session.id) sync.current.turnId = attached;
+        return response;
+      }) as typeof fetch,
     });
   }, [session.id, protectTranscript]);
 
@@ -241,10 +256,12 @@ export function useSessionConversation(opts: {
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
-  // A read begun after streaming ended can release local protection. When the
-  // turn is still running the stream ended short of it — this view held a
-  // transcript the live stream no longer continues from, or fell too far
-  // behind it — so `rejoin` takes the fresh transcript and resumes from there.
+  // A read begun after streaming ended can release local protection. A turn
+  // streaming then is joined from the fresh transcript when it is not the one
+  // this view was attached to — a wake that followed straight on. When it is
+  // the same turn, the stream ended short of it — this view held a transcript
+  // the live stream no longer continues from, or fell too far behind it — and
+  // only `rejoin` resumes it.
   const refreshTranscript = useCallback(
     async ({ rejoin = false } = {}): Promise<void> => {
       const generation = transcript.generation;
@@ -258,11 +275,14 @@ export function useSessionConversation(opts: {
       }
       if (sync.current !== transcript || generation !== transcript.generation) return;
       transcript.protected = false;
-      if (detail.session.status === "running") {
-        // Cancellation can finish the browser stream before the server settles;
-        // the saved transcript must not erase the locally rendered tail.
-        if (!rejoin || transcript.rejoins >= MAX_REJOINS) return;
-        transcript.rejoins += 1;
+      if (detail.turnId !== null) {
+        const attached = detail.turnId === transcript.turnId;
+        // Cancellation can finish the browser stream before the server settles
+        // that same turn: resuming would replay it into a duplicate, and the
+        // saved transcript must not erase the locally rendered tail.
+        if (attached && (!rejoin || transcript.rejoins >= MAX_REJOINS)) return;
+        transcript.rejoins = attached ? transcript.rejoins + 1 : 0;
+        transcript.turnId = detail.turnId;
         transcript.revision = detail.transcriptRevision;
         setMessages(detail.messages);
         void resumeStream();
@@ -284,22 +304,13 @@ export function useSessionConversation(opts: {
     [protectTranscript, sendChatMessage],
   );
 
-  // Reconnect to an in-flight turn's stream once per session, so a page refresh
-  // (or a second tab) rejoins the live response — tokens and tool-call state —
-  // and carries it to completion; a 204 when no turn is running makes it a no-op.
-  // Guarded by session id so it fires once per session even though StrictMode
-  // double-invokes effects in dev — two reconnects would replay the buffer twice
-  // and duplicate the turn — and so it re-fires when the session changes.
-  const resumedFor = useRef<string | null>(null);
+  // A newly-entered session starts with no live consoles; joining its
+  // in-flight stream replays any current ones straight back in.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs per session entered
   useEffect(() => {
-    if (resumedFor.current === session.id) return;
-    resumedFor.current = session.id;
-    // A newly-entered session starts with no live consoles; rejoining its
-    // in-flight stream below replays any current ones straight back in.
     liveConsoles.clear();
     setCompacting(false);
-    void resumeStream();
-  }, [session.id, resumeStream, liveConsoles]);
+  }, [session.id, liveConsoles]);
 
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
@@ -366,11 +377,36 @@ export function useSessionConversation(opts: {
 
   // Revisions detect replacements and deletions as well as appended content.
   // Never advance the accepted revision while local work owns the transcript.
+  //
+  // The same read names the turn streaming for the session. One this view is
+  // not attached to — in flight as the view mounts, started in another tab, or
+  // a wake the server began — is joined from that transcript, so a page
+  // refresh or a second view carries the live response, tokens and tool-call
+  // state alike, to completion. The turn is recorded as it is joined, before
+  // any response: a second pass over the same read (StrictMode runs effects
+  // twice in dev) must not replay the buffer into a duplicate. A turn already
+  // attached to is never resumed from here — its stream ending is `onFinish`'s
+  // affair — and a read older than the transcript held joins nothing.
   useEffect(() => {
-    if (streaming || transcript.protected || transcriptRevision <= transcript.revision) return;
-    transcript.revision = transcriptRevision;
-    setMessages(initialMessages);
-  }, [streaming, transcript, transcriptRevision, initialMessages, setMessages]);
+    if (streaming || transcript.protected) return;
+    if (transcriptRevision > transcript.revision) {
+      transcript.revision = transcriptRevision;
+      setMessages(initialMessages);
+    }
+    if (turnId === null || turnId === transcript.turnId) return;
+    if (transcriptRevision < transcript.revision) return;
+    transcript.turnId = turnId;
+    transcript.rejoins = 0;
+    void resumeStream();
+  }, [
+    streaming,
+    transcript,
+    transcriptRevision,
+    turnId,
+    initialMessages,
+    setMessages,
+    resumeStream,
+  ]);
 
   // Resend an edited user message, re-running the conversation from it. Truncate
   // the stored transcript back to the message first (so the turn's server-side

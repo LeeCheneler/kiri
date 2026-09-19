@@ -55,7 +55,13 @@ const withChildren = (children: Session[]) =>
 const withChildDetail = (status: Session["status"], messages: unknown[]) =>
   server.use(
     http.get("*/api/sessions/child-1", () =>
-      HttpResponse.json({ session: child(status), messages, transcriptRevision: 0 }),
+      HttpResponse.json({
+        session: child(status),
+        messages,
+        transcriptRevision: 0,
+        // A running worker names the turn streaming for it, which the view joins.
+        turnId: status === "running" ? "t1" : null,
+      }),
     ),
   );
 

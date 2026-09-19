@@ -22,6 +22,8 @@ const sessionDetail = (
   inbox: unknown[] = [],
 ) => ({
   transcriptRevision: 0,
+  // A running session names the turn streaming for it, which the view joins.
+  turnId: overrides.status === "running" ? "t1" : null,
   session: {
     id: "s1",
     status: "idle",

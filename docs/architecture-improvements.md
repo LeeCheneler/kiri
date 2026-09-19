@@ -158,7 +158,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Inline bytes are simple but repeatedly stored, cloned, and transferred. Separate storage introduces its own lifecycle, so adopt it only when measurements justify that cost. Retaining inline storage is a valid outcome.
 
-- [ ] **28 — Let an open view join a turn the server started**
+- [x] **28 — Let an open view join a turn the server started**
 
   **What:** Expose the executing turn's identity to the browser: on the session detail while a turn is in flight, and on the message and stream responses a view attaches through. Have a view resume the live stream when the session's turn is not the one it is attached to, and only then. Cover a wake that follows straight after the view's own turn, a worker report waking an idle session, a second tab, and the window between a stream ending and its turn settling.
 

@@ -5,6 +5,7 @@ import { type UIMessage, createUIMessageStream, createUIMessageStreamResponse } 
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { server } from "../../../../tests/setup/msw.ts";
+import { TURN_ID_HEADER } from "../../../shared/api/sessions.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { useSessionConversation } from "./use-session-conversation.ts";
 
@@ -14,16 +15,25 @@ const message = (text: string): UIMessage => ({
   parts: [{ type: "text", text }],
 });
 
-const snapshot = (revision: number, messages: UIMessage[], status = "idle", id = "s1") => ({
+// A read of the session. A running one names its streaming turn, "t1" unless told otherwise.
+const snapshot = (
+  revision: number,
+  messages: UIMessage[],
+  status = "idle",
+  id = "s1",
+  turnId: string | null = status === "running" ? "t1" : null,
+) => ({
   session: { id, status },
   initialMessages: messages,
   transcriptRevision: revision,
+  turnId,
 });
 
 const detail = (value: ReturnType<typeof snapshot>) => ({
   session: value.session,
   messages: value.initialMessages,
   transcriptRevision: value.transcriptRevision,
+  turnId: value.turnId,
   inbox: [],
 });
 
@@ -45,8 +55,9 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-const reply = (text: string, finish = Promise.resolve()) =>
+const reply = (text: string, finish = Promise.resolve(), turnId = "t1") =>
   createUIMessageStreamResponse({
+    headers: { [TURN_ID_HEADER]: turnId },
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
         writer.write({ type: "text-start", id: "text1" });
@@ -65,7 +76,7 @@ const endedStream = () =>
         controller.close();
       },
     }),
-    { headers: { "content-type": "text/event-stream" } },
+    { headers: { "content-type": "text/event-stream", [TURN_ID_HEADER]: "t1" } },
   );
 
 describe("transcript reconciliation", () => {
@@ -345,5 +356,119 @@ describe("transcript reconciliation", () => {
       }),
     );
     await waitFor(() => expect(result.current.messages).toEqual([message("done")]));
+  });
+});
+
+describe("joining a turn the server started", () => {
+  const texts = (messages: UIMessage[]) =>
+    messages.map((m) => m.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])));
+
+  // Counts the joins made, serving each the named turn's live reply.
+  const liveTurn = (text: string, finish: Promise<void>, turnId: string) => {
+    const joins: (string | null)[] = [];
+    server.use(
+      http.get("*/api/sessions/:id/stream", ({ request }) => {
+        joins.push(new URL(request.url).searchParams.get("revision"));
+        return reply(text, finish, turnId);
+      }),
+    );
+    return joins;
+  };
+
+  it("joins a turn that wakes an idle session, from the transcript that named it", async () => {
+    const finish = deferred();
+    const joins = liveTurn(" and the reply", finish.promise, "t2");
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(detail(snapshot(4, [message("final")]))),
+      ),
+    );
+    const { result, rerender } = mount(snapshot(1, []));
+    expect(joins).toEqual([]);
+
+    // A worker's report — or another tab's message — started a turn.
+    rerender(snapshot(3, [message("saved step")], "running", "s1", "t2"));
+    await waitFor(() =>
+      expect(texts(result.current.messages)).toEqual([["saved step", " and the reply"]]),
+    );
+    // Later reads of the same turn join nothing more.
+    rerender(snapshot(3, [message("saved step")], "running", "s1", "t2"));
+    expect(joins).toEqual(["3"]);
+
+    await act(async () => finish.resolve());
+    await waitFor(() => expect(result.current.messages).toEqual([message("final")]));
+  });
+
+  it("joins the wake that follows straight after its own turn", async () => {
+    const finish = deferred();
+    const joins = liveTurn("woken reply", finish.promise, "t2");
+    let reads = 0;
+    server.use(
+      http.post("*/api/sessions/:id/messages", () => reply("own reply")),
+      http.get("*/api/sessions/:id", () => {
+        reads += 1;
+        return HttpResponse.json(
+          detail(
+            reads === 1
+              ? snapshot(3, [message("own reply saved")], "running", "s1", "t2")
+              : snapshot(5, [message("final")]),
+          ),
+        );
+      }),
+    );
+    const { result } = mount(snapshot(0, []));
+    await act(async () => result.current.sendMessage({ text: "hello" }));
+    await waitFor(() => expect(joins).toEqual(["3"]));
+    await act(async () => finish.resolve());
+    await waitFor(() => expect(result.current.messages).toEqual([message("final")]));
+  });
+
+  it("never resumes the turn it is attached to while that turn has yet to settle", async () => {
+    const finish = deferred();
+    const joins = liveTurn("replayed", Promise.resolve(), "t1");
+    let reads = 0;
+    server.use(
+      http.post("*/api/sessions/:id/messages", () => reply("partial answer", finish.promise)),
+      http.post("*/api/sessions/:id/cancel", () => {
+        finish.resolve();
+        return HttpResponse.json({ sessionId: "s1" });
+      }),
+      http.get("*/api/sessions/:id", () => {
+        reads += 1;
+        return HttpResponse.json(detail(snapshot(2, [], "running")));
+      }),
+    );
+    const { result, rerender } = mount(snapshot(1, []));
+    act(() => void result.current.sendMessage({ text: "hello" }));
+    await waitFor(() => expect(result.current.status).toBe("streaming"));
+    act(() => result.current.cancel());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    await waitFor(() => expect(reads).toBeGreaterThan(0));
+
+    // The browser's stream has ended; the server is still settling that turn.
+    rerender(snapshot(1, [], "running"));
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(joins).toEqual([]);
+    expect(texts(result.current.messages).at(-1)).toEqual(["partial answer"]);
+  });
+
+  it("holds the turn its stream named when a newer one took the rejoin", async () => {
+    const finish = deferred();
+    // The read named t1; by the time the rejoin landed, t2 was streaming.
+    const joins = liveTurn("newer turn", finish.promise, "t2");
+    const { result, rerender } = mount(snapshot(2, [], "running"));
+    await waitFor(() => expect(texts(result.current.messages)).toEqual([["newer turn"]]));
+    rerender(snapshot(2, [], "running", "s1", "t2"));
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(joins).toEqual(["2"]);
+    finish.resolve();
+  });
+
+  it("joins nothing from a read older than the transcript it holds", async () => {
+    const joins = liveTurn("replayed", Promise.resolve(), "t2");
+    const { rerender } = mount(snapshot(5, [message("current")]));
+    rerender(snapshot(4, [message("older")], "running", "s1", "t2"));
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(joins).toEqual([]);
   });
 });
