@@ -341,6 +341,11 @@ export const messages = sqliteTable(
      * context fill reads the most recent message that carries one.
      */
     contextTokens: integer("context_tokens"),
+    /**
+     * True while a turn is checkpointing this message. Its last settled search
+     * projection remains in place until the turn finishes and clears the flag.
+     */
+    searchPending: integer("search_pending", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [

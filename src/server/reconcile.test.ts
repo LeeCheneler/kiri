@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import { createConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
-import { runSteps, runs, sessions } from "./db/schema.ts";
+import { messages, runSteps, runs, sessions } from "./db/schema.ts";
 import { reconcileInterruptedRuns, reconcileInterruptedSessions } from "./reconcile.ts";
 
 describe("reconcileInterruptedRuns", () => {
@@ -133,6 +133,33 @@ describe("reconcileInterruptedSessions", () => {
     expect(row?.status).toBe("failed");
     expect(row?.finishedAt).toBeInstanceOf(Date);
     expect(row?.error).toEqual({ message: "interrupted by server restart" });
+  });
+
+  it("publishes an interrupted turn's pending checkpoint to search", () => {
+    insertSession("stuck", "running");
+    db.insert(messages)
+      .values({
+        id: "reply",
+        sessionId: "stuck",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "Durable checkpoint" }],
+        searchPending: true,
+        createdAt: new Date(0),
+      })
+      .run();
+    expect(
+      db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'durable'").all(),
+    ).toEqual([]);
+
+    reconcileInterruptedSessions(db);
+
+    expect(db.select().from(messages).where(eq(messages.id, "reply")).get()?.searchPending).toBe(
+      false,
+    );
+    expect(
+      db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'durable'").all(),
+    ).toHaveLength(1);
   });
 
   it("leaves idle and terminal sessions untouched", () => {

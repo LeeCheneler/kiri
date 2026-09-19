@@ -267,6 +267,13 @@
       "when": 1786913568236,
       "tag": "0037_drop_task_position",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1789856909457,
+      "tag": "0046_defer_search_index_updates",
+      "breakpoints": true
     }
   ]
 }

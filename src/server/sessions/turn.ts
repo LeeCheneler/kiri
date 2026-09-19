@@ -454,6 +454,7 @@ function persistAssistantMessage(
   id: string,
   parts: UIMessage["parts"],
   alreadyPersisted: boolean,
+  searchPending: boolean,
   contextTokens?: number,
 ): void {
   if (alreadyPersisted) {
@@ -461,10 +462,16 @@ function persistAssistantMessage(
     // paused message keeps the one its earlier steps recorded.
     updateMessage(db, sessionId, id, {
       parts,
+      searchPending,
       ...(contextTokens !== undefined ? { contextTokens } : {}),
     });
   } else {
-    appendMessage(db, sessionId, { role: "assistant", parts, contextTokens }, { id });
+    appendMessage(
+      db,
+      sessionId,
+      { role: "assistant", parts, contextTokens },
+      { id, searchPending },
+    );
   }
 }
 
@@ -559,7 +566,12 @@ async function streamCore(
   // The stream can already contain an inbox delivery for the next model step.
   // Acknowledge only deliveries present in this snapshot, in the same transaction
   // as the transcript, so an interruption can neither lose nor redeliver them.
-  const persistProgress = (message: UIMessage, isContinuation: boolean, contextTokens?: number) => {
+  const persistProgress = (
+    message: UIMessage,
+    isContinuation: boolean,
+    searchPending: boolean,
+    contextTokens?: number,
+  ) => {
     const inboxIds = message.parts
       .filter(isInboxPart)
       .map((part) => part.id)
@@ -571,6 +583,7 @@ async function streamCore(
         message.id,
         withContextCalibration(message, calibration).parts,
         isContinuation || checkpointed,
+        searchPending,
         contextTokens,
       );
       acknowledgeInboxItems(db, inboxIds);
@@ -950,7 +963,7 @@ async function streamCore(
       let saved: StepSave;
       try {
         if (finaliseInterruptedParts(responseMessage.parts) === null) return;
-        saved = persistProgress(responseMessage, isContinuation);
+        saved = persistProgress(responseMessage, isContinuation, true);
       } catch (cause) {
         // The SDK reports checkpoint errors without stopping its tool loop.
         // Abort here so further actions cannot outrun failed persistence.
@@ -986,7 +999,7 @@ async function streamCore(
                 aborted ? undefined : UNKNOWN_TOOL_RESULT,
               );
           if (kept !== null) {
-            persistProgress({ ...responseMessage, parts: kept }, isContinuation);
+            persistProgress({ ...responseMessage, parts: kept }, isContinuation, false);
             messagePersisted = true;
           }
           return {
@@ -1006,7 +1019,7 @@ async function streamCore(
         // tokens — not the per-step sum, which over-counts a multi-step tool
         // turn. A budget stop can skip a provider call entirely; in that case
         // preserve the most recent recorded footprint rather than inventing usage.
-        persistProgress(responseMessage, isContinuation, lastContextTokens);
+        persistProgress(responseMessage, isContinuation, false, lastContextTokens);
         messagePersisted = true;
         if (stopReason !== undefined) {
           return {

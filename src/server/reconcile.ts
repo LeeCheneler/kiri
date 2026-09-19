@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { KiriDb } from "./db/index.ts";
-import { runSteps, runs, sessions } from "./db/schema.ts";
+import { messages, runSteps, runs, sessions } from "./db/schema.ts";
 
 const INTERRUPTED_ERROR = { message: "interrupted by server restart" } as const;
 
@@ -33,8 +33,24 @@ export function reconcileInterruptedRuns(db: KiriDb): void {
  * run alongside it once at startup.
  */
 export function reconcileInterruptedSessions(db: KiriDb): void {
-  db.update(sessions)
-    .set({ status: "failed", finishedAt: new Date(), error: INTERRUPTED_ERROR })
-    .where(eq(sessions.status, "running"))
-    .run();
+  db.transaction(() => {
+    const interrupted = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.status, "running"))
+      .all()
+      .map((session) => session.id);
+    if (interrupted.length === 0) return;
+
+    // A checkpoint survived but its turn did not. Publish that durable final
+    // state to search in the same transaction that settles the dead session.
+    db.update(messages)
+      .set({ searchPending: false })
+      .where(and(inArray(messages.sessionId, interrupted), eq(messages.searchPending, true)))
+      .run();
+    db.update(sessions)
+      .set({ status: "failed", finishedAt: new Date(), error: INTERRUPTED_ERROR })
+      .where(inArray(sessions.id, interrupted))
+      .run();
+  });
 }
