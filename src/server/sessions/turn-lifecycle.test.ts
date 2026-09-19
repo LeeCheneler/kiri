@@ -11,6 +11,7 @@ import {
   ShuttingDownError,
   TurnInFlightError,
   type TurnLifecycle,
+  type TurnSettlement,
   createTurnLifecycle,
 } from "./turn-lifecycle.ts";
 
@@ -21,6 +22,8 @@ describe("createTurnLifecycle", () => {
   let db: KiriDb;
   let bus: EventBus;
   let events: KiriEvent[];
+  let settled: { sessionId: string; settlement: TurnSettlement; after: number }[];
+  let onSettled: (sessionId: string) => void;
   let streamRegistry: StreamRegistry;
   let lifecycle: TurnLifecycle;
 
@@ -32,7 +35,17 @@ describe("createTurnLifecycle", () => {
     events = [];
     bus.subscribe((event) => events.push(event));
     streamRegistry = createStreamRegistry();
-    lifecycle = createTurnLifecycle({ db, bus, streamRegistry });
+    settled = [];
+    onSettled = () => {};
+    lifecycle = createTurnLifecycle({
+      db,
+      bus,
+      streamRegistry,
+      onSettled: (sessionId, settlement) => {
+        settled.push({ sessionId, settlement, after: events.length });
+        onSettled(sessionId);
+      },
+    });
     createSession(db, MODEL, { id: "s1" });
   });
 
@@ -94,15 +107,25 @@ describe("createTurnLifecycle", () => {
     await lease.done;
   });
 
-  it("releases the session before publishing, so an idle event can start the next turn", () => {
+  it("hands the settlement on once its events are out", () => {
+    const lease = lifecycle.acquire("s1");
+    lease.begin();
+    events.length = 0;
+
+    lease.settle({ status: "idle", messageId: "m1" });
+
+    expect(settled).toEqual([
+      { sessionId: "s1", settlement: { status: "idle", messageId: "m1" }, after: 3 },
+    ]);
+  });
+
+  it("releases the session before handing the settlement on, so the next turn can start there", () => {
     const lease = lifecycle.acquire("s1");
     lease.begin();
     let replacement: string | undefined;
-    bus.subscribe((event) => {
-      if (event.type === "session.updated" && event.status === "idle") {
-        replacement = lifecycle.acquire("s1").turnId;
-      }
-    });
+    onSettled = (sessionId) => {
+      replacement = lifecycle.acquire(sessionId).turnId;
+    };
 
     lease.settle({ status: "idle", messageId: null });
     expect(replacement).toBeDefined();
@@ -120,6 +143,7 @@ describe("createTurnLifecycle", () => {
       { type: "session.message.added", sessionId: "s1" },
       { type: "session.updated", id: "s1", status: "waiting" },
     ]);
+    expect(settled.map((entry) => entry.settlement.status)).toEqual(["waiting"]);
   });
 
   it("records a failure's error and finish time", () => {

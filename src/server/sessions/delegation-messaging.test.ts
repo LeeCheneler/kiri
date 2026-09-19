@@ -13,7 +13,7 @@ import { migrate } from "../db/migrate.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { messageParentTool } from "./delegate-tool.ts";
-import { mountDelegationMessaging } from "./delegation-messaging.ts";
+import { type DelegationMessaging, createDelegationMessaging } from "./delegation-messaging.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
   type Session,
@@ -66,7 +66,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   describeModel: async (id) => describedModel(id),
 });
 
-// Wake turns run detached from the event that triggered them, so assertions
+// Wake turns run detached from the call that triggered them, so assertions
 // poll for the settled state rather than awaiting a handle.
 const until = async (predicate: () => boolean): Promise<void> => {
   for (let attempt = 0; attempt < 400; attempt += 1) {
@@ -79,7 +79,7 @@ const until = async (predicate: () => boolean): Promise<void> => {
 // A settled tick for asserting that nothing happened.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 25));
 
-describe("mountDelegationMessaging", () => {
+describe("createDelegationMessaging", () => {
   let dir: string;
   let db: KiriDb;
 
@@ -96,7 +96,7 @@ describe("mountDelegationMessaging", () => {
   const mount = (prompts: unknown[] = []) => {
     const bus = createEventBus();
     const turnDeps: RunTurnDeps = { db, llmClients: clientsFor(capturingModel(prompts)), bus };
-    const unsubscribe = mountDelegationMessaging({
+    const messaging: DelegationMessaging = createDelegationMessaging({
       db,
       bus,
       startTurn: turnStarter({
@@ -104,37 +104,43 @@ describe("mountDelegationMessaging", () => {
         bus,
         llmClients: turnDeps.llmClients,
         prepareTurn: (session) => ({ session, turnDeps }),
+        onSettled: (sessionId, settlement) => messaging.turnSettled(sessionId, settlement),
       }),
     });
-    return { bus, unsubscribe };
+    messaging.recover();
+    return { bus, messaging };
   };
 
-  it("wakes an idle session when a message queues for it", async () => {
+  it("queues and announces a message, waking the idle session it is for", async () => {
     const prompts: unknown[] = [];
-    const { bus } = mount(prompts);
+    const { bus, messaging } = mount(prompts);
+    const events: KiriEvent[] = [];
+    bus.subscribe((event) => events.push(event));
     createSession(db, MODEL, { id: "parent" });
-    enqueueInboxItem(db, "parent", { source: "child", text: "the report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "the report" });
 
     await until(() => getSessionMessages(db, "parent").length === 2);
     await until(() => getSession(db, "parent")?.status === "idle");
     expect(JSON.stringify(prompts[0])).toContain("the report");
     expect(pendingInboxItems(db, "parent")).toEqual([]);
+    expect(events[0]).toEqual({
+      type: "session.inbox.queued",
+      sessionId: "parent",
+      source: "child",
+    });
   });
 
   it("restarts a cancelled session for the user's own message, ahead of which its held backlog drains", async () => {
     const prompts: unknown[] = [];
-    const { bus } = mount(prompts);
+    const { messaging } = mount(prompts);
     createSession(db, MODEL, { id: "stopped" });
     setSessionStatus(db, "stopped", "cancelled");
-    enqueueInboxItem(db, "stopped", { source: "child", text: "held report" });
-    bus.publish({ type: "session.inbox.queued", sessionId: "stopped", source: "child" });
+    messaging.send("stopped", { source: "child", text: "held report" });
     await tick();
     expect(getSession(db, "stopped")?.status).toBe("cancelled");
 
-    enqueueInboxItem(db, "stopped", { source: "user", text: "carry on" });
-    bus.publish({ type: "session.inbox.queued", sessionId: "stopped", source: "user" });
+    messaging.send("stopped", { source: "user", text: "carry on" });
 
     await until(() => getSession(db, "stopped")?.status === "idle");
     const prompt = JSON.stringify(prompts[0]);
@@ -178,7 +184,7 @@ describe("mountDelegationMessaging", () => {
   it("runs the wake turn with the session and dependencies its preparation returns", async () => {
     const bus = createEventBus();
     const prompted: (string | null)[] = [];
-    mountDelegationMessaging({
+    const messaging = createDelegationMessaging({
       db,
       bus,
       // A preparation that repairs the working directory before the turn.
@@ -201,9 +207,8 @@ describe("mountDelegationMessaging", () => {
       }),
     });
     createSession(db, MODEL, { id: "parent", cwd: join(dir, "gone") });
-    enqueueInboxItem(db, "parent", { source: "child", text: "the report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "the report" });
 
     await until(() => getSession(db, "parent")?.status === "idle" && prompted.length > 0);
     expect(prompted[0]).toBe(dir);
@@ -212,7 +217,7 @@ describe("mountDelegationMessaging", () => {
   it("leaves a session with nothing queued unprepared", async () => {
     const bus = createEventBus();
     let prepared = 0;
-    mountDelegationMessaging({
+    const messaging = createDelegationMessaging({
       db,
       bus,
       startTurn: turnStarter({
@@ -227,8 +232,8 @@ describe("mountDelegationMessaging", () => {
     });
     createSession(db, MODEL, { id: "parent" });
 
-    // The queued message was withdrawn, or an earlier turn already drained it.
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    // The turn settles with nothing left over: what was queued wove in.
+    messaging.turnSettled("parent", { status: "idle", messageId: null });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(prepared).toBe(0);
@@ -236,15 +241,14 @@ describe("mountDelegationMessaging", () => {
   });
 
   it("wakes a failed session, so a dead parent still hears its workers", async () => {
-    const { bus } = mount();
+    const { messaging } = mount();
     createSession(db, MODEL, { id: "parent" });
     setSessionStatus(db, "parent", "failed", {
       error: { message: "provider down" },
       finishedAt: new Date(),
     });
-    enqueueInboxItem(db, "parent", { source: "child", text: "done" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "done" });
 
     await until(() => getSession(db, "parent")?.status === "idle");
     expect(getSession(db, "parent")?.error).toBeNull();
@@ -252,27 +256,26 @@ describe("mountDelegationMessaging", () => {
 
   it("wakes on settling idle with a backlog — a message that missed the last step boundary", async () => {
     const prompts: unknown[] = [];
-    const { bus } = mount(prompts);
+    const { messaging } = mount(prompts);
     createSession(db, MODEL, { id: "parent" });
-    // The message arrived while the parent was mid-turn (so the queued event
-    // found it unwakeable) but after its last step boundary (so it never
+    // The message arrived while the parent was mid-turn (so the send found
+    // it unwakeable) but after its last step boundary (so it never
     // wove in). The settle is the only signal left.
     setSessionStatus(db, "parent", "running");
-    enqueueInboxItem(db, "parent", { source: "child", text: "late report" });
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "late report" });
     await tick();
     expect(getSessionMessages(db, "parent")).toEqual([]);
 
     setSessionStatus(db, "parent", "idle");
-    bus.publish({ type: "session.updated", id: "parent", status: "idle" });
+    messaging.turnSettled("parent", { status: "idle", messageId: null });
 
     await until(() => getSessionMessages(db, "parent").length === 2);
     expect(JSON.stringify(prompts[0])).toContain("late report");
     expect(pendingInboxItems(db, "parent")).toEqual([]);
   });
 
-  it("never wakes a busy, approval-paused, or cancelled session — or one that is gone", async () => {
-    const { bus } = mount();
+  it("never wakes a busy, approval-paused, or cancelled session", async () => {
+    const { messaging } = mount();
     for (const [id, status] of [
       ["busy", "running"],
       ["paused", "waiting"],
@@ -280,10 +283,8 @@ describe("mountDelegationMessaging", () => {
     ] as const) {
       createSession(db, MODEL, { id });
       setSessionStatus(db, id, status);
-      enqueueInboxItem(db, id, { source: "parent", text: "steer" });
-      bus.publish({ type: "session.inbox.queued", sessionId: id, source: "parent" });
+      messaging.send(id, { source: "parent", text: "steer" });
     }
-    bus.publish({ type: "session.inbox.queued", sessionId: "no-such-session", source: "child" });
     await tick();
 
     for (const [id, status] of [
@@ -300,7 +301,7 @@ describe("mountDelegationMessaging", () => {
   it("treats losing the session to another turn as no failure", async () => {
     const bus = createEventBus();
     const logged = spyOn(console, "error").mockImplementation(() => {});
-    mountDelegationMessaging({
+    const messaging = createDelegationMessaging({
       db,
       bus,
       startTurn: (async (session: Session) => {
@@ -308,9 +309,8 @@ describe("mountDelegationMessaging", () => {
       }) as StartTurn,
     });
     createSession(db, MODEL, { id: "parent" });
-    enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "report" });
     await tick();
 
     // The turn that holds the session delivers the backlog; nothing went wrong here.
@@ -323,7 +323,7 @@ describe("mountDelegationMessaging", () => {
   it("leaves the backlog queued when the application is shutting down", async () => {
     const bus = createEventBus();
     const logged = spyOn(console, "error").mockImplementation(() => {});
-    mountDelegationMessaging({
+    const messaging = createDelegationMessaging({
       db,
       bus,
       startTurn: (async () => {
@@ -331,9 +331,8 @@ describe("mountDelegationMessaging", () => {
       }) as StartTurn,
     });
     createSession(db, MODEL, { id: "parent" });
-    enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "report" });
     await tick();
 
     // The next start wakes the session for it; nothing went wrong here.
@@ -354,7 +353,7 @@ describe("mountDelegationMessaging", () => {
       },
       bus,
     };
-    mountDelegationMessaging({
+    const messaging = createDelegationMessaging({
       db,
       bus,
       startTurn: turnStarter({
@@ -365,9 +364,8 @@ describe("mountDelegationMessaging", () => {
       }),
     });
     createSession(db, MODEL, { id: "parent" });
-    enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    messaging.send("parent", { source: "child", text: "report" });
     await tick();
 
     // The failed resolve did not drain the backlog or start a model call.
@@ -377,7 +375,7 @@ describe("mountDelegationMessaging", () => {
 
   it("notices the parent, by the worker's name, when a child's turn fails", async () => {
     const prompts: unknown[] = [];
-    const { bus } = mount(prompts);
+    const { messaging } = mount(prompts);
     createSession(db, MODEL, { id: "parent" });
     createSession(db, MODEL, {
       id: "worker",
@@ -390,10 +388,9 @@ describe("mountDelegationMessaging", () => {
       finishedAt: new Date(),
     });
 
-    bus.publish({ type: "session.turn.settled", id: "worker", messageId: null, outcome: "failed" });
+    messaging.turnSettled("worker", { status: "failed", messageId: null });
 
-    // The notice queues for the parent and the queued event wakes it — the
-    // same loop, end to end.
+    // The notice is sent to the parent like any message, which wakes it.
     await until(() => getSessionMessages(db, "parent").length === 2);
     const notice = JSON.stringify(getSessionMessages(db, "parent")[0]?.parts);
     expect(notice).toContain("turn failed");
@@ -403,8 +400,8 @@ describe("mountDelegationMessaging", () => {
     expect(JSON.stringify(prompts[0])).toContain('Your delegated worker \\"CVE scan\\"');
   });
 
-  it("ignores settlement of top-level or deleted sessions and unrelated lifecycle events", async () => {
-    const { bus } = mount();
+  it("sends no notice when a top-level or deleted session settles", async () => {
+    const { messaging } = mount();
     createSession(db, MODEL, { id: "solo" });
     setSessionStatus(db, "solo", "failed", { error: { message: "boom" } });
     createSession(db, MODEL, {
@@ -413,9 +410,8 @@ describe("mountDelegationMessaging", () => {
       parentToolCallId: "call-1",
     });
 
-    bus.publish({ type: "session.turn.settled", id: "solo", messageId: null, outcome: "failed" });
-    bus.publish({ type: "session.finished", id: "worker", status: "cancelled" });
-    bus.publish({ type: "session.turn.settled", id: "gone", messageId: null, outcome: "ended" });
+    messaging.turnSettled("solo", { status: "failed", messageId: null });
+    messaging.turnSettled("gone", { status: "idle", messageId: null });
     await tick();
 
     expect(pendingInboxItems(db, "solo")).toEqual([]);
@@ -424,14 +420,14 @@ describe("mountDelegationMessaging", () => {
 
   it("wakes a parent with the saved reply when its worker ends without message_parent", async () => {
     const prompts: unknown[] = [];
-    const { bus } = mount(prompts);
+    const { bus, messaging } = mount(prompts);
     const events: KiriEvent[] = [];
     bus.subscribe((event) => events.push(event));
     createSession(db, MODEL, { id: "parent" });
     const worker = createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
     await (
       await runTurn(
-        { db, bus, llmClients: clientsFor(capturingModel([])) },
+        { db, bus, llmClients: clientsFor(capturingModel([])), onSettled: messaging.turnSettled },
         {
           session: worker,
           userMessage: { id: "brief", role: "user", parts: [{ type: "text", text: "Check it" }] },
@@ -450,25 +446,16 @@ describe("mountDelegationMessaging", () => {
     expect(
       events.filter((event) => event.type === "session.turn.settled" && event.id === "worker"),
     ).toHaveLength(1);
-    // The legacy lifecycle signal must not enqueue a second notice.
-    bus.publish({ type: "session.finished", id: "worker", status: "failed" });
-    await tick();
-    expect(prompts).toHaveLength(1);
   });
 
   it.each(["running", "waiting", "cancelled"] as const)(
     "queues a worker's settlement without waking a %s parent",
     async (status) => {
-      const { bus } = mount();
+      const { messaging } = mount();
       createSession(db, MODEL, { id: "parent" });
       setSessionStatus(db, "parent", status);
       createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
-      bus.publish({
-        type: "session.turn.settled",
-        id: "worker",
-        messageId: null,
-        outcome: "cancelled",
-      });
+      messaging.turnSettled("worker", { status: "cancelled", messageId: null });
       await tick();
       expect(getSession(db, "parent")?.status).toBe(status);
       expect(getSessionMessages(db, "parent")).toEqual([]);
@@ -479,7 +466,7 @@ describe("mountDelegationMessaging", () => {
   );
 
   it("bounds fallback replies, identifies exhaustion, and links the saved transcript", () => {
-    const { bus } = mount();
+    const { messaging } = mount();
     createSession(db, MODEL, { id: "parent" });
     setSessionStatus(db, "parent", "waiting");
     createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
@@ -487,12 +474,7 @@ describe("mountDelegationMessaging", () => {
       role: "assistant",
       parts: [{ type: "text", text: `Findings: ${"long report ".repeat(1500)}` }],
     });
-    bus.publish({
-      type: "session.turn.settled",
-      id: "worker",
-      messageId: message.id,
-      outcome: "incomplete",
-    });
+    messaging.turnSettled("worker", { status: "failed", incomplete: true, messageId: message.id });
     const notice = pendingInboxItems(db, "parent")[0]?.text ?? "";
     expect(notice.length).toBeLessThanOrEqual(8_000);
     expect(notice).toContain("work or context limit");
@@ -502,7 +484,7 @@ describe("mountDelegationMessaging", () => {
   });
 
   it("does not mistake an older reply for output from a failed turn with no saved message", () => {
-    const { bus } = mount();
+    const { messaging } = mount();
     createSession(db, MODEL, { id: "parent" });
     setSessionStatus(db, "parent", "waiting");
     createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
@@ -510,7 +492,7 @@ describe("mountDelegationMessaging", () => {
       role: "assistant",
       parts: [{ type: "text", text: "OLD RESULT" }],
     });
-    bus.publish({ type: "session.turn.settled", id: "worker", messageId: null, outcome: "failed" });
+    messaging.turnSettled("worker", { status: "failed", messageId: null });
     const notice = pendingInboxItems(db, "parent")[0]?.text;
     expect(notice).toContain("No final reply was saved");
     expect(notice).not.toContain("OLD RESULT");
@@ -519,7 +501,7 @@ describe("mountDelegationMessaging", () => {
   it.each(["progress", "progress only", "result", "failed delivery"] as const)(
     "sends settlement after %s without losing or duplicating the saved final reply",
     async (kind) => {
-      const { bus } = mount();
+      const { bus, messaging } = mount();
       createSession(db, MODEL, { id: "parent" });
       setSessionStatus(db, "parent", "waiting");
       const worker = createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
@@ -580,10 +562,10 @@ describe("mountDelegationMessaging", () => {
                 },
               }),
             }
-          : messageParentTool({ db, bus, childSessionId: "worker" });
+          : messageParentTool({ db, childSessionId: "worker", sendMessage: messaging.send });
       await (
         await runTurn(
-          { db, bus, llmClients: clientsFor(model), tools },
+          { db, bus, llmClients: clientsFor(model), tools, onSettled: messaging.turnSettled },
           {
             session: worker,
             userMessage: {
@@ -612,7 +594,7 @@ describe("mountDelegationMessaging", () => {
 
   it("notifies the parent if the worker cannot start a wake turn", async () => {
     const bus = createEventBus();
-    mountDelegationMessaging({
+    const messaging: DelegationMessaging = createDelegationMessaging({
       db,
       bus,
       startTurn: turnStarter({
@@ -627,13 +609,13 @@ describe("mountDelegationMessaging", () => {
         prepareTurn: () => {
           throw new Error("a session whose model does not resolve is not prepared");
         },
+        onSettled: (sessionId, settlement) => messaging.turnSettled(sessionId, settlement),
       }),
     });
     createSession(db, MODEL, { id: "parent" });
     setSessionStatus(db, "parent", "waiting");
     createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
-    enqueueInboxItem(db, "worker", { source: "parent", text: "Follow up" });
-    bus.publish({ type: "session.inbox.queued", sessionId: "worker", source: "parent" });
+    messaging.send("worker", { source: "parent", text: "Follow up" });
     await until(() => getSession(db, "worker")?.status === "failed");
     expect(pendingInboxItems(db, "parent")[0]?.text).toContain("model removed");
     expect(pendingInboxItems(db, "worker")).toHaveLength(1);
@@ -641,7 +623,7 @@ describe("mountDelegationMessaging", () => {
 
   it("waits for approval resolution before notifying the parent that the worker ended", async () => {
     const prompts: unknown[] = [];
-    const { bus } = mount(prompts);
+    const { bus, messaging } = mount(prompts);
     createSession(db, MODEL, { id: "parent" });
     const worker = createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
     let calls = 0;
@@ -687,6 +669,7 @@ describe("mountDelegationMessaging", () => {
     const deps = {
       db,
       bus,
+      onSettled: messaging.turnSettled,
       llmClients: clientsFor(model),
       tools: {
         check: tool({ inputSchema: z.object({}), needsApproval: true, execute: () => "checked" }),
@@ -717,13 +700,15 @@ describe("mountDelegationMessaging", () => {
     expect(JSON.stringify(prompts[0])).toContain("Checked after approval.");
   });
 
-  it("stops reacting once unmounted", async () => {
-    const { bus, unsubscribe } = mount();
+  it("takes nothing from the bus: an announced message or settle starts no turn", async () => {
+    const { bus } = mount();
     createSession(db, MODEL, { id: "parent" });
-    enqueueInboxItem(db, "parent", { source: "child", text: "report" });
+    createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
+    enqueueInboxItem(db, "parent", { source: "user", text: "queued elsewhere" });
 
-    unsubscribe();
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "user" });
+    bus.publish({ type: "session.updated", id: "parent", status: "idle" });
+    bus.publish({ type: "session.turn.settled", id: "worker", messageId: null, outcome: "ended" });
     await tick();
 
     expect(pendingInboxItems(db, "parent")).toHaveLength(1);

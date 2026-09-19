@@ -30,8 +30,10 @@ export {
   messageParentTool,
 } from "./delegate-tool.ts";
 export {
+  type DelegationMessaging,
   type DelegationMessagingDeps,
-  mountDelegationMessaging,
+  type InboxMessage,
+  createDelegationMessaging,
 } from "./delegation-messaging.ts";
 export {
   type FilesystemToolsOptions,

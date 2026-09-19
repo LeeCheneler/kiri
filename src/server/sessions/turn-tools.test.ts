@@ -108,6 +108,9 @@ describe("turn tools", () => {
       startTurn: () => {
         throw new Error("no turn starts in this test");
       },
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
     });
     return {
       tools: (sessionId: string) => turnTools.activeTools(sessionId, snapshot),

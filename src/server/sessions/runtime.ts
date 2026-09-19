@@ -8,7 +8,7 @@ import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import type { Registry } from "../workflows/index.ts";
 import { type CommandLearning, createCommandLearning } from "./command-learning.ts";
-import { mountDelegationMessaging } from "./delegation-messaging.ts";
+import { type DelegationMessaging, createDelegationMessaging } from "./delegation-messaging.ts";
 import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
 import type { ToolPermissionStore } from "./tool-permissions.ts";
 import { createTurnLifecycle } from "./turn-lifecycle.ts";
@@ -68,6 +68,8 @@ export interface SessionRuntime {
   startTurn: StartTurn;
   /** Abort the session's executing turn, which settles as `cancelled`. False when none is executing. */
   cancelTurn(sessionId: string): boolean;
+  /** Queue a message for a session and deliver it as the session's state allows. */
+  sendMessage: DelegationMessaging["send"];
   /**
    * Run a call nothing waits on, such as naming a session, holding the
    * application open until it settles. Not started once shutdown has begun.
@@ -77,11 +79,11 @@ export interface SessionRuntime {
 
 /**
  * Compose the session runtime: the turn lifecycle, tool assembly and turn
- * preparation every driver shares, over one stream registry and one learning
- * loop. It also mounts the delegation messaging loop, which lives as long as
- * the runtime does: at shutdown the turns are drained first, so a cancelled
- * worker still leaves its notice for its parent, and the loop is unmounted
- * after them.
+ * preparation and delegation messaging every driver shares, over one stream
+ * registry and one learning loop. Sessions a stopped app left holding a backlog
+ * are woken as it is built. At shutdown the turns are drained, so a cancelled
+ * worker still leaves its notice for its parent; the wake that notice asks for
+ * is refused like any other start.
  */
 export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
   const { db, config, configService, llmClients, bus, cancelRegistry } = deps;
@@ -95,8 +97,9 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       guidanceFile: config.commandGuidanceFile(),
     });
 
-  // The tool assembly and the turn start need each other — the delegate tool
-  // starts the workers it spawns — so the assembly reaches it lazily.
+  // The tool assembly, the turn start and the messaging need each other — the
+  // delegate tools start and message workers, a settled turn is followed up
+  // with messages, and a message starts a turn — so each reaches the next lazily.
   const turnTools = createTurnTools({
     db,
     config,
@@ -110,6 +113,7 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     getProviderNames: deps.getProviderNames,
     commandLearning,
     startTurn: ((session, start) => startTurn(session, start)) as StartTurn,
+    sendMessage: (sessionId, message) => messaging.send(sessionId, message),
   });
   const preparation = createTurnPreparation({
     db,
@@ -120,7 +124,12 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     turnTools,
   });
 
-  const lifecycle = createTurnLifecycle({ db, bus, streamRegistry });
+  const lifecycle = createTurnLifecycle({
+    db,
+    bus,
+    streamRegistry,
+    onSettled: (sessionId, settlement) => messaging.turnSettled(sessionId, settlement),
+  });
   const startTurn = createTurnStarter({
     db,
     llmClients,
@@ -137,19 +146,20 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
     },
   });
 
-  const unmountMessaging = mountDelegationMessaging({ db, bus, startTurn });
+  const messaging = createDelegationMessaging({ db, bus, startTurn });
+  messaging.recover();
 
   const lifetime = deps.lifetime ?? createAppLifetime();
   lifetime.own("session turns", async () => {
     commandLearning.stop();
     await lifecycle.drain();
-    unmountMessaging();
   });
 
   return {
     streamRegistry,
     startTurn,
     cancelTurn: lifecycle.cancel,
+    sendMessage: messaging.send,
     background(name, task) {
       if (!lifetime.closing.aborted) lifetime.track(name, task());
     },

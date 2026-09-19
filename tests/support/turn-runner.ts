@@ -6,6 +6,7 @@ import {
 } from "../../src/server/sessions/stream-registry.ts";
 import {
   type TurnLifecycle,
+  type TurnLifecycleDeps,
   createTurnLifecycle,
 } from "../../src/server/sessions/turn-lifecycle.ts";
 import { createTurnStarter } from "../../src/server/sessions/turn-start.ts";
@@ -40,22 +41,27 @@ export function turnCanceller(): TurnCanceller {
  * A turn's dependencies as a test states them. What a test leaves out is
  * filled with a small in-memory stand-in: a bus nobody listens to, a fresh
  * stream registry, and a lifecycle over the two. Supply `canceller` to cancel
- * the turn, or `lifecycle` to start two turns against one session.
+ * the turn, `lifecycle` to start two turns against one session, or `onSettled`
+ * to follow the settled turn up.
  */
 export type TestTurnDeps = Omit<RunTurnDeps, "bus"> & {
   bus?: EventBus;
   streamRegistry?: StreamRegistry;
   lifecycle?: TurnLifecycle;
   canceller?: TurnCanceller;
+  onSettled?: TurnLifecycleDeps["onSettled"];
 };
 
 // These starters have no learning loop to tell of settled approvals.
 const ignoreResolved = () => {};
 
+// Nor, unless a test supplies one, anything that follows a settled turn up.
+const ignoreSettled = () => {};
+
 // A starter over a preparation that hands back `deps` as they stand, so a test
 // states a turn's dependencies directly and still starts it the way every
 // driver does.
-const starterFor = ({ streamRegistry, lifecycle, canceller, ...deps }: TestTurnDeps) => {
+const starterFor = ({ streamRegistry, lifecycle, canceller, onSettled, ...deps }: TestTurnDeps) => {
   const bus = deps.bus ?? createEventBus();
   const turns =
     lifecycle ??
@@ -63,6 +69,7 @@ const starterFor = ({ streamRegistry, lifecycle, canceller, ...deps }: TestTurnD
       db: deps.db,
       bus,
       streamRegistry: streamRegistry ?? createStreamRegistry(),
+      onSettled: onSettled ?? ignoreSettled,
     });
   canceller?.watch(turns);
   return createTurnStarter({
@@ -74,12 +81,16 @@ const starterFor = ({ streamRegistry, lifecycle, canceller, ...deps }: TestTurnD
   });
 };
 
-/** A starter over a fresh in-memory lifecycle on `bus`, for a driver under test. */
+/**
+ * A starter over a fresh in-memory lifecycle on `bus`, for a driver under
+ * test. Supply `onSettled` when the driver follows settled turns up.
+ */
 export const turnStarter = (deps: {
   db: RunTurnDeps["db"];
   llmClients: RunTurnDeps["llmClients"];
   bus: EventBus;
   prepareTurn: (session: Session) => PreparedTurn;
+  onSettled?: TurnLifecycleDeps["onSettled"];
 }) =>
   createTurnStarter({
     db: deps.db,
@@ -88,6 +99,7 @@ export const turnStarter = (deps: {
       db: deps.db,
       bus: deps.bus,
       streamRegistry: createStreamRegistry(),
+      onSettled: deps.onSettled ?? ignoreSettled,
     }),
     prepareTurn: deps.prepareTurn,
     onApprovalsResolved: ignoreResolved,

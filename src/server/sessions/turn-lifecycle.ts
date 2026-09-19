@@ -48,10 +48,11 @@ export interface TurnLease {
   openStream(transcriptRevision: number): StreamSink;
   /**
    * Bring the turn to rest: record the status, close the stream, release the
-   * session, then publish what happened. The session is released before the
-   * events go out because an idle event can start the next turn synchronously.
-   * Only the first call on a live lease acts; a repeat, or one made after
-   * `fail`, changes nothing.
+   * session, publish what happened, then hand the settlement to `onSettled`.
+   * The session is released first because `onSettled` can start its next turn
+   * synchronously, and the events go out first so that turn's `running` never
+   * precedes this one's settle. Only the first call on a live lease acts; a
+   * repeat, or one made after `fail`, changes nothing.
    */
   settle(settlement: TurnSettlement): void;
   /**
@@ -68,6 +69,8 @@ export interface TurnLifecycleDeps {
   bus: EventBus;
   /** Where each lease opens its stream, so a reconnecting client can rejoin the live turn. */
   streamRegistry: StreamRegistry;
+  /** Called once a turn has settled and released its session, approval pauses included. */
+  onSettled: (sessionId: string, settlement: TurnSettlement) => void;
 }
 
 /** Owns which execution, if any, holds each session. */
@@ -93,9 +96,12 @@ interface ActiveTurn {
   done: Promise<void>;
 }
 
-const outcomeOf = (settlement: TurnSettlement) => {
-  if (settlement.status === "idle") return "ended" as const;
-  if (settlement.status === "failed" && settlement.incomplete) return "incomplete" as const;
+/** How a turn that came to rest, rather than pausing on an approval, ended. */
+export const settlementOutcome = (
+  settlement: TurnSettlement,
+): "ended" | "incomplete" | "failed" | "cancelled" => {
+  if (settlement.status === "idle") return "ended";
+  if (settlement.status === "failed" && settlement.incomplete) return "incomplete";
   return settlement.status as "failed" | "cancelled";
 };
 
@@ -105,7 +111,7 @@ const outcomeOf = (settlement: TurnSettlement) => {
  * process left `running` are swept to `failed` at startup.
  */
 export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
-  const { db, bus, streamRegistry } = deps;
+  const { db, bus, streamRegistry, onSettled } = deps;
   const active = new Map<string, ActiveTurn>();
   let draining = false;
 
@@ -167,7 +173,7 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
                 type: "session.turn.settled",
                 id: sessionId,
                 messageId,
-                outcome: outcomeOf(settlement),
+                outcome: settlementOutcome(settlement),
               });
             }
             if (messageId !== null) bus.publish({ type: "session.message.added", sessionId });
@@ -176,6 +182,7 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
               id: sessionId,
               status,
             });
+            onSettled(sessionId, settlement);
           } finally {
             resolveDone();
           }

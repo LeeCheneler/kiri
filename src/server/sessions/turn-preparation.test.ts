@@ -84,6 +84,9 @@ describe("turn preparation", () => {
       startTurn: () => {
         throw new Error("no turn starts in this test");
       },
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
     });
     return createTurnPreparation({
       db,

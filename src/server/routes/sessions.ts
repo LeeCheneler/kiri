@@ -35,7 +35,6 @@ import {
   createSession,
   deleteMessagesFrom,
   deleteSession,
-  enqueueInboxItem,
   generateSessionTitle,
   generateSuggestedReplies,
   getInboxItem,
@@ -787,8 +786,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // the message into a running turn, holds it for a paused one, or starts
       // a turn for it. The sender never has to pick another endpoint because
       // the turn it was queueing for settled first.
-      const item = enqueueInboxItem(db, id, { id: itemId, source: "user", text });
-      bus?.publish({ type: "session.inbox.queued", sessionId: id, source: "user" });
+      const item = runtime.sendMessage(id, { id: itemId, source: "user", text });
       return c.json(
         {
           item: serializeInboxItem(item),

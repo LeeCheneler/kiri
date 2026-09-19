@@ -14,6 +14,7 @@ import { judgeCommand } from "./command-judge.ts";
 import type { CommandLearning } from "./command-learning.ts";
 import { screenCommand } from "./command-screen.ts";
 import { delegateTool, messageParentTool } from "./delegate-tool.ts";
+import type { DelegationMessaging } from "./delegation-messaging.ts";
 import { type SessionCwd, filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
 import type { InstructionContext } from "./instruction-context.ts";
@@ -53,6 +54,8 @@ export interface TurnToolsDeps {
   commandLearning: CommandLearning;
   /** Starts the turn of a worker the delegate tool spawns, as any session's turn starts. */
   startTurn: StartTurn;
+  /** Carries the messages a delegation's two sides send each other. */
+  sendMessage: DelegationMessaging["send"];
 }
 
 /** Assembles the permission-gated tools a session's turn is offered. */
@@ -102,6 +105,7 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
     getProviderNames,
     commandLearning,
     startTurn,
+    sendMessage,
   } = deps;
 
   // Decide a run_command call under the "auto" permission: the deterministic
@@ -293,10 +297,11 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
         db,
         parentSessionId: sessionId,
         startTurn,
+        sendMessage,
         bus,
         delegates: snapshot.models.delegates,
       }),
-      ...messageParentTool({ db, childSessionId: sessionId, bus }),
+      ...messageParentTool({ db, childSessionId: sessionId, sendMessage }),
     };
     const withheld = isChild ? "top-level" : "worker";
     for (const { name, defaultPermission, availability } of BUILTIN_TOOLS) {

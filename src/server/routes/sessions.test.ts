@@ -2706,14 +2706,17 @@ describe("sessions routes", () => {
         },
       }) as unknown as LlmModel;
       const { bus, waitForSettled } = createSessionWaiter();
-      makeApp(fakeClients({ model }), { bus, defaultWorkingDirectory: env.cwd });
+      const app = makeApp(fakeClients({ model }), { bus, defaultWorkingDirectory: env.cwd });
       createSession(env.db, MODEL, { id: "s1", title: "woken", cwd: join(env.cwd, "gone") });
 
-      // A worker's report queues for the idle session and wakes it — no HTTP
-      // turn is involved.
+      // A message queued for the idle session wakes it — the turn is started
+      // by the delivery, not by the request.
       const settled = waitForSettled("s1");
-      enqueueInboxItem(env.db, "s1", { source: "child", text: "the report" });
-      bus.publish({ type: "session.inbox.queued", sessionId: "s1", source: "child" });
+      await app.request("/api/sessions/s1/inbox", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "5b0c1f0e-2f6a-4d0b-9a55-3c1d2e4f6a70", text: "the report" }),
+      });
       await settled;
 
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);

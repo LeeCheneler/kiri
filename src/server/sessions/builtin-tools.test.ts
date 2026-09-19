@@ -72,10 +72,19 @@ describe("BUILTIN_TOOLS", () => {
       startTurn: () => {
         throw new Error("no turn starts in this test");
       },
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
     }),
     // Offered to child sessions where delegate/message_worker are not;
     // the registry carries all three, so merge both sides here.
-    ...messageParentTool({ db, childSessionId: "session-1" }),
+    ...messageParentTool({
+      db,
+      childSessionId: "session-1",
+      sendMessage: () => {
+        throw new Error("no message is sent in this test");
+      },
+    }),
   });
 
   // The registry is the tool assembly's source of truth for which built-in

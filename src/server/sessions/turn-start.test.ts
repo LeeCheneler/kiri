@@ -99,7 +99,7 @@ describe("createTurnStarter", () => {
     events = [];
     bus.subscribe((event) => events.push(event));
     streamRegistry = createStreamRegistry();
-    lifecycle = createTurnLifecycle({ db, bus, streamRegistry });
+    lifecycle = createTurnLifecycle({ db, bus, streamRegistry, onSettled: () => {} });
     prepared = [];
     resolutions = [];
   });
