@@ -1,3 +1,5 @@
+import type { UIMessageChunk } from "ai";
+
 import type { Message } from "./store.ts";
 
 /**
@@ -5,11 +7,16 @@ import type { Message } from "./store.ts";
  * so a client that reconnects mid-turn — a page refresh, or a second tab — can
  * re-attach to the live response instead of losing it until the turn settles.
  *
- * A turn's SSE frames are captured as they stream (`open` → `StreamSink`),
- * buffered, and fanned out to every reader. A reader that joins late replays the
- * frames buffered so far and then follows live: buffer plus live feed reproduce
- * the exact stream, so the AI SDK rebuilds the assistant message — text and
- * tool-call state alike — just as the first client saw it.
+ * A turn's chunks are captured as they stream (`open` → `StreamSink`), encoded
+ * once as SSE frames, buffered, and fanned out to every reader. A reader that
+ * joins late replays the frames buffered so far and then follows live: buffer
+ * plus live feed rebuild the assistant message — text and tool-call state alike
+ * — just as the first client saw it.
+ *
+ * Transient chunks are progress, not content: each one supersedes the last of
+ * its type and id (a running command's console carries its whole tail every
+ * time), so the buffer keeps only the latest and a long-running call retains
+ * one snapshot rather than every one it ever sent.
  *
  * An entry lives exactly as long as the turn's stream: opened when capture
  * starts, dropped when it closes. Once a turn has settled there is no entry, so
@@ -19,10 +26,10 @@ import type { Message } from "./store.ts";
  */
 const encoder = new TextEncoder();
 
-/** A captured turn stream: append frames as they arrive, then close it once. */
+/** A captured turn stream: append chunks as they arrive, then close it once. */
 export interface StreamSink {
-  /** Append one frame to the buffer and push it to every current reader. */
-  push(chunk: string): void;
+  /** Buffer one chunk as an SSE frame and push it to every current reader. */
+  push(chunk: UIMessageChunk): void;
   /** End the stream: close every reader and drop the session's entry. */
   close(): void;
 }
@@ -47,11 +54,25 @@ export interface StreamRegistry {
   has(sessionId: string): boolean;
 }
 
+interface Frame {
+  bytes: Uint8Array;
+}
+
 interface Entry {
   snapshot: { messages: Message[]; transcriptRevision: number };
-  buffer: string[];
+  buffer: Frame[];
+  /** The buffered frame of each transient chunk, by `transientKey`. */
+  transients: Map<string, Frame>;
   subs: Set<ReadableStreamDefaultController<Uint8Array>>;
 }
+
+// The SDK's SSE framing for a UI message stream.
+const encodeFrame = (chunk: UIMessageChunk): Uint8Array =>
+  encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`);
+
+// What a transient chunk supersedes: the earlier chunk of its type and id.
+const transientKey = (chunk: UIMessageChunk): string | null =>
+  "transient" in chunk && chunk.transient === true ? `${chunk.type}:${chunk.id ?? ""}` : null;
 
 /**
  * Build a fresh stream registry. State is private to the returned object — kiri
@@ -65,14 +86,21 @@ export function createStreamRegistry(): StreamRegistry {
       const entry: Entry = {
         snapshot: { messages: structuredClone(messages), transcriptRevision },
         buffer: [],
+        transients: new Map(),
         subs: new Set(),
       };
       entries.set(sessionId, entry);
       return {
         push(chunk) {
-          entry.buffer.push(chunk);
-          const bytes = encoder.encode(chunk);
-          for (const controller of entry.subs) controller.enqueue(bytes);
+          const frame: Frame = { bytes: encodeFrame(chunk) };
+          const key = transientKey(chunk);
+          if (key !== null) {
+            const superseded = entry.transients.get(key);
+            if (superseded) entry.buffer.splice(entry.buffer.indexOf(superseded), 1);
+            entry.transients.set(key, frame);
+          }
+          entry.buffer.push(frame);
+          for (const controller of entry.subs) controller.enqueue(frame.bytes);
         },
         close() {
           for (const controller of entry.subs) controller.close();
@@ -97,7 +125,7 @@ export function createStreamRegistry(): StreamRegistry {
           // Replay what's buffered, then follow live. `start` runs synchronously,
           // so the snapshot and the subscription register in one tick — no frame
           // slips between them, and none is delivered twice.
-          for (const chunk of entry.buffer) c.enqueue(encoder.encode(chunk));
+          for (const frame of entry.buffer) c.enqueue(frame.bytes);
           entry.subs.add(c);
         },
         cancel() {

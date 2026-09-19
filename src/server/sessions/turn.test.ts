@@ -2103,6 +2103,16 @@ describe("runTurn", () => {
     // The turn parks; its stream is registered so a reconnecting client can rejoin.
     expect(streamRegistry.has("s1")).toBe(true);
 
+    // A reader joining now is served the turn so far as SSE frames.
+    const rejoined = streamRegistry.subscribe("s1")?.getReader();
+    const decoder = new TextDecoder();
+    let replayed = "";
+    while (rejoined && !replayed.includes("Hel")) {
+      replayed += decoder.decode((await rejoined.read()).value);
+    }
+    expect(replayed).toContain('data: {"type":"start"');
+    expect(replayed).toContain('"type":"text-delta","id":"t1","delta":"Hel"');
+
     canceller.cancel("s1");
     await response.text();
     await done;

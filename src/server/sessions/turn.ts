@@ -3,6 +3,7 @@ import {
   type ModelMessage,
   type ToolSet,
   type UIMessage,
+  type UIMessageChunk,
   type UIMessageStreamWriter,
   asSchema,
   convertToModelMessages,
@@ -218,15 +219,15 @@ const errorMessage = (cause: unknown): string => {
   }
 };
 
-// Read a turn's SSE stream to completion, mirroring each frame into `sink`.
+// Read a turn's stream to completion, mirroring each chunk into `sink`.
 // Draining server-side guarantees the turn reaches `onFinish` — and so persists
 // and settles — even when no client is reading the response (the user navigated
 // away, reloaded, or dropped the connection). A turn is only ever cancelled by
 // an explicit request through its lease, never by a lost consumer. The sink
-// captures the frames for a client that reconnects mid-turn; the lease closes
+// captures the chunks for a client that reconnects mid-turn; the lease closes
 // it as the turn settles — in step with persistence — not at the stream's end. Any failure is recorded via the stream's own error handling, so it's
 // swallowed here; the pump just has to not raise.
-async function pumpStream(stream: ReadableStream<string>, sink: StreamSink): Promise<void> {
+async function pumpStream(stream: ReadableStream<UIMessageChunk>, sink: StreamSink): Promise<void> {
   const reader = stream.getReader();
   try {
     for (let next = await reader.read(); !next.done; next = await reader.read()) {
@@ -1009,18 +1010,15 @@ async function streamCore(
     },
   });
 
-  const response = createUIMessageStreamResponse({
-    stream,
-    // Drive the stream server-side so the turn always reaches `onFinish` —
-    // persisting and settling — even if the client never reads the response — and
-    // mirror its frames into the stream registry so a client that reconnects
-    // mid-turn (a reload, a second tab) rejoins the live response. A turn is
-    // cancelled only by an explicit request (through its lease's signal), never
-    // by a dropped connection.
-    consumeSseStream: ({ stream }) => {
-      void pumpStream(stream, sink);
-    },
-  });
+  // Drive the stream server-side so the turn always reaches `onFinish` —
+  // persisting and settling — even if the client never reads the response — and
+  // mirror its chunks into the stream registry so a client that reconnects
+  // mid-turn (a reload, a second tab) rejoins the live response. A turn is
+  // cancelled only by an explicit request (through its lease's signal), never
+  // by a dropped connection.
+  const [live, captured] = stream.tee();
+  void pumpStream(captured, sink);
+  const response = createUIMessageStreamResponse({ stream: live });
 
   return { response, done: lease.done };
 }

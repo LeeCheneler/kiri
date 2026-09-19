@@ -1246,7 +1246,7 @@ describe("sessions routes", () => {
       // tests and the client resume tests.)
       const streamRegistry = createStreamRegistry();
       const sink = streamRegistry.open("s1");
-      sink.push('data: {"type":"text-delta","delta":"rejoined"}\n\n');
+      sink.push({ type: "text-delta", id: "t1", delta: "rejoined" });
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
 
