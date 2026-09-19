@@ -92,7 +92,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Historical image and diff payloads still need removal after the originating tool is disabled. Passing only active tools into conversion loses that protection. Stored UI output must remain intact, and serialization must never enable execution.
 
-- [ ] **16 — Extract the persistence barrier**
+- [x] **16 — Extract the persistence barrier**
 
   **What:** Replace shared promise-resolver slots with an explicit barrier identified by turn and boundary. Cover work steps, approval results, summaries, and handoff notices. Release waits on cancellation/failure and preserve atomic transcript, inbox, checkpoint, and calibration writes.
 
