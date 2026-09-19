@@ -150,9 +150,19 @@ export type MoveSessionRequest = { projectId: string };
  */
 export type QueueSessionMessageRequest = { id: string; text: string };
 
-/** SessionTurn request body. */
+/** A part of a user message a turn accepts: typed text, or an attachment inlined as a data URL. */
+export type SessionUserPart =
+  | { type: "text"; text: string }
+  | { type: "file"; mediaType: string; url: string; filename?: string };
+
+/**
+ * SessionTurn request body: a new user message, or — resuming a turn paused
+ * on tool approval — the paused assistant message's verdict-bearing parts.
+ */
 export type SessionTurnRequest = {
-  message: { id?: string; role?: "user" | "assistant"; parts: unknown[] };
+  message:
+    | { id?: string; role?: "user"; parts: SessionUserPart[] }
+    | { id?: string; role: "assistant"; parts: unknown[] };
 };
 
 /** Committed revision after truncating a transcript. */

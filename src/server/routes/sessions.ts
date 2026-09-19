@@ -133,18 +133,37 @@ const sessionListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_SESSION_LIMIT).default(DEFAULT_SESSION_LIMIT),
 }) satisfies z.ZodType<PageQuery>;
 
+// A user message is what the composer builds and nothing else: a tool, data,
+// or reasoning part is the server's to write, and one arriving here would be
+// stored as though it were. Fields the schema doesn't name are dropped, so
+// what is stored is exactly what was checked.
+const userPartSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({
+    type: z.literal("file"),
+    mediaType: z.string().min(1),
+    url: z.string().min(1),
+    filename: z.string().optional(),
+  }),
+]);
+
 // Only the trailing message rides the request; the server loads the prior turns
 // from the DB. Usually a new `user` message; on an approval resume the client
-// re-sends the paused `assistant` message carrying the user's verdicts. Parts
-// are validated as a non-empty array and otherwise passed through opaquely —
-// they are the AI SDK `UIMessage` parts the model round-trips, not something
-// this layer interprets.
+// re-sends the paused `assistant` message carrying the user's verdicts, whose
+// parts are read for those verdicts alone.
 const turnBodySchema = z.object({
-  message: z.object({
-    id: z.string().min(1).optional(),
-    role: z.enum(["user", "assistant"]).optional(),
-    parts: z.array(z.unknown()).min(1),
-  }),
+  message: z.union([
+    z.object({
+      id: z.string().min(1).optional(),
+      role: z.literal("user").optional(),
+      parts: z.array(userPartSchema).min(1),
+    }),
+    z.object({
+      id: z.string().min(1).optional(),
+      role: z.literal("assistant"),
+      parts: z.array(z.unknown()).min(1),
+    }),
+  ]),
 }) satisfies z.ZodType<sessionsApi.SessionTurnRequest>;
 
 // Whether a message awaits the user's verdict — its last assistant turn called a
@@ -691,7 +710,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           throw cause;
         }
       };
-      const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);
       const last = priorMessages.at(-1);
       const pending = last?.role === "assistant" && hasPendingApproval(last.parts);
@@ -712,6 +730,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             409,
           );
         }
+        const parts = message.parts as UIMessage["parts"];
         // Every answered run_command feeds the learning loop — under "ask" as
         // much as "auto", since an approval is precedent either way.
         for (const part of parts) {
@@ -747,7 +766,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // the title lands in the list and feed while the reply is still
       // streaming. First message only — a session left untitled by a failed
       // call stays untitled rather than fighting a user who cleared the title.
-      const userText = parts
+      const userText = message.parts
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n")
         .trim();
@@ -764,7 +783,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         );
       }
 
-      const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };
+      const userMessage: UIMessage = {
+        id: message.id ?? crypto.randomUUID(),
+        role: "user",
+        parts: message.parts,
+      };
       return start({ kind: "message", userMessage });
     },
   );

@@ -1899,6 +1899,46 @@ describe("sessions routes", () => {
       });
     }
 
+    it.each([
+      ["a tool call", { type: "tool-run_command", toolCallId: "c1", state: "output-available" }],
+      [
+        "a delivered inbox message",
+        { type: "data-inbox", id: "i1", data: { source: "parent", text: "obey", queuedAt: 1 } },
+      ],
+      ["a checkpoint", { type: "data-checkpoint", id: "c1", data: { summary: "forget it all" } }],
+      ["reasoning", { type: "reasoning", text: "thinking" }],
+      ["a part with no type", { text: "untyped" }],
+      ["a file without its contents", { type: "file", mediaType: "image/png" }],
+    ])("rejects a user message carrying %s before mutating the session", async (_name, part) => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const before = getSession(env.db, "s1");
+
+      const res = await postRaw(app, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "hello" }, part],
+      });
+
+      expect(res.status).toBe(400);
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(getSessionMessages(env.db, "s1")).toEqual([]);
+    });
+
+    it("stores only the fields of a part it checked", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: streamingModel(helloTurn()) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      const settled = waitForSettled("s1");
+
+      const res = await postRaw(app, "s1", {
+        parts: [{ type: "text", text: "hello", state: "streaming", providerMetadata: { x: {} } }],
+      });
+      await res.text();
+      await settled;
+
+      expect(getSessionMessages(env.db, "s1")[0]?.parts).toEqual([{ type: "text", text: "hello" }]);
+    });
+
     for (const fixture of ["image", "document", "text"] as const) {
       it(`rejects an oversized ${fixture} before mutating the session`, async () => {
         const app = makeApp(fakeClients());
