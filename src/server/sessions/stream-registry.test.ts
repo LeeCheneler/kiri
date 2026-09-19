@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { UIMessageChunk } from "ai";
 
-import { createStreamRegistry } from "./stream-registry.ts";
+import { type TurnStream, createStreamRegistry } from "./stream-registry.ts";
 
 const decoder = new TextDecoder();
 
@@ -22,9 +22,9 @@ const frame = (chunk: UIMessageChunk): string => `data: ${JSON.stringify(chunk)}
 
 // A thin reader over a subscription: `next()` resolves to the next frame's text,
 // or undefined once the stream closes.
-function frames(stream: ReadableStream<Uint8Array> | null) {
-  if (!stream) throw new Error("expected a live stream for the session");
-  const reader = stream.getReader();
+function frames(live: ReadableStream<Uint8Array> | TurnStream | null) {
+  if (!live) throw new Error("expected a live stream for the session");
+  const reader = ("stream" in live ? live.stream : live).getReader();
   return {
     async next(): Promise<string | undefined> {
       const { value, done } = await reader.read();
@@ -35,13 +35,22 @@ function frames(stream: ReadableStream<Uint8Array> | null) {
 }
 
 describe("createStreamRegistry", () => {
-  it("has reflects a session's stream from open through close", () => {
+  it("turnOf names a session's streaming turn from open through close", () => {
     const reg = createStreamRegistry();
-    expect(reg.has("s1")).toBe(false);
-    const sink = reg.open("s1", 1);
-    expect(reg.has("s1")).toBe(true);
+    expect(reg.turnOf("s1")).toBeNull();
+    const sink = reg.open("s1", "t1", 1);
+    expect(reg.turnOf("s1")).toBe("t1");
     sink.close();
-    expect(reg.has("s1")).toBe(false);
+    expect(reg.turnOf("s1")).toBeNull();
+  });
+
+  it("subscribe names the turn joined, whether or not the reader is replayed into", async () => {
+    const reg = createStreamRegistry();
+    reg.open("s1", "t1", 1);
+    expect(reg.subscribe("s1", 1)?.turnId).toBe("t1");
+    const behind = reg.subscribe("s1", 0);
+    expect(behind?.turnId).toBe("t1");
+    expect(await frames(behind).next()).toBeUndefined();
   });
 
   it("subscribe on a session with no live turn returns null", () => {
@@ -50,7 +59,7 @@ describe("createStreamRegistry", () => {
 
   it("a subscriber that joins before any frame receives them live", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const out = frames(reg.subscribe("s1", 1));
     sink.push(text("a"));
     expect(await out.next()).toBe(frame(text("a")));
@@ -62,7 +71,7 @@ describe("createStreamRegistry", () => {
 
   it("a subscriber that joins late replays the buffer then follows live, in order", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("a"));
     sink.push(text("b"));
     const out = frames(reg.subscribe("s1", 1));
@@ -76,7 +85,7 @@ describe("createStreamRegistry", () => {
 
   it("replays only the latest transient chunk of each type and id", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("a"));
     sink.push(consoleSnapshot("c1", "one"));
     sink.push(consoleSnapshot("c2", "other call"));
@@ -93,7 +102,7 @@ describe("createStreamRegistry", () => {
 
   it("still sends every transient chunk to a reader already following live", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const out = frames(reg.subscribe("s1", 1));
     sink.push(consoleSnapshot("c1", "one"));
     sink.push(consoleSnapshot("c1", "one two"));
@@ -104,7 +113,7 @@ describe("createStreamRegistry", () => {
 
   it("replays only what follows the last checkpoint, behind the stream's start", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(START);
     sink.push(text("saved"));
     sink.push(consoleSnapshot("c1", "settled call"));
@@ -120,7 +129,7 @@ describe("createStreamRegistry", () => {
 
   it("ends at once for a reader holding any other revision", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("a"));
     sink.checkpoint(2);
     const behind = frames(reg.subscribe("s1", 1));
@@ -136,7 +145,7 @@ describe("createStreamRegistry", () => {
 
   it("keeps a reader already following live across a checkpoint", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const out = frames(reg.subscribe("s1", 1));
     sink.push(text("a"));
     sink.checkpoint(2);
@@ -149,7 +158,7 @@ describe("createStreamRegistry", () => {
   it("stops replaying a step that outgrows the limit, holding a late reader until it is saved", async () => {
     const big = text("x".repeat(200));
     const reg = createStreamRegistry({ replayLimitBytes: 300 });
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const live = frames(reg.subscribe("s1", 1));
     sink.push(START);
     sink.push(big);
@@ -176,7 +185,7 @@ describe("createStreamRegistry", () => {
 
   it("ends a held reader when the stream runs out before the step is saved", async () => {
     const reg = createStreamRegistry({ replayLimitBytes: 10 });
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("over the limit"));
     const late = frames(reg.subscribe("s1", 1));
     const gone = frames(reg.subscribe("s1", 1));
@@ -188,7 +197,7 @@ describe("createStreamRegistry", () => {
   it("counts a superseded transient out of the replay limit", async () => {
     const snapshot = consoleSnapshot("c1", "y".repeat(100));
     const reg = createStreamRegistry({ replayLimitBytes: 2 * frame(snapshot).length - 1 });
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     for (let i = 0; i < 10; i += 1) sink.push(snapshot);
     const out = frames(reg.subscribe("s1", 1));
     expect(await out.next()).toBe(frame(snapshot));
@@ -199,7 +208,7 @@ describe("createStreamRegistry", () => {
   it("ends a reader that leaves more than its limit unread, behind what it was sent", async () => {
     const chunk = text("z".repeat(100));
     const reg = createStreamRegistry({ readerLimitBytes: 2 * frame(chunk).length });
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const stalled = frames(reg.subscribe("s1", 1));
     const reading = frames(reg.subscribe("s1", 1));
     sink.push(chunk);
@@ -219,7 +228,7 @@ describe("createStreamRegistry", () => {
 
   it("fans out the same frames to multiple subscribers", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("a"));
     const one = frames(reg.subscribe("s1", 1));
     const two = frames(reg.subscribe("s1", 1));
@@ -235,7 +244,7 @@ describe("createStreamRegistry", () => {
 
   it("serves the turn's own reader from the first frame", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(START);
     sink.push(text("a"));
     sink.push(FINISH_STEP);
@@ -251,7 +260,7 @@ describe("createStreamRegistry", () => {
 
   it("keeps attached readers through close, delivering the stream's last frames", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const out = frames(reg.subscribe("s1", 1));
     sink.push(text("a"));
     sink.close();
@@ -266,31 +275,31 @@ describe("createStreamRegistry", () => {
 
   it("end drops an entry that was never closed", () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.end();
-    expect(reg.has("s1")).toBe(false);
+    expect(reg.turnOf("s1")).toBeNull();
   });
 
   it("close drops the entry, so a later subscribe returns null", () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("a"));
     sink.close();
     expect(reg.subscribe("s1", 1)).toBeNull();
-    expect(reg.has("s1")).toBe(false);
+    expect(reg.turnOf("s1")).toBeNull();
   });
 
   it("close with no subscribers still drops the entry", () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     sink.push(text("a")); // buffered, never read
     sink.close();
-    expect(reg.has("s1")).toBe(false);
+    expect(reg.turnOf("s1")).toBeNull();
   });
 
   it("a cancelled subscriber is pruned without disturbing the others", async () => {
     const reg = createStreamRegistry();
-    const sink = reg.open("s1", 1);
+    const sink = reg.open("s1", "t1", 1);
     const gone = frames(reg.subscribe("s1", 1));
     const kept = frames(reg.subscribe("s1", 1));
     await gone.cancel();
@@ -302,11 +311,11 @@ describe("createStreamRegistry", () => {
 
   it("re-opening a session keeps the newer stream when the old one closes", () => {
     const reg = createStreamRegistry();
-    const first = reg.open("s1", 1);
-    const second = reg.open("s1", 1);
+    const first = reg.open("s1", "t1", 1);
+    const second = reg.open("s1", "t2", 1);
     first.close(); // must not drop the entry the second open installed
-    expect(reg.has("s1")).toBe(true);
+    expect(reg.turnOf("s1")).toBe("t2");
     second.close();
-    expect(reg.has("s1")).toBe(false);
+    expect(reg.turnOf("s1")).toBeNull();
   });
 });

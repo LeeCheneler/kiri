@@ -311,7 +311,7 @@ describe("createTurnStarter", () => {
       projectId: null,
       parentSessionId: null,
     });
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
     expect(lifecycle.cancel("s1")).toBe(false);
   });
 

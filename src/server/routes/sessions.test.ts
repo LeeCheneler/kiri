@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { describedModel } from "../../../tests/support/described-model.ts";
 import type * as sessionsApi from "../../shared/api/sessions.ts";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
 import { wrapAttachedFile } from "../../shared/attached-file.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import {
@@ -969,7 +970,7 @@ describe("sessions routes", () => {
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Do the work" }] });
-      const sink = streamRegistry.open("s1", 1);
+      const sink = streamRegistry.open("s1", "turn-1", 1);
       appendMessage(env.db, "s1", {
         role: "assistant",
         parts: [{ type: "text", text: "Progress" }],
@@ -980,6 +981,19 @@ describe("sessions routes", () => {
       expect(live.transcriptRevision).toBe(2);
       expect(live.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
       sink.close();
+    });
+
+    it("names the streaming turn only while its stream can be joined", async () => {
+      const streamRegistry = createStreamRegistry();
+      const app = makeApp(fakeClients(), { streamRegistry });
+      createSession(env.db, MODEL, { id: "s1" });
+      const turnId = async () => (await (await app.request("/api/sessions/s1")).json()).turnId;
+
+      expect(await turnId()).toBeNull();
+      const sink = streamRegistry.open("s1", "turn-1", 0);
+      expect(await turnId()).toBe("turn-1");
+      sink.close();
+      expect(await turnId()).toBeNull();
     });
 
     it("404s an unknown session", async () => {
@@ -1243,7 +1257,7 @@ describe("sessions routes", () => {
       // concurrent streaming bodies; live capture is covered by the stream-registry
       // tests and the client resume tests.)
       const streamRegistry = createStreamRegistry();
-      const sink = streamRegistry.open("s1", 4);
+      const sink = streamRegistry.open("s1", "turn-1", 4);
       sink.push({ type: "text-delta", id: "t1", delta: "rejoined" });
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
@@ -1251,6 +1265,7 @@ describe("sessions routes", () => {
       const res = await app.request("/api/sessions/s1/stream?revision=4");
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/event-stream");
+      expect(res.headers.get(TURN_ID_HEADER)).toBe("turn-1");
 
       // Ending lets the reconnected stream reach EOF so its replay reads back.
       sink.end();
@@ -1259,13 +1274,14 @@ describe("sessions routes", () => {
 
     it("ends the stream at once for a client holding another revision", async () => {
       const streamRegistry = createStreamRegistry();
-      const sink = streamRegistry.open("s1", 4);
+      const sink = streamRegistry.open("s1", "turn-1", 4);
       sink.push({ type: "text-delta", id: "t1", delta: "already saved" });
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
 
       const res = await app.request("/api/sessions/s1/stream?revision=3");
       expect(res.status).toBe(200);
+      expect(res.headers.get(TURN_ID_HEADER)).toBe("turn-1");
       expect(await res.text()).toBe("");
       sink.close();
     });

@@ -12,6 +12,12 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 /** One of the supported reasoning effort levels. */
 export type SessionEffort = (typeof EFFORT_LEVELS)[number];
 
+/**
+ * Response header naming the turn a streamed response belongs to: on the
+ * message endpoint's reply and on a rejoined stream alike.
+ */
+export const TURN_ID_HEADER = "X-Kiri-Turn-Id";
+
 /** A session row as returned by the sessions API. */
 export interface Session {
   id: string;
@@ -95,6 +101,11 @@ export interface SessionInboxItem {
 export interface SessionDetail {
   /** Revision of `messages`; a view rejoining a running turn names it, and is replayed into only from there. */
   transcriptRevision: number;
+  /**
+   * The turn streaming for the session right now, or null when none is. A view
+   * attached to any other turn joins this one's stream.
+   */
+  turnId: string | null;
   session: Session;
   messages: SessionMessage[];
   inbox: SessionInboxItem[];

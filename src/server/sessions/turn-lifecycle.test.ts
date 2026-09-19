@@ -106,7 +106,7 @@ describe("createTurnLifecycle", () => {
     lease.settle({ status: "idle", messageId: "m1" });
 
     expect(getSession(db, "s1")?.status).toBe("idle");
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
     expect(lifecycle.cancel("s1")).toBe(false);
     expect(events).toEqual([
       {
@@ -244,7 +244,7 @@ describe("createTurnLifecycle", () => {
     stale.fail(new Error("late"));
 
     expect(getSession(db, "s1")?.status).toBe("running");
-    expect(streamRegistry.has("s1")).toBe(true);
+    expect(streamRegistry.turnOf("s1")).toBe(current.turnId);
     expect(lifecycle.cancel("s1")).toBe(true);
     expect(current.signal.aborted).toBe(true);
     expect(events).toEqual([]);
@@ -271,7 +271,7 @@ describe("createTurnLifecycle", () => {
 
     expect(getSession(db, "s1")?.status).toBe("failed");
     expect(getSession(db, "s1")?.error).toEqual({ message: "discovery rejected" });
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
     expect(events).toEqual([
       {
         type: "session.turn.settled",

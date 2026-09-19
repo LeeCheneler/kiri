@@ -9,6 +9,7 @@ import type * as errorsApi from "../../shared/api/errors.ts";
 import type * as modelsApi from "../../shared/api/models.ts";
 import type { PageQuery } from "../../shared/api/pagination.ts";
 import type * as sessionsApi from "../../shared/api/sessions.ts";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
 import {
   MESSAGE_BODY_LIMIT_BYTES,
   MESSAGE_SIZE_ERROR,
@@ -436,6 +437,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         // rejoining a running turn is replayed into only from the saved step
         // it holds, so a read that has fallen behind never duplicates one.
         transcriptRevision: session.transcriptRevision,
+        // Named only while its stream can be joined, so a view told of a turn
+        // it is not attached to can always try.
+        turnId: streamRegistry.turnOf(id),
         messages: withoutContextCalibration(getSessionMessages(db, id).map(serializeMessage)),
         // The undelivered backlog rides the detail so queued messages stay
         // visible across reloads and other views — the inbox table, not any
@@ -488,9 +492,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // gets a stream that ends at once, and reads the transcript again. With
       // no turn in flight there's nothing to rejoin — a 204 tells the client's
       // resume to stand down and read the settled turn from storage instead.
-      const body = streamRegistry.subscribe(c.req.valid("param").id, c.req.valid("query").revision);
-      if (!body) return c.body(null, 204);
-      return new Response(body, { headers: UI_MESSAGE_STREAM_HEADERS });
+      const live = streamRegistry.subscribe(c.req.valid("param").id, c.req.valid("query").revision);
+      if (!live) return c.body(null, 204);
+      return new Response(live.stream, {
+        headers: { ...UI_MESSAGE_STREAM_HEADERS, [TURN_ID_HEADER]: live.turnId },
+      });
     },
   );
 

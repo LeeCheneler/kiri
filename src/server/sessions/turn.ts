@@ -13,6 +13,7 @@ import {
   isToolUIPart,
   streamText,
 } from "ai";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
 import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
@@ -1039,7 +1040,9 @@ async function streamCore(
   // always one being drained; `onFinish` closes it in step with persistence, so
   // a client that loads the just-settled turn from storage gets a 204 on resume.
   const sink = lease.openStream(transcriptRevision);
-  const response = new Response(sink.reader(), { headers: UI_MESSAGE_STREAM_HEADERS });
+  const response = new Response(sink.reader(), {
+    headers: { ...UI_MESSAGE_STREAM_HEADERS, [TURN_ID_HEADER]: lease.turnId },
+  });
   void pumpStream(stream, sink, saves);
 
   return { response, done: lease.done };

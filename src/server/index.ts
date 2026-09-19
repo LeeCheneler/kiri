@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import type { ApiErrorBody } from "../shared/api/errors.ts";
+import { TURN_ID_HEADER } from "../shared/api/sessions.ts";
 import { API_BODY_LIMIT_BYTES } from "../shared/message-limits.ts";
 import { type ConfigService, createConfigService } from "./config/service.ts";
 import type { ConfigStore } from "./config/store.ts";
@@ -186,6 +187,8 @@ export function createApp(deps: AppDeps): Hono {
       origin: ALLOWED_ORIGINS,
       allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", REQUIRED_CLIENT_HEADER],
+      // A cross-origin view reads the turn it has attached to off the response.
+      exposeHeaders: [TURN_ID_HEADER],
     }),
   );
 

@@ -157,7 +157,7 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
         },
 
         openStream(transcriptRevision) {
-          sink = streamRegistry.open(sessionId, transcriptRevision);
+          sink = streamRegistry.open(sessionId, turnId, transcriptRevision);
           return sink;
         },
 

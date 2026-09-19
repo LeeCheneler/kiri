@@ -13,6 +13,7 @@ import {
   runWakeTurn,
   turnCanceller,
 } from "../../../tests/support/turn-runner.ts";
+import { TURN_ID_HEADER } from "../../shared/api/sessions.ts";
 import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
@@ -125,7 +126,7 @@ async function replayOf(
   revision: number,
   until: string,
 ): Promise<string> {
-  const reader = streamRegistry.subscribe(sessionId, revision)?.getReader();
+  const reader = streamRegistry.subscribe(sessionId, revision)?.stream.getReader();
   if (!reader) throw new Error(`no live turn for session "${sessionId}"`);
   const decoder = new TextDecoder();
   let replayed = "";
@@ -562,7 +563,7 @@ describe("runTurn", () => {
         (p) => p.state === "output-available",
       ),
     ).toHaveLength(128);
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it.each(["answer", "approval", "cancel"] as const)(
@@ -2189,8 +2190,11 @@ describe("runTurn", () => {
       { db, llmClients: clientsFor(pendingModel()), streamRegistry, canceller },
       { session, userMessage: USER_MESSAGE },
     );
-    // The turn parks; its stream is registered so a reconnecting client can rejoin.
-    expect(streamRegistry.has("s1")).toBe(true);
+    // The turn parks; its stream is registered so a reconnecting client can
+    // rejoin, under the identity the turn's own response carries.
+    const turnId = response.headers.get(TURN_ID_HEADER);
+    expect(turnId).not.toBeNull();
+    expect(streamRegistry.turnOf("s1")).toBe(turnId);
 
     // A reader holding the transcript the turn opened on is served the turn so far.
     const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
@@ -2204,7 +2208,7 @@ describe("runTurn", () => {
 
     // Settling drops the entry in step with persistence, so a client that loads
     // the now-settled turn from storage gets a 204 and can't replay a duplicate.
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it("sends the client that started the turn every frame, from its start to its finish", async () => {
@@ -2292,7 +2296,7 @@ describe("runTurn", () => {
         parentSessionId: null,
       },
     ]);
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it("releases the old turn before an idle event starts another cancellable turn", async () => {
@@ -2305,7 +2309,7 @@ describe("runTurn", () => {
       publish: (event: KiriEvent) => {
         if (event.type === "session.turn.settled") {
           expect(getSessionMessages(db, "s1").at(-1)?.role).toBe("assistant");
-          expect(streamRegistry.has("s1")).toBe(false);
+          expect(streamRegistry.turnOf("s1")).toBeNull();
           expect(canceller.cancel("s1")).toBe(false);
         }
         if (event.type !== "session.updated" || event.status !== "idle" || next) return;
@@ -2322,11 +2326,11 @@ describe("runTurn", () => {
     await first.done;
     const second = await next;
     expect(second).toBeDefined();
-    expect(streamRegistry.has("s1")).toBe(true);
+    expect(streamRegistry.turnOf("s1")).not.toBeNull();
     expect(canceller.cancel("s1")).toBe(true);
     await second?.done;
     expect(getSession(db, "s1")?.status).toBe("cancelled");
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
   });
 
   it("resumes a session after a failed turn, clearing the prior error", async () => {
@@ -2952,7 +2956,7 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("failed");
-      expect(streamRegistry.has("s1")).toBe(false);
+      expect(streamRegistry.turnOf("s1")).toBeNull();
 
       const capture: { prompt?: unknown } = {};
       const resumed = await runTurn(
@@ -3065,7 +3069,7 @@ describe("failed turns keep their progress", () => {
     await started.done;
     expect(getSession(db, "s1")?.status).toBe("failed");
     expect(JSON.stringify(getSession(db, "s1")?.error)).toContain("checkpoint unavailable");
-    expect(streamRegistry.has("s1")).toBe(false);
+    expect(streamRegistry.turnOf("s1")).toBeNull();
     expect(canceller.cancel("s1")).toBe(false);
   });
 });

@@ -34,6 +34,11 @@ import type { UIMessageChunk } from "ai";
  * Every reader is one of these, the client that started the turn included
  * (`StreamSink.reader`), so there is one bounded path out of a turn.
  *
+ * An entry carries the identity of the turn it streams. A session's turns
+ * follow one another — a wake can start the instant a turn settles — so a
+ * reader is told which turn it joined, and `turnOf` names the one a reader
+ * would join now.
+ *
  * An entry is listed exactly as long as the turn runs: opened when capture
  * starts, dropped when the turn settles (`close`). Once a turn has settled
  * there is no entry, so `subscribe` returns `null` and the resume route answers
@@ -78,23 +83,31 @@ export interface StreamSink {
 export interface StreamRegistry {
   /**
    * Start capturing a session's in-flight turn, returning the sink its chunks
-   * are written to. `transcriptRevision` is the saved transcript the stream
-   * continues from. Call synchronously as the turn's response is built so a
-   * near-instant reconnect finds the entry rather than a gap. Replaces any
-   * existing entry for the session.
+   * are written to. `turnId` names the execution the stream belongs to, and
+   * `transcriptRevision` is the saved transcript the stream continues from.
+   * Call synchronously as the turn's response is built so a near-instant
+   * reconnect finds the entry rather than a gap. Replaces any existing entry
+   * for the session.
    */
-  open(sessionId: string, transcriptRevision: number): StreamSink;
+  open(sessionId: string, turnId: string, transcriptRevision: number): StreamSink;
   /**
    * A readable of the session's live turn for a client holding the transcript
    * at `transcriptRevision` — the frames buffered since that revision followed
    * by live ones. When the buffer continues from a different revision the
    * stream has already ended; when the step in progress outgrew the replay
    * limit it stays silent and ends once that step is saved. `null` when no turn
-   * is streaming (the resume route maps it to a 204).
+   * is streaming (the resume route maps it to a 204). The turn is named beside
+   * the stream, so the reader knows which execution it has joined.
    */
-  subscribe(sessionId: string, transcriptRevision: number): ReadableStream<Uint8Array> | null;
-  /** Whether a turn is currently streaming for the session. */
-  has(sessionId: string): boolean;
+  subscribe(sessionId: string, transcriptRevision: number): TurnStream | null;
+  /** The turn currently streaming for the session — the one a reader would join — or null. */
+  turnOf(sessionId: string): string | null;
+}
+
+/** A reader's view of a session's live turn, and the turn it belongs to. */
+export interface TurnStream {
+  turnId: string;
+  stream: ReadableStream<Uint8Array>;
 }
 
 interface Frame {
@@ -102,6 +115,7 @@ interface Frame {
 }
 
 interface Entry {
+  turnId: string;
   /** The transcript revision the buffer continues from. */
   baseRevision: number;
   /** The stream's opening `start` frame, replayed ahead of whatever the buffer holds. */
@@ -197,8 +211,9 @@ export function createStreamRegistry(options: StreamRegistryOptions = {}): Strea
   };
 
   return {
-    open(sessionId, transcriptRevision) {
+    open(sessionId, turnId, transcriptRevision) {
       const entry: Entry = {
+        turnId,
         baseRevision: transcriptRevision,
         start: undefined,
         buffer: [],
@@ -246,12 +261,12 @@ export function createStreamRegistry(options: StreamRegistryOptions = {}): Strea
     subscribe(sessionId, transcriptRevision) {
       const entry = entries.get(sessionId);
       if (!entry) return null;
-      if (entry.baseRevision !== transcriptRevision) return endedStream();
-      return attach(entry);
+      const stream = entry.baseRevision === transcriptRevision ? attach(entry) : endedStream();
+      return { turnId: entry.turnId, stream };
     },
 
-    has(sessionId) {
-      return entries.has(sessionId);
+    turnOf(sessionId) {
+      return entries.get(sessionId)?.turnId ?? null;
     },
   };
 }
