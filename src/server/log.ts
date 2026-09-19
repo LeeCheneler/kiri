@@ -61,6 +61,7 @@ export function stripAnsi(text: string): string {
  * at a glance across restarts. Add here rather than inventing ad-hoc prefixes.
  */
 export const FEATURES = {
+  app: c.gray,
   config: c.magenta,
   mcp: c.blue,
   workflows: c.cyan,
