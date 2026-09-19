@@ -122,7 +122,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Arbitrary client-supplied assistant parts should not be the command protocol or a source of trusted tool inputs. Explicit commands make validation, retries, and error behavior easier to maintain.
 
-- [ ] **21 — Consolidate shared domain operations and proven invariants**
+- [x] **21 — Consolidate shared domain operations and proven invariants**
 
   **What:** Move shared memory, article, project, and session operations out of tool/route adapters into their owning modules. Reuse validation, transactions, and post-commit publication where operations are genuinely shared. Evaluate database constraints for message ordering and parent/tool-call lineage against existing data before adding them.
 

@@ -64,6 +64,9 @@ import migration0042 from "../../../drizzle/0042_add_inbox_delivered_at.sql" wit
 import migration0043 from "../../../drizzle/0043_add_message_parts_format.sql" with {
   type: "text",
 };
+import migration0044 from "../../../drizzle/0044_enforce_message_order_and_lineage.sql" with {
+  type: "text",
+};
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -142,6 +145,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0041_add_transcript_revision", sql: migration0041 },
   { name: "0042_add_inbox_delivered_at", sql: migration0042 },
   { name: "0043_add_message_parts_format", sql: migration0043 },
+  { name: "0044_enforce_message_order_and_lineage", sql: migration0044 },
 ];
 
 /**

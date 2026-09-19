@@ -289,7 +289,14 @@ export const sessions = sqliteTable(
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
     error: text("error", { mode: "json" }),
   },
-  (t) => [index("sessions_parent_session_id_idx").on(t.parentSessionId)],
+  (t) => [
+    index("sessions_parent_session_id_idx").on(t.parentSessionId),
+    // One child per spawning tool call, which is what lets a retried call
+    // re-attach to its child instead of spawning a second.
+    uniqueIndex("sessions_parent_tool_call_unique")
+      .on(t.parentSessionId, t.parentToolCallId)
+      .where(sql`"parent_session_id" is not null`),
+  ],
 );
 
 /**
@@ -330,7 +337,11 @@ export const messages = sqliteTable(
     contextTokens: integer("context_tokens"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (t) => [index("messages_session_id_idx").on(t.sessionId)],
+  (t) => [
+    // One message per position: appends take the next index inside a
+    // transaction, and the index also serves every by-session read.
+    uniqueIndex("messages_session_id_index_unique").on(t.sessionId, t.index),
+  ],
 );
 
 /**

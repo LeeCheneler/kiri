@@ -1178,7 +1178,7 @@ describe("db", () => {
       )
       .all()
       .map((r) => r.name);
-    expect(indexes).toEqual(["messages_session_id_idx"]);
+    expect(indexes).toEqual(["messages_session_id_index_unique"]);
 
     const sessionIndexes = sqlite
       .query<{ name: string }, []>(
@@ -1186,7 +1186,10 @@ describe("db", () => {
       )
       .all()
       .map((r) => r.name);
-    expect(sessionIndexes).toEqual(["sessions_parent_session_id_idx"]);
+    expect(sessionIndexes.sort()).toEqual([
+      "sessions_parent_session_id_idx",
+      "sessions_parent_tool_call_unique",
+    ]);
   });
 
   it("preserves article rows when migrating a pre-decoupling DB", () => {
@@ -1236,6 +1239,7 @@ describe("db", () => {
     sqlite.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY NOT NULL,
       session_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
       role TEXT NOT NULL,
       parts TEXT NOT NULL
     )`);
@@ -1758,6 +1762,7 @@ describe("db", () => {
     sqlite.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY NOT NULL,
       session_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
       role TEXT NOT NULL,
       parts TEXT NOT NULL
     )`);
@@ -1794,9 +1799,9 @@ describe("db", () => {
     sqlite.run("INSERT INTO articles VALUES ('a1', 'r1', NULL, 'Digest', 'Old pelican news')");
     sqlite.run(
       `INSERT INTO messages VALUES
-        ('m1', 's1', 'user', '[{"type":"text","text":"hello there"}]'),
-        ('m2', 's1', 'assistant', '[{"type":"tool-run_command","state":"output-available"}]'),
-        ('m3', 's1', 'system', '[{"type":"text","text":"overlay"}]')`,
+        ('m1', 's1', 0, 'user', '[{"type":"text","text":"hello there"}]'),
+        ('m2', 's1', 1, 'assistant', '[{"type":"tool-run_command","state":"output-available"}]'),
+        ('m3', 's1', 2, 'system', '[{"type":"text","text":"overlay"}]')`,
     );
 
     migrate(db);

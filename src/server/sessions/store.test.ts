@@ -587,6 +587,46 @@ describe("sessions store", () => {
     expect(tables.map((table) => db.select().from(table).all())).toEqual(before);
   });
 
+  it("enforces one message per position in a session", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "First" }] });
+    const message = {
+      role: "user" as const,
+      parts: [],
+      partsFormat: CURRENT_PARTS_FORMAT,
+      createdAt: new Date(),
+    };
+
+    expect(() =>
+      db
+        .insert(messages)
+        .values({ ...message, id: "dup", sessionId: "s1", index: 0 })
+        .run(),
+    ).toThrow();
+    // The same position in another session is a different message.
+    db.insert(messages)
+      .values({ ...message, id: "other", sessionId: "s2", index: 0 })
+      .run();
+  });
+
+  it("enforces one child per spawning tool call, leaving top-level sessions unconstrained", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, { id: "other-parent" });
+    createSession(db, MODEL, { id: "child", parentSessionId: "parent", parentToolCallId: "c1" });
+
+    expect(() =>
+      createSession(db, MODEL, { id: "twin", parentSessionId: "parent", parentToolCallId: "c1" }),
+    ).toThrow();
+    // Tool call ids are only unique within the session that made the call.
+    createSession(db, MODEL, {
+      id: "cousin",
+      parentSessionId: "other-parent",
+      parentToolCallId: "c1",
+    });
+    expect(getSession(db, "cousin")?.parentToolCallId).toBe("c1");
+  });
+
   it("refuses to delete a session with a turn in flight", () => {
     createSession(db, MODEL, { id: "s1" });
     setSessionStatus(db, "s1", "running");
