@@ -2127,6 +2127,34 @@ describe("runTurn", () => {
     expect(getSession(db, "s1")?.error).toEqual({ message: expected });
   });
 
+  it.each([
+    [
+      {
+        type: "error",
+        sequence_number: 4,
+        error: { type: "server_error", code: "overloaded", message: "The model is overloaded" },
+      },
+      "The model is overloaded",
+    ],
+    [{ message: "Usage limit reached" }, "Usage limit reached"],
+    [{ error: { message: " " } }, "[object Object]"],
+    ["plain failure", "plain failure"],
+  ])("streams and persists the message of a non-Error stream error %j", async (error, expected) => {
+    const model = streamingModel([
+      { type: "error", error },
+      { type: "finish", finishReason: finishReason("error"), usage: usage(1, 0) },
+    ]);
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    const stream = await response.text();
+    await done;
+    expect(stream).toContain(JSON.stringify({ type: "error", errorText: expected }));
+    expect(getSession(db, "s1")?.error).toEqual({ message: expected });
+  });
+
   it("cancels an in-flight turn when the registry requests it", async () => {
     const canceller = turnCanceller();
     const events: KiriEvent[] = [];
