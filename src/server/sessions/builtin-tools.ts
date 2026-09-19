@@ -14,34 +14,13 @@ export interface BuiltinTool {
    * Plumbing between kiri's own sessions rather than a capability the user
    * grants: gated like every tool, but kept off the MCP page's listing.
    */
-  internal?: boolean;
+  internal?: true;
 }
 
-/**
- * Every first-party session tool, in the order the MCP page lists them. Each
- * rides the same standing tool-permission machinery as an MCP tool — the
- * tool assembly gates each listed tool per call, and the MCP page's Built-in
- * tools card shows its permission for review and change. Defaults encode the
- * trust posture: tools that only read or write kiri's own data run without
- * prompting (`allow` — the request in chat is the authorisation), as do the
- * filesystem read tools (reads confined to the sandbox the user declared in
- * `kiri.yaml` — declaring it is the authorisation), while tools that execute
- * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
- * (the workflow and filesystem write tools), or run model-authored commands
- * (`run_command`) ask first. `delegate` runs without prompting because its
- * worker's tools ride this same gating — an ask pauses the worker for the
- * user, so delegation never widens what runs unprompted — and the delegation
- * messaging tools (`message_worker`, `message_parent`) only move text
- * between the conversation's own sessions. Those two are `internal`:
- * inner plumbing of delegation rather than a capability the user grants,
- * so the MCP page's listing leaves them out.
- * A tool whose capability isn't configured (the filesystem tools and
- * `run_command` with no declared sandbox) is withheld from the model
- * regardless of its permission, as are `delegate` and `message_worker`
- * from a child session — a worker can't spawn or steer workers — and
- * `message_parent` from a session with no parent.
- */
-export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
+// Declared `as const` so the names form a literal union; consumers read the
+// list through `BUILTIN_TOOLS`, which widens every other field back to the
+// descriptor's contract.
+const DESCRIPTORS = [
   {
     name: "search_knowledge",
     description: "Search prior work in the current project or explicitly across the workspace.",
@@ -256,4 +235,33 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
     internal: true,
   },
-];
+] as const satisfies readonly BuiltinTool[];
+
+/** The name of a first-party session tool, as the model calls it. */
+export type BuiltinToolName = (typeof DESCRIPTORS)[number]["name"];
+
+/**
+ * Every first-party session tool, in the order the MCP page lists them. Each
+ * rides the same standing tool-permission machinery as an MCP tool — the
+ * tool assembly gates each listed tool per call, and the MCP page's Built-in
+ * tools card shows its permission for review and change. Defaults encode the
+ * trust posture: tools that only read or write kiri's own data run without
+ * prompting (`allow` — the request in chat is the authorisation), as do the
+ * filesystem read tools (reads confined to the sandbox the user declared in
+ * `kiri.yaml` — declaring it is the authorisation), while tools that execute
+ * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
+ * (the workflow and filesystem write tools), or run model-authored commands
+ * (`run_command`) ask first. `delegate` runs without prompting because its
+ * worker's tools ride this same gating — an ask pauses the worker for the
+ * user, so delegation never widens what runs unprompted — and the delegation
+ * messaging tools (`message_worker`, `message_parent`) only move text
+ * between the conversation's own sessions. Those two are `internal`:
+ * inner plumbing of delegation rather than a capability the user grants,
+ * so the MCP page's listing leaves them out.
+ * A tool whose capability isn't configured (the filesystem tools and
+ * `run_command` with no declared sandbox) is withheld from the model
+ * regardless of its permission, as are `delegate` and `message_worker`
+ * from a child session — a worker can't spawn or steer workers — and
+ * `message_parent` from a session with no parent.
+ */
+export const BUILTIN_TOOLS: readonly (BuiltinTool & { name: BuiltinToolName })[] = DESCRIPTORS;

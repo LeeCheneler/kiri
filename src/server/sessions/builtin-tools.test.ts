@@ -79,6 +79,8 @@ describe("BUILTIN_TOOLS", () => {
       // the registry carries all three, so merge both sides here.
       ...messageParentTool({ db, childSessionId: "session-1" }),
     };
-    expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
+    expect(BUILTIN_TOOLS.map((tool): string => tool.name).sort()).toEqual(
+      Object.keys(offered).sort(),
+    );
   });
 });
