@@ -207,7 +207,6 @@ function ChatView({
     session,
     initialMessages,
     transcriptRevision: detail.transcriptRevision,
-    pendingInbox: detail.inbox,
   });
   // The undelivered backlog, straight off the same detail payload the session's
   // status rides — chips render from the server's queue, not local state, so

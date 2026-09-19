@@ -764,60 +764,25 @@ describe("<SessionChat>", () => {
     expect(screen.queryByText("queued")).toBeNull();
   });
 
-  it("promotes an undelivered queued message to its own turn when the session settles", async () => {
+  it("leaves a message the settled turn did not deliver queued for the server to schedule", async () => {
     const user = userEvent.setup();
-    let withdrawn = 0;
+    const requests: string[] = [];
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
       ),
       http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
-      ),
-      http.post("*/api/sessions/:id/messages", () => assistantReply("On the docs: all good")),
-    );
-    const { queryClient } = renderChat();
-
-    await screen.findByText("search the readme");
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
-    await user.keyboard("{Enter}");
-    await screen.findByText("queued");
-
-    // The turn settles without delivering the message: the withdraw wins the
-    // race (204) and the message is promoted to its own turn.
-    server.use(
-      http.get("*/api/sessions/:id", () =>
         HttpResponse.json(
-          sessionDetail([], {}, withdrawn === 0 ? [inboxItem("q1", "also check the docs")] : []),
+          { item: inboxItem("q1", "also check the docs"), delivered: false },
+          { status: 201 },
         ),
       ),
-      // Like the real server: the first withdraw deletes the row, a repeat 404s.
-      http.delete("*/api/sessions/:id/inbox/:itemId", () => {
-        withdrawn += 1;
-        return withdrawn === 1
-          ? new HttpResponse(null, { status: 204 })
-          : HttpResponse.json({ error: "not queued" }, { status: 404 });
+      http.post("*/api/sessions/:id/messages", () => {
+        requests.push("send");
+        return assistantReply("should not happen");
       }),
-    );
-    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
-
-    expect(await screen.findByText("On the docs: all good")).toBeDefined();
-    expect(withdrawn).toBe(1);
-    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
-  });
-
-  it("clears a queued message the settled transcript shows delivered, without withdrawing", async () => {
-    const user = userEvent.setup();
-    let withdrawn = 0;
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
-      ),
-      http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
-      ),
       http.delete("*/api/sessions/:id/inbox/:itemId", () => {
-        withdrawn += 1;
+        requests.push("withdraw");
         return new HttpResponse(null, { status: 204 });
       }),
     );
@@ -828,8 +793,39 @@ describe("<SessionChat>", () => {
     await user.keyboard("{Enter}");
     await screen.findByText("queued");
 
+    // The turn settles with the message still in the backlog. Delivering it is
+    // the server's job: the browser neither withdraws nor resends it.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
+      ),
+    );
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(screen.getByText("queued")).toBeDefined();
+    expect(requests).toEqual([]);
+  });
+
+  it("clears a queued message the settled transcript shows delivered", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
+      ),
+    );
+    const { queryClient } = renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
     // The settled transcript carries the delivery as a woven data-inbox part
-    // under the queue id — proof it reached the turn, so nothing to withdraw.
+    // under the queue id — proof it reached the turn.
     const delivered = [
       message("m1", "user", "search the readme"),
       {
@@ -856,48 +852,6 @@ describe("<SessionChat>", () => {
     // The chip resolves into the woven interjection; the message text stays.
     await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
     expect(screen.getByText("also check the docs")).toBeDefined();
-    expect(withdrawn).toBe(0);
-  });
-
-  it("clears the queue without promoting when the withdraw itself fails", async () => {
-    const user = userEvent.setup();
-    let promoted = 0;
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
-      ),
-      http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
-      ),
-      http.post("*/api/sessions/:id/messages", () => {
-        promoted += 1;
-        return assistantReply("should not happen");
-      }),
-    );
-    const { queryClient } = renderChat();
-
-    await screen.findByText("search the readme");
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
-    await user.keyboard("{Enter}");
-    await screen.findByText("queued");
-
-    // A failed withdraw can't prove the message wasn't delivered, so it is not
-    // promoted — resending would risk a double delivery.
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
-      ),
-      http.delete("*/api/sessions/:id/inbox/:itemId", () =>
-        HttpResponse.json({ error: "boom" }, { status: 500 }),
-      ),
-    );
-    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
-
-    // Yield past the refetch → reconcile → withdraw round-trip before polling:
-    // waitFor's timer can starve while the query retryer occupies the loop.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
-    expect(promoted).toBe(0);
   });
 
   it("falls back to a normal send when the queue races the turn settling", async () => {

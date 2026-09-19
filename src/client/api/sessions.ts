@@ -247,10 +247,7 @@ export const queueSessionMessage = async (
 /**
  * Withdraw a queued message that hasn't been delivered. Resolves `true` when
  * the item was still queued and is now removed, `false` when it no longer is —
- * the turn consumed it (or the session is gone). Auto-promotion keys off this:
- * a turn that settled without delivering the message hands it back here, and
- * the caller resends it as a normal turn without double-delivering. Throws
- * `ApiError` on other non-2xx.
+ * a turn took it (or the session is gone). Throws `ApiError` on other non-2xx.
  */
 export const withdrawQueuedMessage = async (id: string, itemId: string): Promise<boolean> => {
   const res = await apiFetch(

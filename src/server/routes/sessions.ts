@@ -890,7 +890,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Withdrawing races delivery, and delivery wins: once the turn has
       // acknowledged the item it is no longer pending, so the 404 doubles as
-      // the "already delivered" signal the client's auto-promotion keys off.
+      // the "already delivered" signal.
       if (!withdrawInboxItem(db, id, itemId)) {
         return c.json(
           {

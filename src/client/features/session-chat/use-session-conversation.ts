@@ -14,14 +14,12 @@ import {
   jsonBytes,
 } from "../../../shared/message-limits.ts";
 import {
-  type SessionInboxItem,
   cancelSession,
   queueSessionMessage,
   sessionStreamEndpoint,
   sessionTurnEndpoint,
   setToolPermission,
   truncateSessionMessages,
-  withdrawQueuedMessage,
 } from "../../api.ts";
 import {
   usePatchSessionInbox,
@@ -131,15 +129,8 @@ export function useSessionConversation(opts: {
   initialMessages: UIMessage[];
   /** Revision belonging to initialMessages, including a stream replay baseline. */
   transcriptRevision: number;
-  /**
-   * The session's undelivered inbox, from the same detail payload as `session`
-   * — status and backlog always describe the same moment, which is what makes
-   * the settle-time reconcile below race-free. Omit in views that never queue
-   * (the embedded child session).
-   */
-  pendingInbox?: SessionInboxItem[];
 }): SessionConversation {
-  const { session, initialMessages, transcriptRevision, pendingInbox = [] } = opts;
+  const { session, initialMessages, transcriptRevision } = opts;
   const sync = useRef({
     id: session.id,
     revision: transcriptRevision,
@@ -313,41 +304,6 @@ export function useSessionConversation(opts: {
     },
     [session.id, sendMessage, inboxCache],
   );
-
-  // Promote what the settled turn left behind: with no turn in flight and no
-  // approval pause (a waiting turn still delivers on resume), a backlog can
-  // only be answered by a new turn. Withdraw the newest user message — the
-  // 204-vs-404 settles any race with delivery (and with another tab doing the
-  // same) authoritatively — and, if the withdraw won, resend the message as
-  // its own turn: older undelivered messages stay in the server's inbox and
-  // drain ahead of it, preserving arrival order. A 404 instead means it was
-  // delivered, so the chip just resolves; the effect's re-run then examines
-  // the next-newest, clearing any chips the refetched backlog has outrun.
-  // `pendingInbox` and `session.status` ride the same detail payload, so the
-  // backlog examined is the one the settled turn actually left.
-  //
-  // Each item is examined at most once per view: the ref remembers every id
-  // withdrawn here, so no re-run — StrictMode's doubled effects, a settle
-  // flip, a backlog snapshot the refetch hasn't replaced yet — can withdraw
-  // one twice (the repeat would 404 against the first attempt and drop the
-  // promotion). There is deliberately no staleness abort — everything the
-  // continuation captures (the withdraw target, the cache patcher, the
-  // id-keyed chat) is scoped to the session it started for, so completing
-  // after a switch or unmount still promotes the message rather than losing
-  // it between the withdraw and the send.
-  const settled = !streaming && session.status !== "running" && session.status !== "waiting";
-  const examined = useRef(new Set<string>());
-  useEffect(() => {
-    if (!settled) return;
-    const last = pendingInbox.filter((item) => item.source === "user").at(-1);
-    if (last === undefined || examined.current.has(last.id)) return;
-    examined.current.add(last.id);
-    void (async () => {
-      const wasQueued = await withdrawQueuedMessage(session.id, last.id).catch(() => false);
-      inboxCache.remove(last.id);
-      if (wasQueued) void sendMessage({ parts: [{ type: "text", text: last.text }] });
-    })();
-  }, [settled, pendingInbox, session.id, sendMessage, inboxCache]);
 
   // Revisions detect replacements and deletions as well as appended content.
   // Never advance the accepted revision while local work owns the transcript.
