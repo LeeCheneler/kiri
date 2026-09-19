@@ -1,7 +1,10 @@
 import { type UIMessage, getToolName, isToolUIPart } from "ai";
+import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 
 // The image tools whose results carry an app-only data-URL image payload.
-const IMAGE_TOOLS = new Set(["generate_image"]);
+const IMAGE_TOOLS: ReadonlySet<string> = new Set(
+  BUILTIN_TOOLS.filter((tool) => tool.output === "image").map((tool) => tool.name),
+);
 
 /**
  * Strip the app-only image payload from a generate_image result, leaving the

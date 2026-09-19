@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ToolSet } from "ai";
 import { describedModel } from "../../../tests/support/described-model.ts";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
@@ -52,35 +53,70 @@ describe("BUILTIN_TOOLS", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // Every first-party tool factory's output, merged as the tool assembly
+  // merges them.
+  const firstPartyTools = (): ToolSet => ({
+    ...knowledgeTools({ db, registry: createRegistry() }, null),
+    ...skillTools(createConfigStore(dir)),
+    ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
+    ...articleTools(db, "session-1", null, () => {}),
+    ...memoryTools(db, null, () => {}),
+    ...projectTools(db, "project-1", () => {}),
+    ...taskTools(db, "project-1", () => {}),
+    ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
+    ...shellTools(() => [dir], { get: () => null, set: () => {} }),
+    ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
+    ...delegateTool({
+      db,
+      parentSessionId: "session-1",
+      startTurn: () => {
+        throw new Error("no turn starts in this test");
+      },
+    }),
+    // Offered to child sessions where delegate/message_worker are not;
+    // the registry carries all three, so merge both sides here.
+    ...messageParentTool({ db, childSessionId: "session-1" }),
+  });
+
   // The registry is the tool assembly's source of truth for which built-in
   // tools exist: each entry is offered by looking its name up in the merged
   // first-party toolset. A tool added to either side without the other would
   // ship un-gated or broken, so pin the two to exact agreement.
   it("names every first-party session tool exactly once", () => {
-    const offered = {
-      ...knowledgeTools({ db, registry: createRegistry() }, null),
-      ...skillTools(createConfigStore(dir)),
-      ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
-      ...articleTools(db, "session-1", null, () => {}),
-      ...memoryTools(db, null, () => {}),
-      ...projectTools(db, "project-1", () => {}),
-      ...taskTools(db, "project-1", () => {}),
-      ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
-      ...shellTools(() => [dir], { get: () => null, set: () => {} }),
-      ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
-      ...delegateTool({
-        db,
-        parentSessionId: "session-1",
-        startTurn: () => {
-          throw new Error("no turn starts in this test");
-        },
-      }),
-      // Offered to child sessions where delegate/message_worker are not;
-      // the registry carries all three, so merge both sides here.
-      ...messageParentTool({ db, childSessionId: "session-1" }),
-    };
+    const offered = firstPartyTools();
     expect(BUILTIN_TOOLS.map((tool): string => tool.name).sort()).toEqual(
       Object.keys(offered).sort(),
     );
+  });
+
+  // The send-time history strip reads a tool's declared output; the live
+  // result is projected by the tool itself. A declaration the tool doesn't
+  // honour would leak the payload to the model on the turn that produced it.
+  it("declares an app-only output exactly for the tools that strip it from their live result", () => {
+    const offered = firstPartyTools();
+    // Both ways: a tool projecting its result without declaring an output
+    // would go unstripped once its result is history.
+    expect(
+      Object.keys(offered)
+        .filter((name) => offered[name]?.toModelOutput !== undefined)
+        .sort(),
+    ).toEqual(
+      BUILTIN_TOOLS.filter((tool) => tool.output !== undefined)
+        .map((tool): string => tool.name)
+        .sort(),
+    );
+    const payloads = { diff: { diff: "@@", diffTruncated: true }, image: { image: "data:," } };
+    for (const { name, output } of BUILTIN_TOOLS) {
+      if (output === undefined) continue;
+      const projected = offered[name]?.toModelOutput?.({
+        toolCallId: "call_1",
+        input: {},
+        output: { kept: true, ...payloads[output] },
+      });
+      expect({ name, projected }).toEqual({
+        name,
+        projected: { type: "json", value: { kept: true } },
+      });
+    }
   });
 });

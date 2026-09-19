@@ -1,15 +1,11 @@
 import { type UIMessage, getToolName, isToolUIPart } from "ai";
 import { structuredPatch } from "diff";
+import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 
 // The tools whose results carry an app-only unified diff.
-const DIFF_TOOLS = new Set([
-  "write_file",
-  "edit_file",
-  "update_project_instructions",
-  "replace_article",
-  "replace_workflow",
-  "save_memory",
-]);
+const DIFF_TOOLS: ReadonlySet<string> = new Set(
+  BUILTIN_TOOLS.filter((tool) => tool.output === "diff").map((tool) => tool.name),
+);
 
 /**
  * Default cap on the unified diff a write result carries. The diff feeds the

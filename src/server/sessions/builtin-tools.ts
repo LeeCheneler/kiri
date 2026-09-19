@@ -24,6 +24,13 @@ export interface BuiltinTool {
    */
   availability?: "top-level" | "worker";
   /**
+   * The app-only payload the tool's result carries for the transcript to
+   * render — a unified `diff` of the change it made, or a generated `image` —
+   * which is stripped before the model sees the result. Absent means the
+   * model receives the result as stored.
+   */
+  output?: "diff" | "image";
+  /**
    * Plumbing between kiri's own sessions rather than a capability the user
    * grants: gated like every tool, but kept off the MCP page's listing.
    */
@@ -55,6 +62,7 @@ const DESCRIPTORS = [
     description: "Rewrite the entire body of one of the session's articles.",
     defaultPermission: "allow",
     availability: "top-level",
+    output: "diff",
   },
   {
     name: "edit_article",
@@ -82,6 +90,7 @@ const DESCRIPTORS = [
     name: "generate_image",
     description: "Generate an image with the session's selected image model.",
     defaultPermission: "allow",
+    output: "image",
   },
   {
     name: "use_skill",
@@ -93,6 +102,7 @@ const DESCRIPTORS = [
     description: "Save or update a durable memory for future sessions to recall.",
     defaultPermission: "allow",
     availability: "top-level",
+    output: "diff",
   },
   {
     name: "read_memory",
@@ -110,6 +120,7 @@ const DESCRIPTORS = [
     description: "Rewrite the standing instructions of the session's project.",
     defaultPermission: "allow",
     availability: "top-level",
+    output: "diff",
   },
   {
     name: "list_tasks",
@@ -176,6 +187,7 @@ const DESCRIPTORS = [
     name: "replace_workflow",
     description: "Rewrite a workflow's YAML file wholesale.",
     defaultPermission: "ask",
+    output: "diff",
   },
   {
     name: "run_workflow",
@@ -216,11 +228,13 @@ const DESCRIPTORS = [
     name: "write_file",
     description: "Create or overwrite a text file in the allowed directories.",
     defaultPermission: "ask",
+    output: "diff",
   },
   {
     name: "edit_file",
     description: "Make a targeted text replacement in a file in the allowed directories.",
     defaultPermission: "ask",
+    output: "diff",
   },
   {
     name: "create_directory",
