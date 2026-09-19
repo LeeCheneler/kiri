@@ -110,7 +110,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Closing dependencies before their users settle permits incomplete cleanup and late writes. Workers should remain independent of their parent's turn while belonging to the application's lifetime.
 
-- [ ] **19 — Version the persisted transcript boundary**
+- [x] **19 — Version the persisted transcript boundary**
 
   **What:** Add a thin versioned read/validation/adaptation boundary around stored SDK message parts. Treat existing rows as an explicit legacy format. Preserve files, approvals, checkpoints, calibration, instruction receipts, and inbox parts. Keep format version distinct from transcript revision.
 

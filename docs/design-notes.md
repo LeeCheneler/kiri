@@ -56,8 +56,10 @@ and parser facts on the server.
 
 Client requests live in `src/client/api/`, with shared HTTP handling in
 `http.ts` and compatibility exports from `src/client/api.ts`. Stored workflow
-snapshots and SDK message parts retain their historical formats; the serialization
-boundary passes them through without applying the current authoring schema.
+snapshots retain their historical formats; the serialization boundary passes
+them through without applying the current authoring schema. Stored message
+parts reach it already adapted to the current parts format (see *Agentic
+sessions → Storage*).
 
 ### Workflow definition
 
@@ -441,6 +443,8 @@ Two new tables alongside the existing four, following the runs/run_steps shape:
 - **`messages`** — one row per message, child of `sessions`, ordered. Each message stores its role and an array of **AI SDK `UIMessage` parts** as JSON — text, tool-call, tool-result, file/image, reasoning. Per-message token usage rides on the row as JSON, mirroring `traces.usage`.
 
 Each session has a monotonic transcript revision. Appends, in-place message updates, and truncations advance it in the same transaction as the message changes, including checkpoint transactions that acknowledge delivered inbox items. Existing conversations start at revision zero when migrated. Settings and inbox-only changes do not advance it.
+
+The SDK's part shapes are part of the durable storage contract, so each message row records the **parts format** it was written in, and the session store reads every row through one boundary that validates its parts and adapts them to the current format. Rows written before the format was recorded are format zero, an explicit legacy format that today adapts by passing through; every write — an append, or an in-place rewrite such as an approval resume — stamps the current format, so a rewritten legacy row stops being legacy. Validation is deliberately thin: SDK parts are checked only for their type discriminator, so a part type the running build doesn't know (a removed tool, a newer SDK part) stays readable, while Kiri's own durable parts — inbox deliveries, checkpoints with their pending messages, and instruction receipts — are checked field by field because their readers rely on them. A context calibration carries its own payload version, which its reader checks, so only its envelope is fixed. Validation never rewrites what it read. Malformed parts, or a format newer than the build writes (an older kiri opening a newer database), fail the read with an error naming the message rather than being misread. Everything outside the store — turns, routes, the replay snapshot, the client — sees only current-format parts and never the format itself. The format is unrelated to the transcript revision: one names the shape of stored parts, the other counts changes to a session's content. The search index is the one reader outside the boundary: its triggers and the knowledge retrieval query read text parts straight from the column in SQL, so a future format that reshapes text parts must migrate the stored rows or those queries with it.
 
 Session settings updates validate every supplied field before writing. The model, image model, effort, and title are saved together in one atomic database update; validation or persistence failure leaves the session unchanged. A successful request publishes its session update only after persistence, so subscribers read the complete change. Omitted fields stay unchanged, while a null title or image model clears that setting.
 
