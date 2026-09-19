@@ -111,6 +111,14 @@ const CONTEXT_HANDOFF_PROMPT =
   "because of the context budget. Do not claim unfinished work is complete or suggest repeating " +
   "completed actions. If an action's outcome is unknown, say it needs verification.";
 
+/** Why a turn stopped short of finishing its work; doubles as the settled error's code. */
+type StopReason = "step_limit" | "context_limit";
+
+const STOPS: Record<StopReason, { notice: string; handoffPrompt: string }> = {
+  step_limit: { notice: STEP_LIMIT_NOTICE, handoffPrompt: HANDOFF_PROMPT },
+  context_limit: { notice: CONTEXT_LIMIT_NOTICE, handoffPrompt: CONTEXT_HANDOFF_PROMPT },
+};
+
 const UNKNOWN_TOOL_RESULT =
   "The turn failed before this tool's result was recorded. Its action may have completed. " +
   "Verify the current state before deciding whether to retry; do not automatically repeat it.";
@@ -462,12 +470,13 @@ async function streamCore(
   let streamError: unknown;
   let checkpointed = false;
   let checkpointFailed = false;
-  let stepLimitReached = false;
-  let contextLimitReached = false;
+  // At most one: the step limit ends the loop before another boundary could
+  // meet the context limit, and the context limit ends it outright.
+  let stopReason: StopReason | undefined;
   const contextLimitError = new Error(CONTEXT_LIMIT_NOTICE);
   let contextHandoffMessages: ModelMessage[] = [];
   let lastContextTokens: number | undefined;
-  let savedCalibration = savedContextCalibration(history);
+  let calibration = savedContextCalibration(history);
   // The model loop and the saving of its progress run on different timelines;
   // every boundary written into the stream is announced here first, and
   // whatever must not outrun saved work waits here for it. An abort ends every
@@ -497,7 +506,7 @@ async function streamCore(
         db,
         session.id,
         message.id,
-        withContextCalibration(message, savedCalibration).parts,
+        withContextCalibration(message, calibration).parts,
         isContinuation || checkpointed,
         contextTokens,
       );
@@ -555,7 +564,6 @@ async function streamCore(
           expandInboxMessages(incomingMessages, senderLabelFor),
         );
         const previousMessageCount = modelMessages.length - incomingModelMessages.length;
-        let calibration = savedCalibration;
         let previousRequest: Omit<ContextCalibration, "inputTokens"> | undefined;
         let checkpointMessages: ModelMessage[] = [];
         let compactedThrough = 0;
@@ -591,7 +599,6 @@ async function streamCore(
               usage.inputTokens > 0
             ) {
               calibration = { ...previousRequest, inputTokens: usage.inputTokens };
-              savedCalibration = calibration;
             }
           },
           ...(providerOptions !== undefined ? { providerOptions } : {}),
@@ -602,8 +609,9 @@ async function streamCore(
                 // continue. A final answer or pending approval at the boundary
                 // therefore never spends the handoff allowance.
                 stopWhen: ({ steps }) => {
-                  stepLimitReached = steps.length >= MAX_TURN_STEPS;
-                  return stepLimitReached;
+                  const reached = steps.length >= MAX_TURN_STEPS;
+                  if (reached) stopReason = "step_limit";
+                  return reached;
                 },
               }
             : {}),
@@ -715,7 +723,7 @@ async function streamCore(
               });
               // The policy already stops without a summary; the null check narrows the type.
               if (!checkpoint || summary === "stop") {
-                contextLimitReached = true;
+                stopReason = "context_limit";
                 contextHandoffMessages = current;
                 throw contextLimitError;
               }
@@ -725,7 +733,6 @@ async function streamCore(
               // Clear the old measurement in the same durable boundary as its
               // replaced history, even if the turn stops before another call.
               calibration = undefined;
-              savedCalibration = undefined;
               writer.write(checkpoint);
               writer.write({ type: "finish-step" });
               await summarySaved;
@@ -757,7 +764,7 @@ async function streamCore(
               });
             }
             if (decision.action === "stop") {
-              contextLimitReached = true;
+              stopReason = "context_limit";
               contextHandoffMessages = current;
               throw contextLimitError;
             }
@@ -779,7 +786,7 @@ async function streamCore(
         })) {
           if (
             chunk.type === "error" &&
-            contextLimitReached &&
+            stopReason === "context_limit" &&
             chunk.errorText === CONTEXT_LIMIT_NOTICE
           )
             continue;
@@ -800,7 +807,7 @@ async function streamCore(
           }
         }
         if (signal.aborted || streamError !== undefined) return;
-        if (!stepLimitReached && !contextLimitReached) {
+        if (stopReason === undefined) {
           writer.write({ type: "finish", finishReason: await result.finishReason });
           return;
         }
@@ -813,7 +820,7 @@ async function streamCore(
         writer.write({
           type: "text-delta",
           id: noticeId,
-          delta: `${contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE}\n\n`,
+          delta: `${STOPS[stopReason].notice}\n\n`,
         });
         writer.write({ type: "text-end", id: noticeId });
         const noticeSaved = barrier.expect("notice");
@@ -822,7 +829,7 @@ async function streamCore(
         if (signal.aborted) return;
 
         let handoffMessages = contextHandoffMessages;
-        if (!contextLimitReached) {
+        if (stopReason === "step_limit") {
           const delivered = insertInboxModelMessages(
             [...modelMessages, ...(await result.response).messages],
             deliveries,
@@ -839,7 +846,7 @@ async function streamCore(
             ...handoffMessages,
             {
               role: "user",
-              content: contextLimitReached ? CONTEXT_HANDOFF_PROMPT : HANDOFF_PROMPT,
+              content: STOPS[stopReason].handoffPrompt,
             },
           ],
           system,
@@ -897,7 +904,7 @@ async function streamCore(
       // continuations retain the same assistant row as their saved work.
       const saved = () => ({
         messageId: messagePersisted ? responseMessage.id : null,
-        incomplete: stepLimitReached || contextLimitReached,
+        incomplete: stopReason !== undefined,
       });
       // Persist what the turn produced and say where that leaves the session.
       const finish = (): TurnSettlement => {
@@ -923,9 +930,7 @@ async function streamCore(
               ? {
                   error: {
                     message: errorMessage(streamError),
-                    ...(!aborted && (contextLimitReached || stepLimitReached)
-                      ? { code: contextLimitReached ? "context_limit" : "step_limit" }
-                      : {}),
+                    ...(!aborted && stopReason !== undefined ? { code: stopReason } : {}),
                   },
                 }
               : {}),
@@ -937,14 +942,11 @@ async function streamCore(
         // preserve the most recent recorded footprint rather than inventing usage.
         persistProgress(responseMessage, isContinuation, lastContextTokens);
         messagePersisted = true;
-        if (contextLimitReached || stepLimitReached) {
+        if (stopReason !== undefined) {
           return {
             ...saved(),
             status: "failed",
-            error: {
-              code: contextLimitReached ? "context_limit" : "step_limit",
-              message: contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE,
-            },
+            error: { code: stopReason, message: STOPS[stopReason].notice },
           };
         }
         // A turn that stopped on tool-approval requests hasn't settled: the

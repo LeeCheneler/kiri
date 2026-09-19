@@ -98,7 +98,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Model execution and UI-stream persistence run on different timelines. Their coordination must prevent later actions from relying on unsaved results without resolving the wrong wait or hanging on failure.
 
-- [ ] **17 — Extract pure context-management decisions**
+- [x] **17 — Extract pure context-management decisions**
 
   **What:** Express continue/compact/stop/handoff decisions as a pure function over explicit budgets, estimates, calibration, fixed context, approvals, incoming messages, and step state. Leave provider calls, persistence, and progress events in the execution layer. Preserve existing thresholds initially.
 
