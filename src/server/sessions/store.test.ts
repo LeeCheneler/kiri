@@ -27,6 +27,11 @@ import {
   updateSessionSettings,
   updateSessionTitle,
 } from "./store.ts";
+import {
+  CURRENT_PARTS_FORMAT,
+  LEGACY_PARTS_FORMAT,
+  TranscriptFormatError,
+} from "./transcript-format.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -264,6 +269,68 @@ describe("sessions store", () => {
     expect(rows[0]?.parts).toEqual([{ type: "text", text: "Hi" }]);
     expect(rows[0]?.contextTokens).toBeNull();
     expect(rows[1]?.contextTokens).toBe(8);
+  });
+
+  describe("parts format", () => {
+    const insertLegacy = (id: string, parts: unknown, format = 0) =>
+      db.$client
+        .prepare(
+          'INSERT INTO messages (id, session_id, "index", role, parts, parts_format, created_at) VALUES (?, ?, 0, ?, ?, ?, 1)',
+        )
+        .run(id, "s1", "user", JSON.stringify(parts), format);
+    const storedFormat = (id: string) =>
+      db.select().from(messages).where(eq(messages.id, id)).get()?.partsFormat;
+
+    beforeEach(() => {
+      createSession(db, MODEL, { id: "s1" });
+    });
+
+    it("stamps appended messages with the current format and keeps it off the message", () => {
+      const message = appendMessage(db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Hi" }],
+      });
+
+      expect(storedFormat(message.id)).toBe(CURRENT_PARTS_FORMAT);
+      expect(message).not.toHaveProperty("partsFormat");
+      expect(getSessionMessages(db, "s1")[0]).not.toHaveProperty("partsFormat");
+    });
+
+    it("reads a row written before parts were versioned", () => {
+      insertLegacy("old", [{ type: "text", text: "from before" }]);
+
+      expect(getSessionMessages(db, "s1")[0]?.parts).toEqual([
+        { type: "text", text: "from before" },
+      ]);
+      expect(getSessionPreviews(db, ["s1"]).get("s1")).toBe("from before");
+      expect(storedFormat("old")).toBe(LEGACY_PARTS_FORMAT);
+    });
+
+    it("restamps a legacy row when its parts are rewritten", () => {
+      insertLegacy("old", [{ type: "text", text: "paused" }]);
+
+      updateMessage(db, "s1", "old", { parts: [{ type: "text", text: "resumed" }] });
+
+      expect(storedFormat("old")).toBe(CURRENT_PARTS_FORMAT);
+    });
+
+    it("keeps the format apart from the transcript revision", () => {
+      const message = appendMessage(db, "s1", {
+        role: "assistant",
+        parts: [{ type: "text", text: "one" }],
+      });
+      updateMessage(db, "s1", message.id, { parts: [{ type: "text", text: "two" }] });
+
+      expect(getSession(db, "s1")?.transcriptRevision).toBe(2);
+      expect(storedFormat(message.id)).toBe(CURRENT_PARTS_FORMAT);
+    });
+
+    it("refuses to read parts it cannot interpret", () => {
+      insertLegacy("newer", [{ type: "text", text: "from the future" }], CURRENT_PARTS_FORMAT + 1);
+
+      expect(() => getSessionMessages(db, "s1")).toThrow(TranscriptFormatError);
+      expect(() => getSessionPreviews(db, ["s1"])).toThrow(TranscriptFormatError);
+    });
   });
 
   it("patches parts only, then records the resumed turn's footprint", () => {

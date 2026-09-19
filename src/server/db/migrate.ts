@@ -61,6 +61,9 @@ import migration0039 from "../../../drizzle/0039_add_inbox_sender.sql" with { ty
 import migration0040 from "../../../drizzle/0040_index_memories.sql" with { type: "text" };
 import migration0041 from "../../../drizzle/0041_add_transcript_revision.sql" with { type: "text" };
 import migration0042 from "../../../drizzle/0042_add_inbox_delivered_at.sql" with { type: "text" };
+import migration0043 from "../../../drizzle/0043_add_message_parts_format.sql" with {
+  type: "text",
+};
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -87,7 +90,10 @@ interface Migration {
  * schema, so `search_fts` exists only in SQL. It mirrors `articles`,
  * `messages` (user/assistant text parts), and `runs` (summaries) via
  * triggers — schema changes to those tables must keep the triggers in
- * step. `0028_add_session_title` extends the index with triggers on
+ * step. The message triggers read text parts straight from `messages.parts`,
+ * outside the transcript format boundary, so a parts format that reshapes
+ * text parts must migrate the stored rows or the triggers with it.
+ * `0028_add_session_title` extends the index with triggers on
  * `sessions` mirroring each top-level session's title. `0040_index_memories`
  * adds memory names, descriptions, and bodies for explicit knowledge retrieval.
  */
@@ -135,6 +141,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0040_index_memories", sql: migration0040 },
   { name: "0041_add_transcript_revision", sql: migration0041 },
   { name: "0042_add_inbox_delivered_at", sql: migration0042 },
+  { name: "0043_add_message_parts_format", sql: migration0043 },
 ];
 
 /**

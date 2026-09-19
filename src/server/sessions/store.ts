@@ -4,11 +4,20 @@ import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
+import { CURRENT_PARTS_FORMAT, readStoredParts } from "./transcript-format.ts";
 
 /** A persisted session row. */
 export type Session = typeof sessions.$inferSelect;
-/** A persisted message row. `parts` is an AI SDK `UIMessage` parts array. */
-export type Message = typeof messages.$inferSelect;
+/**
+ * A persisted message. `parts` is an AI SDK `UIMessage` parts array in the
+ * current parts format, whichever format its row was written in.
+ */
+export type Message = Omit<typeof messages.$inferSelect, "partsFormat">;
+
+const toMessage = ({ partsFormat, ...row }: typeof messages.$inferSelect): Message => ({
+  ...row,
+  parts: readStoredParts(row.id, partsFormat, row.parts),
+});
 
 /** A message to append, ahead of being assigned its row id, index, and timestamp. */
 export interface NewMessage {
@@ -201,14 +210,19 @@ export function getSessionPreviews(db: KiriDb, sessionIds: string[]): Map<string
   const previews = new Map<string, string>();
   if (sessionIds.length === 0) return previews;
   const rows = db
-    .select({ sessionId: messages.sessionId, parts: messages.parts })
+    .select({
+      id: messages.id,
+      sessionId: messages.sessionId,
+      parts: messages.parts,
+      partsFormat: messages.partsFormat,
+    })
     .from(messages)
     .where(and(inArray(messages.sessionId, sessionIds), eq(messages.role, "user")))
     .orderBy(asc(messages.index))
     .all();
   for (const row of rows) {
     if (previews.has(row.sessionId)) continue;
-    const text = messagePreview(row.parts as UIMessage["parts"]);
+    const text = messagePreview(readStoredParts(row.id, row.partsFormat, row.parts));
     if (text !== "") previews.set(row.sessionId, text);
   }
   return previews;
@@ -358,7 +372,8 @@ export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
     .from(messages)
     .where(eq(messages.sessionId, sessionId))
     .orderBy(asc(messages.index))
-    .all();
+    .all()
+    .map(toMessage);
 }
 
 // Runs inside the message mutation's transaction, including any outer checkpoint.
@@ -397,12 +412,15 @@ export function appendMessage(
         index,
         role: message.role,
         parts: message.parts,
+        partsFormat: CURRENT_PARTS_FORMAT,
         contextTokens: message.contextTokens ?? null,
         createdAt: opts.createdAt ?? new Date(),
       })
       .run();
     advanceTranscriptRevision(db, sessionId);
-    return db.select().from(messages).where(eq(messages.id, id)).get() as Message;
+    return toMessage(
+      db.select().from(messages).where(eq(messages.id, id)).get() as typeof messages.$inferSelect,
+    );
   });
 }
 
@@ -424,6 +442,7 @@ export function updateMessage(
       .update(messages)
       .set({
         parts: update.parts,
+        partsFormat: CURRENT_PARTS_FORMAT,
         ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
       })
       .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))

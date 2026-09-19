@@ -315,6 +315,13 @@ export const messages = sqliteTable(
     role: text("role").$type<SessionMessage["role"]>().notNull(),
     parts: text("parts", { mode: "json" }).$type<SessionMessage["parts"]>().notNull(),
     /**
+     * The format `parts` was written in. Zero marks a row written before parts
+     * were versioned; the transcript format boundary adapts every row to the
+     * current format as it is read. Unrelated to the session's transcript
+     * revision, which counts content changes.
+     */
+    partsFormat: integer("parts_format").notNull().default(0),
+    /**
      * The context footprint once the turn that produced this message settled —
      * its last model call's total tokens. Null for user messages and for
      * assistant messages a provider returned no counts for. The session's live

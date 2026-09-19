@@ -36,6 +36,33 @@ describe("db", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("marks existing messages as the legacy parts format and keeps their parts", () => {
+    migrate(db);
+    // Recreate the immediately preceding schema with an existing conversation.
+    db.$client.run("ALTER TABLE messages DROP COLUMN parts_format");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0043_add_message_parts_format'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    const parts = JSON.stringify([{ type: "text", text: "retained" }]);
+    db.$client
+      .prepare(
+        'INSERT INTO messages (id, session_id, "index", role, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run("m1", "old", 0, "user", parts, 1);
+    migrate(db);
+    const row = db.select().from(messages).get();
+    expect(row?.partsFormat).toBe(0);
+    expect(row?.parts).toEqual([{ type: "text", text: "retained" }]);
+    // The search index still mirrors the message once its table has changed.
+    db.update(messages)
+      .set({ parts: [{ type: "text", text: "pelicans" }] })
+      .run();
+    expect(
+      db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'pelicans'").all(),
+    ).toHaveLength(1);
+  });
+
   it("adds revision zero to existing transcripts and preserves it on repeated migration", () => {
     migrate(db);
     // Recreate the immediately preceding schema with an existing conversation.
