@@ -1981,6 +1981,94 @@ describe("runTurn", () => {
     expect(stored).toContain("@@ -1,1");
   });
 
+  it("drops a generated image's data for the model though its tool is no longer offered", async () => {
+    // No image model on the session and no tools on the turn: the projection
+    // rides the recorded tool name, not what this turn can call.
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "paint" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generate_image",
+            toolCallId: "c1",
+            state: "output-available",
+            input: { prompt: "a heron" },
+            output: { model: "test:paint", image: "data:image/png;base64,PIXELDATA" },
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "a1" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("test:paint");
+    expect(sent).not.toContain("PIXELDATA");
+
+    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
+    expect(stored).toContain("PIXELDATA");
+  });
+
+  it("sends a failed tool call's error text to the model as it was recorded", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "edit" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-edit_file",
+            toolCallId: "c1",
+            state: "output-error",
+            input: { path: "/ws/a.md", old_string: "x", new_string: "y" },
+            errorText: "old_string not found in /ws/a.md",
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "a1" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain('"type":"error-text","value":"old_string not found in /ws/a.md"');
+  });
+
   it("rejects before persisting anything when the model cannot be resolved", async () => {
     const llmClients: LlmClients = {
       resolveModel: () => {

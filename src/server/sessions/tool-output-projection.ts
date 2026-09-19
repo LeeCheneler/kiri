@@ -1,4 +1,12 @@
-import type { JSONValue } from "ai";
+import {
+  type JSONValue,
+  type ToolSet,
+  type UIMessage,
+  getToolName,
+  isToolUIPart,
+  jsonSchema,
+  tool,
+} from "ai";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import { compactImageOutput } from "./image-tool-results.ts";
 import { toonEncodeIfSmaller } from "./toon-tool-results.ts";
@@ -44,4 +52,29 @@ export function toolModelOutput(name: string, output: unknown): ProjectedToolOut
   const toon = toonEncodeIfSmaller(projected);
   if (toon !== undefined) return { type: "text", value: toon };
   return { type: "json", value: (projected ?? null) as JSONValue };
+}
+
+/**
+ * The conversion hooks for sending `history` to the model: one entry per tool
+ * the history names, each carrying only `toModelOutput`. Built from the
+ * history rather than from the tools a turn is offered, so a result keeps its
+ * projection after its tool is switched off, unconfigured, or disconnected.
+ * The entries have nothing to execute and are meant for
+ * `convertToModelMessages` alone — serialising a result never offers its tool.
+ * The history itself is left untouched, so what is stored keeps every payload
+ * for the app to render.
+ */
+export function historyProjectionTools(history: UIMessage[]): ToolSet {
+  const tools: ToolSet = {};
+  for (const message of history) {
+    for (const part of message.parts) {
+      if (!isToolUIPart(part)) continue;
+      const name = getToolName(part);
+      tools[name] ??= tool({
+        inputSchema: jsonSchema({}),
+        toModelOutput: ({ output }) => toolModelOutput(name, output),
+      });
+    }
+  }
+  return tools;
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { decode } from "@toon-format/toon";
-import { projectToolOutput, toolModelOutput } from "./tool-output-projection.ts";
+import type { UIMessage } from "ai";
+import {
+  historyProjectionTools,
+  projectToolOutput,
+  toolModelOutput,
+} from "./tool-output-projection.ts";
 
 // A uniform array of short-field records — TOON's sweet spot, where it
 // comfortably beats the JSON.
@@ -65,5 +70,59 @@ describe("toolModelOutput", () => {
     expect(sent.type).toBe("text");
     expect(sent.value).not.toContain("@@");
     expect(decode(sent.value as string)).toEqual(records);
+  });
+});
+
+describe("historyProjectionTools", () => {
+  const history: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "go" }] },
+    {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "working" },
+        {
+          type: "tool-write_file",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { path: "/a.txt" },
+          output: { path: "/a.txt", diff: "@@" },
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "linear__search",
+          toolCallId: "c2",
+          state: "output-available",
+          input: {},
+          output: records,
+        },
+        { type: "tool-write_file", toolCallId: "c3", state: "input-available", input: {} },
+      ] as UIMessage["parts"],
+    },
+  ];
+
+  it("carries one projection per tool the history names, built-in or MCP", () => {
+    expect(Object.keys(historyProjectionTools(history)).sort()).toEqual([
+      "linear__search",
+      "write_file",
+    ]);
+  });
+
+  it("projects a result by the name it was recorded under", async () => {
+    const hooks = historyProjectionTools(history);
+    const call = { toolCallId: "c1", input: {} };
+
+    expect(
+      await hooks.write_file?.toModelOutput?.({ ...call, output: { path: "/a.txt", diff: "@@" } }),
+    ).toEqual(toolModelOutput("write_file", { path: "/a.txt", diff: "@@" }));
+    expect(await hooks.linear__search?.toModelOutput?.({ ...call, output: records })).toEqual(
+      toolModelOutput("linear__search", records),
+    );
+  });
+
+  it("gives a hook nothing to execute", () => {
+    for (const hook of Object.values(historyProjectionTools(history))) {
+      expect(hook.execute).toBeUndefined();
+    }
   });
 });

@@ -25,7 +25,6 @@ import {
   withoutContextCalibration,
 } from "./context-calibration.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
-import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type InboxDelivery,
   type SenderLabelResolver,
@@ -47,9 +46,8 @@ import {
   updateMessage,
 } from "./store.ts";
 import type { StreamSink } from "./stream-registry.ts";
-import { toonEncodeToolResults } from "./toon-tool-results.ts";
+import { historyProjectionTools } from "./tool-output-projection.ts";
 import type { TurnLease, TurnSettlement } from "./turn-lifecycle.ts";
-import { stripWriteToolDiffs } from "./write-tool-diffs.ts";
 
 export interface RunTurnDeps {
   /** Shared by the prompt builder and mutation tools; receipts survive approval pauses. */
@@ -549,13 +547,10 @@ async function streamCore(
             inputSchema: await asSchema(t.inputSchema).jsonSchema,
           })),
         );
-        const modelHistory = toonEncodeToolResults(
-          stripWriteToolDiffs(
-            stripImageToolResults(withoutContextCalibration(historySinceCheckpoint(history))),
-          ),
-        );
+        const modelHistory = withoutContextCalibration(historySinceCheckpoint(history));
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),
+          { tools: historyProjectionTools(modelHistory) },
         );
         const incomingMessages =
           incomingMessageCount > 0 ? history.slice(-incomingMessageCount) : [];
