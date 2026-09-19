@@ -18,12 +18,14 @@ import { type LlmClients, type LlmModel, effortProviderOptions } from "../llm/in
 import { compactContext } from "./compact-context.ts";
 import {
   type ContextCalibration,
+  applicableCalibration,
   contextSnapshot,
   measuredContextTokens,
   savedContextCalibration,
   withContextCalibration,
   withoutContextCalibration,
 } from "./context-calibration.ts";
+import { contextLimits, decideHandoff, decideStep, decideSummary } from "./context-policy.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
 import {
   type InboxDelivery,
@@ -36,7 +38,7 @@ import {
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
 import { createPersistenceBarrier } from "./persistence-barrier.ts";
-import { contextBudget, estimateContextTokens, historySinceCheckpoint } from "./session-context.ts";
+import { estimateContextTokens, historySinceCheckpoint } from "./session-context.ts";
 import {
   type Message,
   type Session,
@@ -534,15 +536,7 @@ async function streamCore(
         const offeredTools = typeof tools === "function" ? tools({ writer }) : tools;
         const turnTools = offeredTools === undefined ? undefined : withLiveProjection(offeredTools);
         const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
-        const thinking = providerOptions?.anthropic?.thinking;
-        const reasoningTokens =
-          thinking &&
-          typeof thinking === "object" &&
-          !Array.isArray(thinking) &&
-          typeof thinking.budgetTokens === "number"
-            ? thinking.budgetTokens
-            : 0;
-        const budget = contextBudget(contextWindow, reasoningTokens);
+        const limits = contextLimits(contextWindow, providerOptions);
         const toolSchemas = await Promise.all(
           Object.entries(turnTools ?? {}).map(async ([name, t]) => ({
             name,
@@ -565,7 +559,6 @@ async function streamCore(
         let previousRequest: Omit<ContextCalibration, "inputTokens"> | undefined;
         let checkpointMessages: ModelMessage[] = [];
         let compactedThrough = 0;
-        const compactionThreshold = Math.floor(budget.workInputTokens * 0.85);
         const prepareContext = (
           messages: ModelMessage[],
           system: string | undefined,
@@ -579,13 +572,11 @@ async function streamCore(
             messages,
             tools: handoff ? [] : toolSchemas,
           });
-          const tokens = measuredContextTokens(snapshot, calibration);
           return {
             messages,
             snapshot,
             estimate: snapshot.estimate,
-            tokens,
-            fits: tokens <= (handoff ? budget.handoffInputTokens : budget.workInputTokens),
+            tokens: measuredContextTokens(snapshot, calibration),
           };
         };
         result = streamText({
@@ -647,20 +638,22 @@ async function streamCore(
             let delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
             let current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
             let prepared = prepareContext(current, system, false);
-            // Before any work, summarize only the history preceding the incoming
-            // messages. Later boundaries summarize completed tool steps as well.
-            const beforeTurn = stepNumber === 0 && incomingMessageCount > 0;
-            const summaryMessages = beforeTurn ? current.slice(0, previousMessageCount) : current;
-            // An unanswered approval must remain a real tool part for its later resume.
-            // Summarizing history cannot bring fixed instructions/tools below the
-            // target. In that case, keep working while the full request still fits.
-            if (
-              !hasPendingApprovals &&
-              summaryMessages.length > 0 &&
-              estimateContextTokens({ system, messages: [], tools: toolSchemas }) <
-                compactionThreshold &&
-              prepared.tokens >= compactionThreshold
-            ) {
+            // Reads the request as it stands when asked: a summary replaces it.
+            const decide = (compacted: boolean) =>
+              decideStep({
+                limits,
+                requestTokens: prepared.tokens,
+                fixedTokens: estimateContextTokens({ system, messages: [], tools: toolSchemas }),
+                pendingApprovals: hasPendingApprovals,
+                stepNumber,
+                incomingMessageCount,
+                previousMessageCount,
+                messageCount: current.length,
+                compacted,
+              });
+            let decision = decide(false);
+            if (decision.action === "compact") {
+              const summaryMessages = current.slice(0, decision.summarise);
               writer.write({
                 type: "data-compaction",
                 data: { status: "started" },
@@ -673,14 +666,9 @@ async function streamCore(
                   model: session.model,
                   messages: summaryMessages,
                   system,
-                  inputBudget: budget.handoffInputTokens,
-                  summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
-                  calibration:
-                    calibration?.version === prepared.snapshot.version &&
-                    calibration.model === prepared.snapshot.model &&
-                    calibration.optionsHash === prepared.snapshot.optionsHash
-                      ? calibration
-                      : undefined,
+                  inputBudget: limits.handoffInputTokens,
+                  summaryBudget: limits.summaryBudget,
+                  calibration: applicableCalibration(calibration, prepared.snapshot),
                   abortSignal: signal,
                 });
               } finally {
@@ -690,7 +678,7 @@ async function streamCore(
                   transient: true,
                 });
               }
-              if (checkpoint && beforeTurn) {
+              if (checkpoint && decision.carryIncoming) {
                 // Save the excluded inputs with the checkpoint so reloads and
                 // approval continuations retain the same request boundary.
                 checkpoint.data.pendingMessages = [
@@ -715,16 +703,18 @@ async function streamCore(
                     ),
                   )
                 : [];
-              const summaryEstimate = estimateContextTokens({
-                system,
-                messages: summarized,
-                tools: toolSchemas,
+              const summary = decideSummary({
+                limits,
+                produced: checkpoint !== null,
+                summaryEstimate: estimateContextTokens({
+                  system,
+                  messages: summarized,
+                  tools: toolSchemas,
+                }),
+                previousEstimate: prepared.estimate,
               });
-              if (
-                !checkpoint ||
-                summaryEstimate >= compactionThreshold ||
-                summaryEstimate >= prepared.estimate
-              ) {
+              // The policy already stops without a summary; the null check narrows the type.
+              if (!checkpoint || summary === "stop") {
                 contextLimitReached = true;
                 contextHandoffMessages = current;
                 throw contextLimitError;
@@ -756,6 +746,7 @@ async function streamCore(
               delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
               current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
               prepared = prepareContext(current, system, false);
+              decision = decide(true);
             }
             const receipt = instructionContext?.receipt();
             if (receipt) {
@@ -765,7 +756,7 @@ async function streamCore(
                 data: receipt,
               });
             }
-            if (!prepared.fits) {
+            if (decision.action === "stop") {
               contextLimitReached = true;
               contextHandoffMessages = current;
               throw contextLimitError;
@@ -854,7 +845,7 @@ async function streamCore(
           system,
           true,
         );
-        if (!handoff.fits) {
+        if (decideHandoff({ limits, handoffTokens: handoff.tokens }) === "stop") {
           writer.write({ type: "finish", finishReason: "stop" });
           return;
         }
