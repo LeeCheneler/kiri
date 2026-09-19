@@ -9,7 +9,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useSessionArticlesLive } from "../state/articles.ts";
+import { useLiveInvalidation } from "../state/live-sync.tsx";
 import { createQueryClient } from "../state/query-client.ts";
 import { SessionArticleActions, SessionArticleContent } from "./session-article-page.tsx";
 
@@ -19,7 +19,7 @@ const SESSION_ID = "abc12345-0000-0000-0000-000000000000";
 
 // The root-level article live bridge, as `<LiveSync>` mounts it in the app.
 const Live = () => {
-  useSessionArticlesLive();
+  useLiveInvalidation();
   return null;
 };
 

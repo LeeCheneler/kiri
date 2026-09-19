@@ -34,7 +34,6 @@ const RECONNECT_MAX_MS = 30_000;
 
 interface Subscriber {
   types: Set<KiriEventType>;
-  filter: ((event: KiriEvent) => boolean) | undefined;
   onEvent: ((event: KiriEvent) => void) | undefined;
   onReconnect: (() => void) | undefined;
 }
@@ -47,8 +46,8 @@ const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
 
 /**
  * Owns the single `EventSource('/api/events')` for the app and fans incoming
- * events out to subscribers registered via `useLiveSync`. On every reconnect,
- * every subscriber's `refetch` fires so the UI recovers from any events missed
+ * events out to subscribers registered via `useLiveEvent`. On every reconnect,
+ * every `useLiveReconnect` handler fires so the UI recovers from any events missed
  * while disconnected. Only the page's first open is silent — surfaces fetch on
  * mount — and a stream rebuilt after a failure counts as a reconnect even when
  * the original never opened.
@@ -141,7 +140,6 @@ export function LiveEventsProvider({
           const parsed = JSON.parse(event.data) as KiriEvent;
           for (const sub of subscribersRef.current) {
             if (!sub.types.has(parsed.type)) continue;
-            if (sub.filter && !sub.filter(parsed)) continue;
             sub.onEvent?.(parsed);
           }
         };
@@ -183,50 +181,9 @@ export function LiveEventsProvider({
 }
 
 /**
- * Subscribe a surface to the live events bus. `refetch` runs whenever an
- * event whose `type` is in `on` arrives (and passes `filter`, when given),
- * and whenever the underlying `EventSource` reconnects.
- *
- * Throws when used outside `<LiveEventsProvider>`.
- */
-export function useLiveSync<T extends KiriEventType>(opts: {
-  on: readonly T[];
-  filter?: (event: Extract<KiriEvent, { type: T }>) => boolean;
-  refetch: () => void;
-}): void {
-  const ctx = useContext(LiveEventsContext);
-  if (!ctx) throw new Error("useLiveSync must be used inside <LiveEventsProvider>");
-
-  const { on, filter, refetch } = opts;
-
-  // Refs let the effect read the latest closures without re-subscribing.
-  const refetchRef = useRef(refetch);
-  refetchRef.current = refetch;
-  const filterRef = useRef(filter);
-  filterRef.current = filter;
-
-  // Stable key from the sorted type list so callers can pass a fresh
-  // array literal on each render without churning the subscription.
-  const key = [...on].sort().join("|");
-
-  useEffect(() => {
-    const types = new Set<KiriEventType>(key.split("|") as KiriEventType[]);
-    const fire = () => refetchRef.current();
-    return ctx.subscribe({
-      types,
-      filter: filterRef.current
-        ? (event) => (filterRef.current as (event: KiriEvent) => boolean)(event)
-        : undefined,
-      onEvent: fire,
-      onReconnect: fire,
-    });
-  }, [ctx, key]);
-}
-
-/**
  * Subscribe a side-effecting handler to live events. `handler` is called
  * with the typed payload for every dispatched event whose `type` is in
- * `on`. Reconnects do not replay handlers — pair with `useLiveSync` if a
+ * `on`. Reconnects do not replay handlers — pair with `useLiveReconnect` if a
  * surface also needs to recover state on (re)connect.
  *
  * Throws when used outside `<LiveEventsProvider>`.
@@ -249,7 +206,6 @@ export function useLiveEvent<T extends KiriEventType>(opts: {
     const types = new Set<KiriEventType>(key.split("|") as KiriEventType[]);
     return ctx.subscribe({
       types,
-      filter: undefined,
       onEvent: (event) => (handlerRef.current as (event: KiriEvent) => void)(event),
       onReconnect: undefined,
     });
@@ -275,7 +231,6 @@ export function useLiveReconnect(onReconnect: () => void): void {
   useEffect(() => {
     return ctx.subscribe({
       types: new Set(),
-      filter: undefined,
       onEvent: undefined,
       onReconnect: () => handlerRef.current(),
     });

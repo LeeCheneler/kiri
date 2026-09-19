@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchLatestRelease, fetchVersion } from "../../api.ts";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
+import { latestReleaseKey, versionKey } from "../../state/query-keys.ts";
 
 /**
  * Compare two semver-ish strings (e.g. "v0.1.0" or "0.2.3"). Returns -1
@@ -43,8 +44,8 @@ const parseVersion = (raw: string): number[] | null => {
  * footer doesn't re-fetch as the rail remounts across navigations.
  */
 export function VersionInfo() {
-  const { data: version } = useQuery({ queryKey: ["version"], queryFn: fetchVersion });
-  const { data: latest } = useQuery({ queryKey: ["latest-release"], queryFn: fetchLatestRelease });
+  const { data: version } = useQuery({ queryKey: versionKey, queryFn: fetchVersion });
+  const { data: latest } = useQuery({ queryKey: latestReleaseKey, queryFn: fetchLatestRelease });
 
   const current = version?.version ?? null;
   if (current === null) return null;

@@ -1,35 +1,37 @@
-import { useActivityFeedLive, useArticleFeedLive } from "./activity.ts";
-import { useRunArticlesLive, useSessionArticlesLive } from "./articles.ts";
-import { useConfigHealthLive } from "./config.ts";
-import { useMcpServersLive, useMcpToolsLive } from "./mcp.ts";
-import { useMemoriesLive } from "./memories.ts";
-import { useProjectTasksLive } from "./project-tasks.ts";
-import { useProjectsLive } from "./projects.ts";
-import { useRunFeedsLive, useRunWindowsLive, useRunsLive } from "./runs.ts";
-import { useSessionsLive } from "./sessions.ts";
-import { useWorkflowsLive } from "./workflows.ts";
+import { useQueryClient } from "@tanstack/react-query";
+import { KIRI_EVENT_TYPES } from "../../shared/api/events.ts";
+import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
+import { queryKeysFor } from "./invalidation.ts";
+import { STATIC_KEY_ROOTS } from "./query-keys.ts";
 
 /**
- * Bridges the live event bus to the query cache: mounts each resource's
- * live-sync hook so server events invalidate the queries they affect.
- * Renders nothing. Place once at the app root, inside both
- * `<QueryClientProvider>` and `<LiveEventsProvider>`.
+ * Bridge the live event bus to the query cache: every server event invalidates
+ * the queries `queryKeysFor` names for it, mounted or not. A reconnect
+ * invalidates everything an event could have changed, recovering whatever was
+ * announced while the stream was down.
+ */
+export function useLiveInvalidation(): void {
+  const queryClient = useQueryClient();
+
+  useLiveEvent({
+    on: KIRI_EVENT_TYPES,
+    handler: (event) => {
+      for (const queryKey of queryKeysFor(event)) void queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  useLiveReconnect(() => {
+    void queryClient.invalidateQueries({
+      predicate: (query) => !STATIC_KEY_ROOTS.includes(String(query.queryKey[0])),
+    });
+  });
+}
+
+/**
+ * Mounts `useLiveInvalidation`. Renders nothing. Place once at the app root,
+ * inside both `<QueryClientProvider>` and `<LiveEventsProvider>`.
  */
 export function LiveSync(): null {
-  useRunsLive();
-  useRunWindowsLive();
-  useRunFeedsLive();
-  useActivityFeedLive();
-  useArticleFeedLive();
-  useWorkflowsLive();
-  useSessionsLive();
-  useSessionArticlesLive();
-  useRunArticlesLive();
-  useMemoriesLive();
-  useProjectsLive();
-  useProjectTasksLive();
-  useConfigHealthLive();
-  useMcpServersLive();
-  useMcpToolsLive();
+  useLiveInvalidation();
   return null;
 }

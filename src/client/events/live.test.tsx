@@ -2,13 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { act, render } from "@testing-library/react";
 import { useState } from "react";
 import { CONNECTING, captureEventSources } from "../../../tests/setup/fake-event-source.ts";
-import {
-  type KiriEvent,
-  LiveEventsProvider,
-  useLiveEvent,
-  useLiveReconnect,
-  useLiveSync,
-} from "./live.tsx";
+import { type KiriEvent, LiveEventsProvider, useLiveEvent, useLiveReconnect } from "./live.tsx";
 
 // The reconnect is a real timer, so poll rather than sleep a fixed guess.
 const waitFor = async (predicate: () => boolean, timeoutMs = 500): Promise<void> => {
@@ -17,20 +11,6 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 500): Promise<void>
     if (Date.now() > deadline) throw new Error("waitFor timed out");
     await Bun.sleep(2);
   }
-};
-
-const Probe = ({
-  on,
-  filter,
-  refetch,
-}: {
-  on: KiriEvent["type"][];
-  filter?: (event: KiriEvent) => boolean;
-  refetch: () => void;
-}) => {
-  // biome-ignore lint/suspicious/noExplicitAny: filter is narrowed in the public API; tests pass plain functions.
-  useLiveSync({ on, filter: filter as any, refetch });
-  return null;
 };
 
 describe("LiveEventsProvider", () => {
@@ -222,203 +202,6 @@ describe("LiveEventsProvider", () => {
   });
 });
 
-describe("useLiveSync", () => {
-  it("receives a worker settlement signal from the live stream", () => {
-    const { factory, sources } = captureEventSources();
-    const refetch = mock(() => {});
-    render(
-      <LiveEventsProvider factory={factory}>
-        <Probe on={["session.turn.settled"]} refetch={refetch} />
-      </LiveEventsProvider>,
-    );
-    act(() => {
-      sources[0]?.emit({
-        type: "session.turn.settled",
-        id: "worker",
-        status: "idle",
-        projectId: null,
-        parentSessionId: null,
-      });
-    });
-    expect(refetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("calls refetch when a subscribed event type fires", () => {
-    const { factory, sources } = captureEventSources();
-    const refetch = mock(() => {});
-    render(
-      <LiveEventsProvider factory={factory}>
-        <Probe on={["run.started"]} refetch={refetch} />
-      </LiveEventsProvider>,
-    );
-
-    act(() => {
-      sources[0]?.emit({ type: "run.started", id: "r1" });
-    });
-
-    expect(refetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("ignores event types the subscriber didn't ask for", () => {
-    const { factory, sources } = captureEventSources();
-    const refetch = mock(() => {});
-    render(
-      <LiveEventsProvider factory={factory}>
-        <Probe on={["workflow.added"]} refetch={refetch} />
-      </LiveEventsProvider>,
-    );
-
-    act(() => {
-      sources[0]?.emit({ type: "run.started", id: "r1" });
-    });
-
-    expect(refetch).toHaveBeenCalledTimes(0);
-  });
-
-  it("narrows by filter when one is provided", () => {
-    const { factory, sources } = captureEventSources();
-    const refetch = mock(() => {});
-    render(
-      <LiveEventsProvider factory={factory}>
-        <Probe
-          on={["run.updated"]}
-          filter={(e) => e.type === "run.updated" && e.id === "match"}
-          refetch={refetch}
-        />
-      </LiveEventsProvider>,
-    );
-
-    act(() => {
-      sources[0]?.emit({ type: "run.updated", id: "other", status: "running" });
-    });
-    expect(refetch).toHaveBeenCalledTimes(0);
-
-    act(() => {
-      sources[0]?.emit({ type: "run.updated", id: "match", status: "ok" });
-    });
-    expect(refetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("fires every subscriber's refetch on reconnect (open after first)", () => {
-    const { factory, sources } = captureEventSources();
-    const a = mock(() => {});
-    const b = mock(() => {});
-    render(
-      <LiveEventsProvider factory={factory}>
-        <Probe on={["run.started"]} refetch={a} />
-        <Probe on={["workflow.added"]} refetch={b} />
-      </LiveEventsProvider>,
-    );
-
-    act(() => {
-      sources[0]?.triggerOpen();
-    });
-    expect(a).toHaveBeenCalledTimes(0);
-    expect(b).toHaveBeenCalledTimes(0);
-
-    act(() => {
-      sources[0]?.triggerOpen();
-    });
-    expect(a).toHaveBeenCalledTimes(1);
-    expect(b).toHaveBeenCalledTimes(1);
-  });
-
-  it("resyncs when a stream rebuilt after a failed initial connect opens", async () => {
-    const { factory, sources } = captureEventSources();
-    const refetch = mock(() => {});
-    render(
-      <LiveEventsProvider factory={factory} reconnectBaseMs={1}>
-        <Probe on={["run.started"]} refetch={refetch} />
-      </LiveEventsProvider>,
-    );
-
-    // The first stream is abandoned before it ever opens, so events published
-    // between mount and the rebuild's open were never delivered.
-    act(() => sources[0]?.triggerError());
-    await waitFor(() => sources.length === 2);
-
-    act(() => sources[1]?.triggerOpen());
-    expect(refetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses the latest refetch and filter without re-subscribing", () => {
-    const { factory, sources } = captureEventSources();
-    const a = mock(() => {});
-    const b = mock(() => {});
-
-    const Toggle = () => {
-      const [which, setWhich] = useState<"a" | "b">("a");
-      const refetch = which === "a" ? a : b;
-      const filter = (e: KiriEvent): boolean =>
-        e.type === "run.updated" && e.id === (which === "a" ? "first" : "second");
-      return (
-        <>
-          <Probe on={["run.updated"]} filter={filter} refetch={refetch} />
-          <button type="button" onClick={() => setWhich("b")}>
-            swap
-          </button>
-        </>
-      );
-    };
-
-    const ui = render(
-      <LiveEventsProvider factory={factory}>
-        <Toggle />
-      </LiveEventsProvider>,
-    );
-
-    act(() => {
-      sources[0]?.emit({ type: "run.updated", id: "first", status: "running" });
-    });
-    expect(a).toHaveBeenCalledTimes(1);
-    expect(b).toHaveBeenCalledTimes(0);
-
-    act(() => {
-      ui.container.querySelector("button")?.click();
-    });
-    act(() => {
-      sources[0]?.emit({ type: "run.updated", id: "first", status: "running" });
-    });
-    expect(a).toHaveBeenCalledTimes(1);
-    expect(b).toHaveBeenCalledTimes(0);
-
-    act(() => {
-      sources[0]?.emit({ type: "run.updated", id: "second", status: "ok" });
-    });
-    expect(b).toHaveBeenCalledTimes(1);
-  });
-
-  it("removes the subscriber when its component unmounts", () => {
-    const { factory, sources } = captureEventSources();
-    const refetch = mock(() => {});
-
-    const ui = render(
-      <LiveEventsProvider factory={factory}>
-        <Probe on={["run.started"]} refetch={refetch} />
-      </LiveEventsProvider>,
-    );
-
-    act(() => {
-      ui.rerender(
-        <LiveEventsProvider factory={factory}>
-          <p>gone</p>
-        </LiveEventsProvider>,
-      );
-    });
-
-    act(() => {
-      sources[0]?.emit({ type: "run.started", id: "r1" });
-    });
-    expect(refetch).toHaveBeenCalledTimes(0);
-  });
-
-  it("throws when used outside the provider", () => {
-    expect(() => render(<Probe on={["run.started"]} refetch={() => {}} />)).toThrow(
-      /inside <LiveEventsProvider>/,
-    );
-  });
-});
-
 const EventProbe = ({
   on,
   handler,
@@ -584,6 +367,42 @@ describe("useLiveReconnect", () => {
       sources[0]?.triggerOpen();
     });
     expect(onReconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("fires every subscriber on reconnect", () => {
+    const { factory, sources } = captureEventSources();
+    const a = mock(() => {});
+    const b = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory}>
+        <ReconnectProbe onReconnect={a} />
+        <ReconnectProbe onReconnect={b} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => sources[0]?.triggerOpen());
+    act(() => sources[0]?.triggerOpen());
+
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires when a stream rebuilt after a failed initial connect opens", async () => {
+    const { factory, sources } = captureEventSources();
+    const onReconnect = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={1}>
+        <ReconnectProbe onReconnect={onReconnect} />
+      </LiveEventsProvider>,
+    );
+
+    // The first stream is abandoned before it ever opens, so events published
+    // between mount and the rebuild's open were never delivered.
+    act(() => sources[0]?.triggerError());
+    await waitFor(() => sources.length === 2);
+
+    act(() => sources[1]?.triggerOpen());
+    expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 
   it("ignores dispatched events — only reconnects trigger the handler", () => {

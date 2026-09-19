@@ -297,7 +297,7 @@ function ServerCard({
  * state, revealing under each connected one its tools, each carrying an
  * Always allow / Ask / Off control. Setting a permission persists it and is
  * enforced from the next turn — an "Off" tool is never offered to the model.
- * Live-refreshes via `useMcpToolsLive`, so a completed sign-in fills a
+ * Live-refreshes via `<LiveSync>`, so a completed sign-in fills a
  * server's tools in.
  */
 export function McpTools() {

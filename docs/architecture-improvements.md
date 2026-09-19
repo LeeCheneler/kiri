@@ -146,7 +146,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Capping a console snapshot does not bound a buffer containing every snapshot. Full transcript clones, accumulated frames, and subscriber queues can grow for the lifetime of a long turn. Bounds must preserve durable content rather than discard arbitrary frames.
 
-- [ ] **25 — Make event invalidation explicit and complete**
+- [x] **25 — Make event invalidation explicit and complete**
 
   **What:** Once scheduling belongs to the runtime, make UI events describe committed changes. Include parent/project identity where useful and maintain an auditable event-to-query-key mapping. Cover mutations from HTTP and tools, deletion/transfer of owners, and reconnect recovery.
 

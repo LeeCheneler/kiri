@@ -5,13 +5,14 @@ import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
-import { useWorkflows, useWorkflowsLive } from "./workflows.ts";
+import { useWorkflows } from "./workflows.ts";
 
 const workflow = (name: string) => ({ name, steps: [] });
 
 const Probe = () => {
-  useWorkflowsLive();
+  useLiveInvalidation();
   const { data } = useWorkflows();
   return (
     <ul>

@@ -7,6 +7,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { cancelSession, createSession, fetchSessionsPage } from "../api.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
 import {
   useModels,
@@ -14,7 +15,6 @@ import {
   useRefreshSessionDetail,
   useSession,
   useSessionsFeed,
-  useSessionsLive,
   useTruncateSessionDetail,
 } from "./sessions.ts";
 
@@ -44,9 +44,9 @@ const ModelsProbe = () => {
   return <p>{data ? data.models.map((m) => m.id).join(",") : "loading"}</p>;
 };
 
-// Probe whose rendered text is the session's model, kept live by useSessionsLive.
+// Probe whose rendered text is the session's model, kept live by useLiveInvalidation.
 const SessionProbe = ({ id }: { id: string }) => {
-  useSessionsLive();
+  useLiveInvalidation();
   const { data } = useSession(id);
   return <p>{data ? data.session.model : "loading"}</p>;
 };
@@ -67,7 +67,7 @@ const TruncateProbe = ({ id, messageId }: { id: string; messageId: string }) => 
 };
 
 const FeedProbe = () => {
-  useSessionsLive();
+  useLiveInvalidation();
   const { data } = useSessionsFeed();
   return <p>{data ? data.map((s) => s.id).join(",") || "empty" : "loading"}</p>;
 };

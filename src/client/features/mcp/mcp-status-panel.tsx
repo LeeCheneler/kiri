@@ -8,8 +8,8 @@ import { useMcpServers } from "../../state/mcp.ts";
  * needing OAuth sign-in as a warning Notice with a Connect action that opens the
  * sign-in flow in a new tab, one that failed to connect as a negative Notice with
  * the reason. Renders nothing while loading or when every server is connected, so
- * a healthy workspace sees no banner. Live-refreshes via `useMcpServersLive`
- * (mounted in `<LiveSync>`), so a completed sign-in clears the banner.
+ * a healthy workspace sees no banner. Live-refreshes via `<LiveSync>`,
+ * so a completed sign-in clears the banner.
  */
 export function McpStatusPanel() {
   const servers = (useMcpServers().data?.servers ?? []).filter((s) => s.state !== "connected");

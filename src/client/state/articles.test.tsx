@@ -9,13 +9,8 @@ import {
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import {
-  useArticle,
-  useRunArticlesLive,
-  useSessionArticle,
-  useSessionArticles,
-  useSessionArticlesLive,
-} from "./articles.ts";
+import { useArticle, useSessionArticle, useSessionArticles } from "./articles.ts";
+import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
 
 const Probe = ({ runId, slug }: { runId: string; slug: string }) => {
@@ -32,8 +27,7 @@ const renderProbe = (runId: string, slug: string) =>
 
 // The root-level article live bridges, as `<LiveSync>` mounts them in the app.
 const Live = () => {
-  useSessionArticlesLive();
-  useRunArticlesLive();
+  useLiveInvalidation();
   return null;
 };
 
