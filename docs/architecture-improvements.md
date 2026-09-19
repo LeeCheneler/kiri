@@ -140,7 +140,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Indexes grow with retained work and consume fixed context that transcript compaction cannot remove. Saved knowledge should remain discoverable without occupying every request.
 
-- [ ] **24 — Bound stream replay and transient progress retention**
+- [x] **24 — Bound stream replay and transient progress retention**
 
   **What:** Measure retained replay state, keep only the necessary latest transient progress, and define replay byte limits with a valid snapshot/resume boundary using transcript revision and turn identity. Give slow readers an explicit recovery path. Verify reconnect during tools, approvals, checkpoints, and settlement.
 

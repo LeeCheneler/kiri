@@ -31,11 +31,17 @@ import type { UIMessageChunk } from "ai";
  * step would be. A reader whose queue outgrows its own limit has stopped
  * keeping up: it is ended too, and rejoins from the saved transcript.
  *
- * An entry lives exactly as long as the turn's stream: opened when capture
- * starts, dropped when it closes. Once a turn has settled there is no entry, so
- * `subscribe` returns `null` and the resume route answers 204 — the settled turn
- * is read back from storage instead. Nothing survives a restart; an interrupted
- * turn is swept to `failed` at startup.
+ * Every reader is one of these, the client that started the turn included
+ * (`StreamSink.reader`), so there is one bounded path out of a turn.
+ *
+ * An entry is listed exactly as long as the turn runs: opened when capture
+ * starts, dropped when the turn settles (`close`). Once a turn has settled
+ * there is no entry, so `subscribe` returns `null` and the resume route answers
+ * 204 — the settled turn is read back from storage instead. Readers already
+ * attached are a separate matter: a turn settles inside its stream's last
+ * moments, with its closing frames still to come, so they stay attached until
+ * the stream itself is exhausted (`end`). Nothing survives a restart; an
+ * interrupted turn is swept to `failed` at startup.
  */
 const encoder = new TextEncoder();
 
@@ -51,8 +57,10 @@ export interface StreamRegistryOptions {
   readerLimitBytes?: number;
 }
 
-/** A captured turn stream: append chunks as they arrive, then close it once. */
+/** A captured turn stream: append chunks as they arrive, close it as the turn settles, end it when the stream runs out. */
 export interface StreamSink {
+  /** A reader from the stream's first frame, for the client that started the turn. */
+  reader(): ReadableStream<Uint8Array>;
   /** Buffer one chunk as an SSE frame and push it to every current reader. */
   push(chunk: UIMessageChunk): void;
   /**
@@ -61,8 +69,10 @@ export interface StreamSink {
    * chunk that ends a saved step and the next one.
    */
   checkpoint(transcriptRevision: number): void;
-  /** End the stream: close every reader and drop the session's entry. */
+  /** The turn has settled: drop the session's entry, so no reader joins from here on. */
   close(): void;
+  /** The stream is exhausted: end every reader still attached. Implies `close`. */
+  end(): void;
 }
 
 export interface StreamRegistry {
@@ -160,6 +170,32 @@ export function createStreamRegistry(options: StreamRegistryOptions = {}): Strea
     readers.clear();
   };
 
+  const attach = (entry: Entry): ReadableStream<Uint8Array> => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    return new ReadableStream<Uint8Array>(
+      {
+        start(c) {
+          controller = c;
+          if (!entry.replayable) {
+            entry.held.add(c);
+            return;
+          }
+          // Replay what's buffered, then follow live. `start` runs synchronously,
+          // so the replay and the subscription register in one tick — no frame
+          // slips between them, and none is delivered twice.
+          if (entry.start) c.enqueue(entry.start.bytes);
+          for (const frame of entry.buffer) c.enqueue(frame.bytes);
+          entry.subs.add(c);
+        },
+        cancel() {
+          entry.subs.delete(controller);
+          entry.held.delete(controller);
+        },
+      },
+      readerQueue,
+    );
+  };
+
   return {
     open(sessionId, transcriptRevision) {
       const entry: Entry = {
@@ -173,7 +209,12 @@ export function createStreamRegistry(options: StreamRegistryOptions = {}): Strea
         held: new Set(),
       };
       entries.set(sessionId, entry);
+      const close = (): void => {
+        // A newer turn may have replaced this entry; only drop our own.
+        if (entries.get(sessionId) === entry) entries.delete(sessionId);
+      };
       return {
+        reader: () => attach(entry),
         push(chunk) {
           const frame: Frame = { bytes: encodeFrame(chunk) };
           if (chunk.type === "start") entry.start = frame;
@@ -193,11 +234,11 @@ export function createStreamRegistry(options: StreamRegistryOptions = {}): Strea
           clearBuffer(entry);
           endAll(entry.held);
         },
-        close() {
+        close,
+        end() {
+          close();
           endAll(entry.subs);
           endAll(entry.held);
-          // A newer turn may have replaced this entry; only drop our own.
-          if (entries.get(sessionId) === entry) entries.delete(sessionId);
         },
       };
     },
@@ -206,29 +247,7 @@ export function createStreamRegistry(options: StreamRegistryOptions = {}): Strea
       const entry = entries.get(sessionId);
       if (!entry) return null;
       if (entry.baseRevision !== transcriptRevision) return endedStream();
-      let controller!: ReadableStreamDefaultController<Uint8Array>;
-      return new ReadableStream<Uint8Array>(
-        {
-          start(c) {
-            controller = c;
-            if (!entry.replayable) {
-              entry.held.add(c);
-              return;
-            }
-            // Replay what's buffered, then follow live. `start` runs synchronously,
-            // so the replay and the subscription register in one tick — no frame
-            // slips between them, and none is delivered twice.
-            if (entry.start) c.enqueue(entry.start.bytes);
-            for (const frame of entry.buffer) c.enqueue(frame.bytes);
-            entry.subs.add(c);
-          },
-          cancel() {
-            entry.subs.delete(controller);
-            entry.held.delete(controller);
-          },
-        },
-        readerQueue,
-      );
+      return attach(entry);
     },
 
     has(sessionId) {

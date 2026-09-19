@@ -1241,8 +1241,8 @@ describe("sessions routes", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/event-stream");
 
-      // Closing lets the reconnected stream reach EOF so its replay reads back.
-      sink.close();
+      // Ending lets the reconnected stream reach EOF so its replay reads back.
+      sink.end();
       expect(await res.text()).toContain("rejoined");
     });
 

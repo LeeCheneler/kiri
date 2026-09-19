@@ -2159,6 +2159,28 @@ describe("runTurn", () => {
     expect(streamRegistry.has("s1")).toBe(false);
   });
 
+  it("sends the client that started the turn every frame, from its start to its finish", async () => {
+    const model = streamingModel([
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Hello" },
+      { type: "text-end", id: "t1" },
+      { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+    ]);
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const sse = await response.text();
+    await done;
+    // The turn settles before its stream's last frame is forwarded; the
+    // response outlives the settle to carry it.
+    expect(sse).toStartWith('data: {"type":"start"');
+    expect(sse).toContain('"delta":"Hello"');
+    expect(sse).toEndWith('data: {"type":"finish","finishReason":"stop"}\n\n');
+  });
+
   it("completes and persists when the client never reads the response", async () => {
     // No consumer reads the streamed response — the client navigated away,
     // reloaded, or dropped the connection. The turn is drained server-side, so

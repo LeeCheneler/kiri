@@ -56,7 +56,7 @@ describe("createStreamRegistry", () => {
     expect(await out.next()).toBe(frame(text("a")));
     sink.push(text("b"));
     expect(await out.next()).toBe(frame(text("b")));
-    sink.close();
+    sink.end();
     expect(await out.next()).toBeUndefined();
   });
 
@@ -70,7 +70,7 @@ describe("createStreamRegistry", () => {
     expect(await out.next()).toBe(frame(text("b")));
     sink.push(text("c"));
     expect(await out.next()).toBe(frame(text("c")));
-    sink.close();
+    sink.end();
     expect(await out.next()).toBeUndefined();
   });
 
@@ -87,7 +87,7 @@ describe("createStreamRegistry", () => {
     expect(await out.next()).toBe(frame(consoleSnapshot("c2", "other call")));
     expect(await out.next()).toBe(frame(text("b")));
     expect(await out.next()).toBe(frame(consoleSnapshot("c1", "one two")));
-    sink.close();
+    sink.end();
     expect(await out.next()).toBeUndefined();
   });
 
@@ -114,7 +114,7 @@ describe("createStreamRegistry", () => {
     const out = frames(reg.subscribe("s1", 2));
     expect(await out.next()).toBe(frame(START));
     expect(await out.next()).toBe(frame(text("unsaved")));
-    sink.close();
+    sink.end();
     expect(await out.next()).toBeUndefined();
   });
 
@@ -174,14 +174,14 @@ describe("createStreamRegistry", () => {
     sink.close();
   });
 
-  it("ends a held reader when the turn settles before the step is saved", async () => {
+  it("ends a held reader when the stream runs out before the step is saved", async () => {
     const reg = createStreamRegistry({ replayLimitBytes: 10 });
     const sink = reg.open("s1", 1);
     sink.push(text("over the limit"));
     const late = frames(reg.subscribe("s1", 1));
     const gone = frames(reg.subscribe("s1", 1));
     await gone.cancel();
-    sink.close();
+    sink.end();
     expect(await late.next()).toBeUndefined();
   });
 
@@ -192,7 +192,7 @@ describe("createStreamRegistry", () => {
     for (let i = 0; i < 10; i += 1) sink.push(snapshot);
     const out = frames(reg.subscribe("s1", 1));
     expect(await out.next()).toBe(frame(snapshot));
-    sink.close();
+    sink.end();
     expect(await out.next()).toBeUndefined();
   });
 
@@ -213,7 +213,7 @@ describe("createStreamRegistry", () => {
     expect(await stalled.next()).toBe(frame(chunk));
     expect(await stalled.next()).toBe(frame(chunk));
     expect(await stalled.next()).toBeUndefined();
-    sink.close();
+    sink.end();
     expect(await reading.next()).toBeUndefined();
   });
 
@@ -228,9 +228,47 @@ describe("createStreamRegistry", () => {
     sink.push(text("b"));
     expect(await one.next()).toBe(frame(text("b")));
     expect(await two.next()).toBe(frame(text("b")));
-    sink.close();
+    sink.end();
     expect(await one.next()).toBeUndefined();
     expect(await two.next()).toBeUndefined();
+  });
+
+  it("serves the turn's own reader from the first frame", async () => {
+    const reg = createStreamRegistry();
+    const sink = reg.open("s1", 1);
+    sink.push(START);
+    sink.push(text("a"));
+    sink.push(FINISH_STEP);
+    sink.checkpoint(2);
+    const own = frames(sink.reader());
+    sink.push(text("b"));
+    // Opened with the stream, it is past needing a replay: it follows live.
+    expect(await own.next()).toBe(frame(START));
+    expect(await own.next()).toBe(frame(text("b")));
+    sink.end();
+    expect(await own.next()).toBeUndefined();
+  });
+
+  it("keeps attached readers through close, delivering the stream's last frames", async () => {
+    const reg = createStreamRegistry();
+    const sink = reg.open("s1", 1);
+    const out = frames(reg.subscribe("s1", 1));
+    sink.push(text("a"));
+    sink.close();
+    // Settled: nobody new joins, but the closing frames still reach the reader.
+    expect(reg.subscribe("s1", 1)).toBeNull();
+    sink.push({ type: "finish" });
+    expect(await out.next()).toBe(frame(text("a")));
+    expect(await out.next()).toBe(frame({ type: "finish" }));
+    sink.end();
+    expect(await out.next()).toBeUndefined();
+  });
+
+  it("end drops an entry that was never closed", () => {
+    const reg = createStreamRegistry();
+    const sink = reg.open("s1", 1);
+    sink.end();
+    expect(reg.has("s1")).toBe(false);
   });
 
   it("close drops the entry, so a later subscribe returns null", () => {
@@ -258,7 +296,7 @@ describe("createStreamRegistry", () => {
     await gone.cancel();
     sink.push(text("a")); // must reach `kept` and not throw on the pruned controller
     expect(await kept.next()).toBe(frame(text("a")));
-    sink.close();
+    sink.end();
     expect(await kept.next()).toBeUndefined();
   });
 

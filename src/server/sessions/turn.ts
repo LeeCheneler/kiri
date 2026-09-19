@@ -5,10 +5,10 @@ import {
   type UIMessage,
   type UIMessageChunk,
   type UIMessageStreamWriter,
+  UI_MESSAGE_STREAM_HEADERS,
   asSchema,
   convertToModelMessages,
   createUIMessageStream,
-  createUIMessageStreamResponse,
   getToolName,
   isToolUIPart,
   streamText,
@@ -228,8 +228,9 @@ type StepSave = number | undefined;
 // and settles — even when no client is reading the response (the user navigated
 // away, reloaded, or dropped the connection). A turn is only ever cancelled by
 // an explicit request through its lease, never by a lost consumer. The sink
-// captures the chunks for a client that reconnects mid-turn; the lease closes
-// it as the turn settles — in step with persistence — not at the stream's end.
+// fans the chunks out to the turn's readers; the lease closes it to new ones as
+// the turn settles — in step with persistence — and the pump ends the readers
+// it has once the stream runs out, the turn's closing frames delivered.
 // The stream saves each step before it forwards the `finish-step` that ends
 // it, so `saves` lines up with those chunks one for one: a save's revision is
 // the transcript a reader can continue from once that chunk has been pushed.
@@ -252,6 +253,7 @@ async function pumpStream(
     // settled through the stream's error path
   } finally {
     reader.releaseLock();
+    sink.end();
   }
 }
 
@@ -510,11 +512,6 @@ async function streamCore(
   const deliveries: InboxDelivery[] = [];
   const deliveredIds = new Set<string>();
 
-  // Open the resumable-stream sink up front so a near-instant reconnect finds it.
-  // The turn captures into it as it drains, and `onFinish` closes it in step with
-  // persistence — so a client that loads the just-settled turn from storage gets a
-  // 204 on resume and never replays it into a duplicate.
-  const sink = lease.openStream(transcriptRevision);
   const saves: StepSave[] = [];
 
   // Assigned synchronously by `execute` below (the SDK invokes it as the stream
@@ -1032,13 +1029,16 @@ async function streamCore(
 
   // Drive the stream server-side so the turn always reaches `onFinish` —
   // persisting and settling — even if the client never reads the response — and
-  // mirror its chunks into the stream registry so a client that reconnects
-  // mid-turn (a reload, a second tab) rejoins the live response. A turn is
-  // cancelled only by an explicit request (through its lease's signal), never
-  // by a dropped connection.
-  const [live, captured] = stream.tee();
-  void pumpStream(captured, sink, saves);
-  const response = createUIMessageStreamResponse({ stream: live });
+  // fan its chunks out through the stream registry: to the client that started
+  // the turn, and to any that reconnects mid-turn (a reload, a second tab). A
+  // turn is cancelled only by an explicit request (through its lease's signal),
+  // never by a dropped connection. The sink opens in the same breath as the
+  // pump starts, so a near-instant reconnect finds it and an open sink is
+  // always one being drained; `onFinish` closes it in step with persistence, so
+  // a client that loads the just-settled turn from storage gets a 204 on resume.
+  const sink = lease.openStream(transcriptRevision);
+  const response = new Response(sink.reader(), { headers: UI_MESSAGE_STREAM_HEADERS });
+  void pumpStream(stream, sink, saves);
 
   return { response, done: lease.done };
 }
