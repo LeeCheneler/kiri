@@ -177,13 +177,10 @@ export interface StartedTurn {
   done: Promise<void>;
 }
 
-// Drizzle types the JSON `parts` column as `unknown`; the cast re-establishes
-// the AI SDK part type the rows always hold.
-
 const toUiMessage = (row: Message): UIMessage => ({
   id: row.id,
-  role: row.role as UIMessage["role"],
-  parts: row.parts as UIMessage["parts"],
+  role: row.role,
+  parts: row.parts,
 });
 
 const errorMessage = (cause: unknown): string => {
@@ -322,7 +319,7 @@ export function applyPendingApprovals(
   if (!last || last.role !== "assistant") {
     throw new Error(`session "${session.id}" has no turn awaiting tool approval`);
   }
-  const { parts, applied } = applyApprovals(last.parts as UIMessage["parts"], approvals);
+  const { parts, applied } = applyApprovals(last.parts, approvals);
   if (applied === 0) {
     throw new Error(`session "${session.id}" has no pending tool approval matching the response`);
   }

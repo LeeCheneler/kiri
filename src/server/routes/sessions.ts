@@ -525,10 +525,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const last = getSessionMessages(db, id).at(-1);
       if (!last || last.role !== "assistant")
         return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
-      const parts = last.parts as UIMessage["parts"];
-      if (hasPendingApproval(parts))
+      if (hasPendingApproval(last.parts))
         return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
-      const assistantText = parts
+      const assistantText = last.parts
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n")
         .trim();
@@ -695,8 +694,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);
       const last = priorMessages.at(-1);
-      const pending =
-        last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
+      const pending = last?.role === "assistant" && hasPendingApproval(last.parts);
 
       // The turn checkpoints and finalises its own persistence, so the route
       // just hands back the streamed response. The turn is drained

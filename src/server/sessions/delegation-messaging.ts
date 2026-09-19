@@ -1,4 +1,4 @@
-import { type UIMessage, isToolUIPart } from "ai";
+import { isToolUIPart } from "ai";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
@@ -39,7 +39,7 @@ const MAX_SETTLEMENT_LENGTH = 8_000;
 // delivered its input through the inbox. Neither proves the task is complete.
 function settlementText(db: KiriDb, child: Session, event: TurnSettlement): string {
   const message = getSessionMessages(db, child.id).find((row) => row.id === event.messageId);
-  const parts = (message?.parts ?? []) as UIMessage["parts"];
+  const parts = message?.parts ?? [];
   const finalText = parts
     .slice(parts.findLastIndex(isToolUIPart) + 1)
     .filter((part) => part.type === "text")
