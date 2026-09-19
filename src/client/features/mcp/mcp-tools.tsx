@@ -72,6 +72,12 @@ function ToolRow({
 // utility model to judge with.
 const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly string[] }[] = [
   {
+    title: "Knowledge",
+    blurb:
+      "Prior work the session can search and read back — articles, sessions, memories, run summaries, and workflows, in its project or across the workspace.",
+    tools: ["search_knowledge", "open_knowledge"],
+  },
+  {
     title: "Articles",
     blurb:
       "Standalone markdown documents saved outside the chat — a session's own, or its project's shared corpus.",

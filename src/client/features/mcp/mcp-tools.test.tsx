@@ -176,6 +176,32 @@ describe("<McpTools>", () => {
     expect(screen.queryByText("Other")).toBeNull();
   });
 
+  it("groups the knowledge tools under Knowledge rather than the trailing group", async () => {
+    server.use(
+      http.get("*/api/mcp/tools", () =>
+        HttpResponse.json({
+          servers: [],
+          builtin: [
+            { name: "search_knowledge", description: "Search prior work.", permission: "allow" },
+            { name: "open_knowledge", description: "Read saved knowledge.", permission: "allow" },
+          ],
+        }),
+      ),
+    );
+    renderTools();
+
+    await userEvent.click(await screen.findByRole("button", { name: /built-in tools/i }));
+    const knowledge = (await screen.findByText("Knowledge")).closest("section");
+    for (const name of ["search_knowledge", "open_knowledge"]) {
+      expect(
+        within(knowledge as HTMLElement).getByRole("radiogroup", {
+          name: `Permission for ${name}`,
+        }),
+      ).toBeDefined();
+    }
+    expect(screen.queryByText("Other")).toBeNull();
+  });
+
   it("still renders a built-in tool that no group claims", async () => {
     server.use(
       http.get("*/api/mcp/tools", () =>
