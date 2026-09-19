@@ -142,6 +142,39 @@ describe("mountDelegationMessaging", () => {
     expect(pendingInboxItems(db, "stopped")).toEqual([]);
   });
 
+  it("wakes an idle session found holding a backlog when it mounts", async () => {
+    createSession(db, MODEL, { id: "stranded" });
+    enqueueInboxItem(db, "stranded", { source: "user", text: "queued before the stop" });
+    const prompts: unknown[] = [];
+
+    mount(prompts);
+
+    await until(() => getSession(db, "stranded")?.status === "idle" && prompts.length === 1);
+    expect(JSON.stringify(prompts[0])).toContain("queued before the stop");
+    expect(pendingInboxItems(db, "stranded")).toEqual([]);
+  });
+
+  it("leaves sessions the user must act on untouched when it mounts", async () => {
+    for (const [id, status] of [
+      ["interrupted", "failed"],
+      ["paused", "waiting"],
+      ["stopped", "cancelled"],
+    ] as const) {
+      createSession(db, MODEL, { id });
+      setSessionStatus(db, id, status);
+      enqueueInboxItem(db, id, { source: "user", text: "held" });
+    }
+    const prompts: unknown[] = [];
+
+    mount(prompts);
+    await tick();
+
+    expect(prompts).toEqual([]);
+    for (const id of ["interrupted", "paused", "stopped"]) {
+      expect(pendingInboxItems(db, id)).toHaveLength(1);
+    }
+  });
+
   it("runs the wake turn with the session and dependencies its preparation returns", async () => {
     const bus = createEventBus();
     const prompted: (string | null)[] = [];

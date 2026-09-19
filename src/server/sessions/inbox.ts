@@ -66,6 +66,16 @@ export function pendingInboxItems(db: KiriDb, sessionId: string): InboxItem[] {
   );
 }
 
+/** Every session holding an undelivered backlog. */
+export function sessionsWithBacklog(db: KiriDb): string[] {
+  return db
+    .selectDistinct({ sessionId: sessionInbox.sessionId })
+    .from(sessionInbox)
+    .where(isNull(sessionInbox.deliveredAt))
+    .all()
+    .map((row) => row.sessionId);
+}
+
 /**
  * Mark rows delivered. Called in the transaction that writes the delivery
  * into the transcript, so an interruption can neither lose an item (stamped

@@ -3,7 +3,7 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
 import { type InboxTrigger, inboxDelivery, queuedBy } from "./inbox-delivery.ts";
-import { enqueueInboxItem } from "./inbox.ts";
+import { enqueueInboxItem, sessionsWithBacklog } from "./inbox.ts";
 import { type Session, getSession, getSessionMessages } from "./store.ts";
 import { TurnInFlightError } from "./turn-lifecycle.ts";
 import type { StartTurn } from "./turn-start.ts";
@@ -86,6 +86,8 @@ function settlementText(db: KiriDb, child: Session, event: TurnSettlement): stri
  *   settles `failed` deliberately does not re-wake — its own delivery
  *   attempt failing would loop — so a failed session waits for the next
  *   message (or the user) to try again.
+ * - Mounting wakes the idle sessions already holding a backlog: one queued
+ *   just before the app last stopped, which no later event would deliver.
  * - Every settled worker turn enqueues a runtime notice to its parent, even
  *   when the worker omitted message_parent. A saved final reply is included
  *   within a size limit unless it was already delivered. Approval pauses are
@@ -133,7 +135,7 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
     });
   };
 
-  return bus.subscribe((event) => {
+  const unsubscribe = bus.subscribe((event) => {
     if (event.type === "session.inbox.queued") void wake(event.sessionId, queuedBy(event.source));
     if (event.type === "session.updated" && event.status === "idle") void wake(event.id, "settled");
     if (event.type === "session.turn.settled") {
@@ -141,4 +143,8 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
       if (session) notifyParent(session, event);
     }
   });
+  // A message queued just before the app last stopped never got its wake;
+  // nothing else would stir its session now.
+  for (const sessionId of sessionsWithBacklog(db)) void wake(sessionId, "startup");
+  return unsubscribe;
 }

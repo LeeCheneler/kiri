@@ -14,6 +14,7 @@ import {
   inboxUIPart,
   insertInboxModelMessages,
   pendingInboxItems,
+  sessionsWithBacklog,
   withdrawInboxItem,
 } from "./inbox.ts";
 import { createSession, deleteSession } from "./store.ts";
@@ -120,6 +121,18 @@ describe("inbox store", () => {
     enqueueInboxItem(db, "s1", { source: "user", text: "for s1" });
 
     expect(pendingInboxItems(db, "s2")).toEqual([]);
+  });
+
+  it("lists each session holding an undelivered backlog once", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    createSession(db, MODEL, { id: "s3" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "one" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "two" });
+    const delivered = enqueueInboxItem(db, "s2", { source: "user", text: "delivered" });
+    acknowledgeInboxItems(db, [delivered.id]);
+
+    expect(sessionsWithBacklog(db)).toEqual(["s1"]);
   });
 
   it("deletes a session's backlog with the session", () => {
