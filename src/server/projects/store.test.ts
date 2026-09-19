@@ -5,10 +5,17 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, messages, sessionInbox } from "../db/schema.ts";
+import { articles, messages, sessionInbox, sessions } from "../db/schema.ts";
 import { enqueueInboxItem } from "../sessions/inbox.ts";
-import { appendMessage, createSession, getSession } from "../sessions/store.ts";
-import { createProject, deleteProject, getProject, listProjects, updateProject } from "./store.ts";
+import { appendMessage, createSession, getSession, setSessionStatus } from "../sessions/store.ts";
+import {
+  ProjectConflictError,
+  createProject,
+  deleteProject,
+  getProject,
+  listProjects,
+  updateProject,
+} from "./store.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -176,6 +183,41 @@ describe("projects store", () => {
     expect(getSession(db, "s3")?.id).toBe("s3");
     expect(db.select().from(sessionInbox).all()).toEqual([otherProjectInbox, outsideInbox]);
     expect(db.select().from(articles).where(eq(articles.projectId, "p2")).all()).toHaveLength(1);
+  });
+
+  for (const running of ["parent", "worker", "legacy-worker"] as const) {
+    it(`refuses to delete a project with a running ${running}, changing nothing`, () => {
+      createProject(db, "Research", { id: "p1" });
+      createSession(db, MODEL, { id: "s1", projectId: "p1" });
+      // A worker created before workers carried their parent's project id
+      // still belongs to the container through its parent.
+      createSession(db, MODEL, {
+        id: "c1",
+        parentSessionId: "s1",
+        parentToolCallId: "t1",
+        ...(running === "legacy-worker" ? {} : { projectId: "p1" }),
+      });
+      setSessionStatus(db, running === "parent" ? "s1" : "c1", "running");
+      const before = db.select().from(sessions).all();
+
+      expect(() => deleteProject(db, "p1")).toThrow(ProjectConflictError);
+
+      expect(getProject(db, "p1")).toBeDefined();
+      expect(db.select().from(sessions).all()).toEqual(before);
+    });
+  }
+
+  it("hands back the top-level sessions it deleted, leaving out their workers", () => {
+    createProject(db, "Research", { id: "p1" });
+    createSession(db, MODEL, { id: "s1", projectId: "p1" });
+    createSession(db, MODEL, {
+      id: "c1",
+      projectId: "p1",
+      parentSessionId: "s1",
+      parentToolCallId: "t1",
+    });
+
+    expect(deleteProject(db, "p1")).toEqual(["s1"]);
   });
 
   it("removes nothing when deleting an absent project", () => {

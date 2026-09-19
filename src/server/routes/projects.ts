@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import type * as errorsApi from "../../shared/api/errors.ts";
@@ -19,6 +19,7 @@ import {
   updateMemory,
 } from "../memories/store.ts";
 import {
+  ProjectConflictError,
   createProject,
   deleteProject,
   getProject,
@@ -308,40 +309,23 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     const { id } = c.req.valid("param");
     if (!getProject(db, id))
       return c.json({ error: `project "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-    // Match the session cascade, including workers whose project id is absent.
-    // This check and deletion are synchronous: no turn can start between them.
-    const running = db
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(
-        and(
-          eq(sessions.status, "running"),
-          or(
-            eq(sessions.projectId, id),
-            inArray(
-              sessions.parentSessionId,
-              db.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id)),
-            ),
-          ),
-        ),
-      )
-      .get();
-    if (running) {
-      return c.json(
-        {
-          error: `project "${id}" has a session or delegated worker running; cancel it first`,
-        } satisfies errorsApi.ApiErrorBody,
-        409,
-      );
+
+    let sessionIds: string[];
+    try {
+      sessionIds = deleteProject(db, id);
+    } catch (cause) {
+      if (cause instanceof ProjectConflictError)
+        return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
+      throw cause;
     }
-    // Snapshot the top-level session ids before the cascade so their
-    // deletions can be announced — the feed and session caches key off them.
-    const sessionIds = projectSessions(db, id).map((row) => row.id);
-    deleteProject(db, id);
+
+    // The feed and session caches key off session ids, so each top-level
+    // session deleted with the container is announced alongside it.
     bus?.publish({ type: "project.deleted", id });
     for (const sessionId of sessionIds) {
       bus?.publish({ type: "session.deleted", id: sessionId });
     }
+
     return c.body(null, 204);
   });
 

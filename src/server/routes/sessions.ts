@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { type UIMessage, UI_MESSAGE_STREAM_HEADERS, isToolUIPart } from "ai";
-import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -24,7 +24,7 @@ import {
 import type { ModelsConfig } from "../config/schema.ts";
 import type { ConfigService } from "../config/service.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, sessions as sessionsTable } from "../db/schema.ts";
+import { sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients, toModelInfo } from "../llm/index.ts";
 import { createLogger } from "../log.ts";
@@ -51,6 +51,7 @@ import {
   withdrawInboxItem,
 } from "../sessions/index.ts";
 import type { SessionRuntime } from "../sessions/runtime.ts";
+import { SessionConflictError, type SessionMove, moveSessionToProject } from "../sessions/store.ts";
 import { ShuttingDownError, TurnInFlightError } from "../sessions/turn-lifecycle.ts";
 import type { TurnStart } from "../sessions/turn-start.ts";
 import { ApprovalCommandError } from "../sessions/turn.ts";
@@ -577,60 +578,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           404,
         );
       }
-      if (session.parentSessionId !== null) {
-        return c.json(
-          {
-            error: "Move the parent session to move its delegated sessions.",
-          } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
+
+      let moved: SessionMove;
+      try {
+        moved = moveSessionToProject(db, session, projectId);
+      } catch (cause) {
+        if (cause instanceof SessionConflictError)
+          return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
+        throw cause;
       }
-      if (session.projectId !== null) {
-        return c.json(
-          { error: "This session already belongs to a project." } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
-      }
-      const family = [session, ...getSessionChildren(db, id)];
-      if (family.some((row) => row.status === "running" || row.status === "waiting")) {
-        return c.json(
-          {
-            error: "Finish or cancel all turns and resolve pending approvals before moving.",
-          } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
-      }
-      const ids = family.map((row) => row.id);
-      const movingArticles = db
-        .select()
-        .from(articles)
-        .where(inArray(articles.sessionId, ids))
-        .all();
-      const slugs = new Set(listArticleSummaries(db, { projectId }).map((article) => article.slug));
-      for (const article of movingArticles) {
-        if (slugs.has(article.slug)) {
-          return c.json(
-            {
-              error: `Article slug "${article.slug}" conflicts. Choose another project or resolve the duplicate before moving.`,
-            } satisfies errorsApi.ApiErrorBody,
-            409,
-          );
-        }
-        slugs.add(article.slug);
-      }
-      // No async work between validation and transfer: a turn cannot start
-      // with the old scope while this transaction changes its article owner.
-      db.transaction((tx) => {
-        tx.update(articles)
-          .set({ sessionId: null, projectId })
-          .where(inArray(articles.sessionId, ids))
-          .run();
-        tx.update(sessionsTable).set({ projectId }).where(inArray(sessionsTable.id, ids)).run();
-      });
-      for (const row of family) {
+
+      for (const row of moved.family) {
         bus?.publish({ type: "session.updated", id: row.id, status: row.status });
       }
-      for (const article of movingArticles) {
+      for (const article of moved.articles) {
         bus?.publish({
           type: "article.written",
           sessionId: article.sessionId as string,
@@ -638,6 +599,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           slug: article.slug,
         });
       }
+
       return c.json({
         session: serializeSession({ ...session, projectId }),
       } satisfies sessionsApi.SessionResult);
@@ -742,27 +704,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const session = getSession(db, id);
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
-      // A running session has a turn streaming and persisting server-side;
-      // deleting mid-turn would orphan that write, so require a cancel first.
-      // A delegated worker runs detached from its parent's turns, so its
-      // in-flight turn blocks the parent's delete the same way.
-      if (session.status === "running") {
-        return c.json(
-          {
-            error: `session "${id}" has a turn in flight; cancel it first`,
-          } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
+
+      try {
+        deleteSession(db, id);
+      } catch (cause) {
+        if (cause instanceof SessionConflictError)
+          return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
+        throw cause;
       }
-      if (getSessionChildren(db, id).some((child) => child.status === "running")) {
-        return c.json(
-          {
-            error: `session "${id}" has a delegated worker running; cancel it first`,
-          } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
-      }
-      deleteSession(db, id);
+
       bus?.publish({ type: "session.deleted", id });
       return c.body(null, 204);
     },

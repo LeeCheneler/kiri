@@ -417,33 +417,25 @@ describe("projects routes", () => {
   });
 
   describe("DELETE /api/projects/:id", () => {
-    for (const running of ["parent", "worker", "legacy-worker"] as const) {
-      it(`409s a project with a running ${running} without changes or events`, async () => {
-        seedProject("p1");
-        seedArticle("a1", "p1", "kept-doc");
-        createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
-        createSession(env.db, MODEL, {
-          id: "c1",
-          parentSessionId: "s1",
-          parentToolCallId: "t1",
-          ...(running === "legacy-worker" ? {} : { projectId: "p1" }),
-        });
-        setSessionStatus(env.db, running === "parent" ? "s1" : "c1", "running");
-        const before = env.db.select().from(sessions).all();
+    it("409s a project with a session running, changing nothing and publishing nothing", async () => {
+      seedProject("p1");
+      seedArticle("a1", "p1", "kept-doc");
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      setSessionStatus(env.db, "s1", "running");
+      const before = env.db.select().from(sessions).all();
 
-        const res = await buildApp().request("/api/projects/p1", {
-          method: "DELETE",
-          headers: CLIENT_HEADERS,
-        });
-
-        expect(res.status).toBe(409);
-        expect((await res.json()).error).toContain("cancel it first");
-        expect(env.db.select().from(projects).all()).toHaveLength(1);
-        expect(env.db.select().from(sessions).all()).toEqual(before);
-        expect(env.db.select().from(articles).all()).toHaveLength(1);
-        expect(events).toEqual([]);
+      const res = await buildApp().request("/api/projects/p1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
       });
-    }
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("cancel it first");
+      expect(env.db.select().from(projects).all()).toHaveLength(1);
+      expect(env.db.select().from(sessions).all()).toEqual(before);
+      expect(env.db.select().from(articles).all()).toHaveLength(1);
+      expect(events).toEqual([]);
+    });
 
     it("does not block deletion for a running session in another project", async () => {
       seedProject("p1");

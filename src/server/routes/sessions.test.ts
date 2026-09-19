@@ -370,69 +370,41 @@ describe("sessions routes", () => {
       );
     });
 
-    it.each(["running", "waiting"] as const)(
-      "rejects %s sessions and children without changing ownership",
-      async (status) => {
-        const app = makeApp(fakeClients());
-        setSessionStatus(env.db, "s1", status);
-        expect((await move(app)).status).toBe(409);
-        setSessionStatus(env.db, "s1", "idle");
-        createSession(env.db, MODEL, {
-          id: "child",
-          parentSessionId: "s1",
-          parentToolCallId: "c1",
-        });
-        setSessionStatus(env.db, "child", status);
-        expect((await move(app)).status).toBe(409);
-        expect(getSession(env.db, "s1")?.projectId).toBeNull();
-        expect(getSession(env.db, "child")?.projectId).toBeNull();
-      },
-    );
+    it("409s a refused move with its reason, changing nothing and publishing nothing", async () => {
+      env.db
+        .insert(articles)
+        .values([
+          {
+            id: "a1",
+            sessionId: "s1",
+            slug: "notes",
+            name: "First",
+            contentMd: "First body",
+            createdAt: new Date(),
+          },
+          {
+            id: "a2",
+            projectId: "p1",
+            slug: "notes",
+            name: "Second",
+            contentMd: "Second body",
+            createdAt: new Date(),
+          },
+        ])
+        .run();
+      const before = env.db.select().from(articles).all();
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
 
-    it.each(["project", "child"])(
-      "leaves everything untouched when a slug conflicts with the %s",
-      async (owner) => {
-        createSession(env.db, MODEL, {
-          id: "child",
-          parentSessionId: "s1",
-          parentToolCallId: "c1",
-        });
-        env.db
-          .insert(articles)
-          .values([
-            {
-              id: "a1",
-              sessionId: "s1",
-              slug: "notes",
-              name: "First",
-              contentMd: "First body",
-              createdAt: new Date(),
-            },
-            {
-              id: "a2",
-              ...(owner === "project" ? { projectId: "p1" } : { sessionId: "child" }),
-              slug: "notes",
-              name: "Second",
-              contentMd: "Second body",
-              createdAt: new Date(),
-            },
-          ])
-          .run();
-        const before = env.db.select().from(articles).all();
-        const bus = createEventBus();
-        const seen: KiriEvent[] = [];
-        bus.subscribe((event) => seen.push(event));
+      const res = await move(makeApp(fakeClients(), { bus }));
 
-        const res = await move(makeApp(fakeClients(), { bus }));
-
-        expect(res.status).toBe(409);
-        expect((await res.json()).error).toContain('Article slug "notes" conflicts');
-        expect(getSession(env.db, "s1")?.projectId).toBeNull();
-        expect(getSession(env.db, "child")?.projectId).toBeNull();
-        expect(env.db.select().from(articles).all()).toEqual(before);
-        expect(seen).toEqual([]);
-      },
-    );
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain('Article slug "notes" conflicts');
+      expect(getSession(env.db, "s1")?.projectId).toBeNull();
+      expect(env.db.select().from(articles).all()).toEqual(before);
+      expect(seen).toEqual([]);
+    });
 
     it("rejects invalid destinations, missing sessions, children, and already assigned sessions", async () => {
       const app = makeApp(fakeClients());

@@ -8,6 +8,7 @@ import { migrate } from "../db/migrate.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
+  SessionConflictError,
   appendMessage,
   createSession,
   deleteMessagesFrom,
@@ -19,6 +20,7 @@ import {
   getSessionMessages,
   getSessionPreviews,
   getSessionsWithWaitingChildren,
+  moveSessionToProject,
   setSessionStatus,
   updateMessage,
   updateSessionCwd,
@@ -585,6 +587,24 @@ describe("sessions store", () => {
     expect(tables.map((table) => db.select().from(table).all())).toEqual(before);
   });
 
+  it("refuses to delete a session with a turn in flight", () => {
+    createSession(db, MODEL, { id: "s1" });
+    setSessionStatus(db, "s1", "running");
+
+    expect(() => deleteSession(db, "s1")).toThrow(SessionConflictError);
+    expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("refuses to delete a parent whose delegated worker is running", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, { id: "child", parentSessionId: "parent", parentToolCallId: "c1" });
+    setSessionStatus(db, "child", "running");
+
+    expect(() => deleteSession(db, "parent")).toThrow("delegated worker running");
+    expect(getSession(db, "parent")).toBeDefined();
+    expect(getSession(db, "child")?.status).toBe("running");
+  });
+
   it("is a no-op deleting a session that does not exist", () => {
     createSession(db, MODEL, { id: "s1" });
     deleteSession(db, "ghost");
@@ -638,5 +658,92 @@ describe("sessions store", () => {
     expect(deleteMessagesFrom(db, "s1", "ghost")).toBeUndefined();
 
     expect(getSessionMessages(db, "s1")).toHaveLength(1);
+  });
+
+  describe("moveSessionToProject", () => {
+    const session = (id: string) =>
+      getSession(db, id) as NonNullable<ReturnType<typeof getSession>>;
+
+    const seedArticle = (id: string, owner: { sessionId: string } | { projectId: string }) =>
+      db
+        .insert(articles)
+        .values({
+          id,
+          ...owner,
+          slug: "notes",
+          name: "Notes",
+          contentMd: "Body",
+          createdAt: new Date(),
+        })
+        .run();
+
+    beforeEach(() => {
+      db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(db, MODEL, { id: "s1" });
+    });
+
+    it("moves the family and hands back its articles as they stood before", () => {
+      createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+      createSession(db, MODEL, { id: "other" });
+      seedArticle("a1", { sessionId: "child" });
+
+      const moved = moveSessionToProject(db, session("s1"), "p1");
+
+      expect(moved.family.map((row) => [row.id, row.projectId])).toEqual([
+        ["s1", "p1"],
+        ["child", "p1"],
+      ]);
+      expect(moved.articles).toMatchObject([{ id: "a1", sessionId: "child", projectId: null }]);
+      expect(getSession(db, "child")?.projectId).toBe("p1");
+      expect(getSession(db, "other")?.projectId).toBeNull();
+      expect(db.select().from(articles).where(eq(articles.id, "a1")).get()).toMatchObject({
+        sessionId: null,
+        projectId: "p1",
+      });
+    });
+
+    it("refuses a delegated session and one already in a project", () => {
+      createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+      createSession(db, MODEL, { id: "placed", projectId: "p1" });
+
+      expect(() => moveSessionToProject(db, session("child"), "p1")).toThrow(SessionConflictError);
+      expect(() => moveSessionToProject(db, session("placed"), "p1")).toThrow(
+        "already belongs to a project",
+      );
+    });
+
+    it.each(["running", "waiting"] as const)(
+      "refuses a family with a %s session or child without changing ownership",
+      (status) => {
+        createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+
+        for (const busy of ["s1", "child"]) {
+          setSessionStatus(db, busy, status);
+          expect(() => moveSessionToProject(db, session("s1"), "p1")).toThrow(SessionConflictError);
+          setSessionStatus(db, busy, "idle");
+        }
+
+        expect(getSession(db, "s1")?.projectId).toBeNull();
+        expect(getSession(db, "child")?.projectId).toBeNull();
+      },
+    );
+
+    it.each(["project", "child"])(
+      "leaves everything untouched when a slug conflicts with the %s",
+      (owner) => {
+        createSession(db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+        seedArticle("a1", { sessionId: "s1" });
+        seedArticle("a2", owner === "project" ? { projectId: "p1" } : { sessionId: "child" });
+        const before = db.select().from(articles).all();
+
+        expect(() => moveSessionToProject(db, session("s1"), "p1")).toThrow(
+          'Article slug "notes" conflicts',
+        );
+
+        expect(getSession(db, "s1")?.projectId).toBeNull();
+        expect(getSession(db, "child")?.projectId).toBeNull();
+        expect(db.select().from(articles).all()).toEqual(before);
+      },
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { articles, memories, projects, sessions, taskGroups, tasks } from "../db/schema.ts";
 import { deleteSessions } from "../sessions/store.ts";
@@ -52,22 +52,58 @@ export function updateProject(
   return getProject(db, id) as Project;
 }
 
+/** A project operation refused because of the state its sessions are in. */
+export class ProjectConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectConflictError";
+  }
+}
+
 /**
  * Permanently delete a project and everything in its container: the
- * project's articles, memories, and task list, its sessions — including the delegate
- * children those sessions spawned — and those sessions' messages, articles,
- * and inbox rows, in one transaction. Callers must reject running sessions.
- * An in-code cascade matching the rest of the codebase rather than a schema-level
- * ON DELETE. Deleting an absent project removes nothing.
+ * project's articles, memories, and task list, its sessions — including the
+ * delegate children those sessions spawned — and those sessions' messages,
+ * articles, and inbox rows, in one transaction. An in-code cascade matching
+ * the rest of the codebase rather than a schema-level ON DELETE.
+ *
+ * A session or delegated worker with a turn running refuses the delete with
+ * `ProjectConflictError` until it is cancelled — matching the session
+ * cascade, including workers that carry no project id of their own. Returns
+ * the ids of the top-level sessions deleted with the project, for announcing;
+ * deleting an absent project removes nothing.
  */
-export function deleteProject(db: KiriDb, id: string): void {
-  db.transaction((tx) => {
-    const sessionIds = tx
-      .select({ id: sessions.id })
+export function deleteProject(db: KiriDb, id: string): string[] {
+  return db.transaction((tx) => {
+    const members = tx
+      .select({ id: sessions.id, parentSessionId: sessions.parentSessionId })
       .from(sessions)
       .where(eq(sessions.projectId, id))
-      .all()
-      .map((row) => row.id);
+      .all();
+    const sessionIds = members.map((row) => row.id);
+
+    const running = tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.status, "running"),
+          or(
+            eq(sessions.projectId, id),
+            inArray(
+              sessions.parentSessionId,
+              tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id)),
+            ),
+          ),
+        ),
+      )
+      .get();
+    if (running) {
+      throw new ProjectConflictError(
+        `project "${id}" has a session or delegated worker running; cancel it first`,
+      );
+    }
+
     deleteSessions(tx, sessionIds);
     tx.delete(articles).where(eq(articles.projectId, id)).run();
     tx.delete(memories).where(eq(memories.projectId, id)).run();
@@ -80,5 +116,7 @@ export function deleteProject(db: KiriDb, id: string): void {
     if (groupIds.length > 0) tx.delete(tasks).where(inArray(tasks.groupId, groupIds)).run();
     tx.delete(taskGroups).where(eq(taskGroups.projectId, id)).run();
     tx.delete(projects).where(eq(projects.id, id)).run();
+
+    return members.filter((row) => row.parentSessionId === null).map((row) => row.id);
   });
 }

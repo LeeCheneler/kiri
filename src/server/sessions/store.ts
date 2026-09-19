@@ -481,11 +481,80 @@ export function setSessionStatus(
     .run();
 }
 
+/** A session operation refused because of the state the session or its family is in. */
+export class SessionConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionConflictError";
+  }
+}
+
+/** What a move into a project changed: the sessions moved, and their articles as they stood before. */
+export interface SessionMove {
+  family: Session[];
+  articles: (typeof articles.$inferSelect)[];
+}
+
+/**
+ * Move a projectless top-level session into a project, taking its delegated
+ * children and every article the family wrote with it: the sessions join the
+ * project and their articles become part of its shared corpus. The checks and
+ * the transfer share one transaction, so a refused move changes nothing.
+ * Throws `SessionConflictError` for a delegated session, one already in a
+ * project, a family with a turn running or an approval pending, or an article
+ * slug the corpus — or another moving article — already uses.
+ */
+export function moveSessionToProject(db: KiriDb, session: Session, projectId: string): SessionMove {
+  if (session.parentSessionId !== null) {
+    throw new SessionConflictError("Move the parent session to move its delegated sessions.");
+  }
+  if (session.projectId !== null) {
+    throw new SessionConflictError("This session already belongs to a project.");
+  }
+
+  return db.transaction(() => {
+    const family = [session, ...getSessionChildren(db, session.id)];
+    if (family.some((row) => row.status === "running" || row.status === "waiting")) {
+      throw new SessionConflictError(
+        "Finish or cancel all turns and resolve pending approvals before moving.",
+      );
+    }
+
+    const ids = family.map((row) => row.id);
+    const moving = db.select().from(articles).where(inArray(articles.sessionId, ids)).all();
+    const slugs = new Set(
+      db
+        .select({ slug: articles.slug })
+        .from(articles)
+        .where(eq(articles.projectId, projectId))
+        .all()
+        .map((row) => row.slug),
+    );
+    for (const article of moving) {
+      if (slugs.has(article.slug)) {
+        throw new SessionConflictError(
+          `Article slug "${article.slug}" conflicts. Choose another project or resolve the duplicate before moving.`,
+        );
+      }
+      slugs.add(article.slug);
+    }
+
+    db.update(articles)
+      .set({ sessionId: null, projectId })
+      .where(inArray(articles.sessionId, ids))
+      .run();
+    db.update(sessions).set({ projectId }).where(inArray(sessions.id, ids)).run();
+
+    return { family: family.map((row) => ({ ...row, projectId })), articles: moving };
+  });
+}
+
 /**
  * Delete the given sessions and their children with all session-owned records
  * in one transaction. Accepts an existing transaction so container deletion
- * can roll back the entire operation. Callers must reject running sessions.
- * Children cannot delegate, so one level of descendants is complete.
+ * can roll back the entire operation. Unguarded: the caller has already
+ * established that nothing in these families is running. Children cannot
+ * delegate, so one level of descendants is complete.
  */
 export function deleteSessions(db: Pick<KiriDb, "transaction">, sessionIds: string[]): void {
   if (sessionIds.length === 0) return;
@@ -506,7 +575,27 @@ export function deleteSessions(db: Pick<KiriDb, "transaction">, sessionIds: stri
   });
 }
 
-/** Delete a non-running session and its children with all owned records; absent ids are a no-op. */
+/**
+ * Delete a session and its children with all owned records; an absent id is a
+ * no-op. A running turn persists as it streams, and a delegated worker runs
+ * detached from its parent's turns, so either one in flight refuses the delete
+ * with `SessionConflictError` until it is cancelled. The check and the delete
+ * share one transaction.
+ */
 export function deleteSession(db: KiriDb, id: string): void {
-  deleteSessions(db, [id]);
+  db.transaction(() => {
+    const session = getSession(db, id);
+    if (!session) return;
+
+    if (session.status === "running") {
+      throw new SessionConflictError(`session "${id}" has a turn in flight; cancel it first`);
+    }
+    if (getSessionChildren(db, id).some((child) => child.status === "running")) {
+      throw new SessionConflictError(
+        `session "${id}" has a delegated worker running; cancel it first`,
+      );
+    }
+
+    deleteSessions(db, [id]);
+  });
 }
