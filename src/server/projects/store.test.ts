@@ -207,7 +207,7 @@ describe("projects store", () => {
     });
   }
 
-  it("hands back the top-level sessions it deleted, leaving out their workers", () => {
+  it("hands back every session it deleted, workers included, with their owners", () => {
     createProject(db, "Research", { id: "p1" });
     createSession(db, MODEL, { id: "s1", projectId: "p1" });
     createSession(db, MODEL, {
@@ -217,7 +217,10 @@ describe("projects store", () => {
       parentToolCallId: "t1",
     });
 
-    expect(deleteProject(db, "p1")).toEqual(["s1"]);
+    expect(deleteProject(db, "p1").sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "c1", projectId: "p1", parentSessionId: "s1" },
+      { id: "s1", projectId: "p1", parentSessionId: null },
+    ]);
   });
 
   it("removes nothing when deleting an absent project", () => {

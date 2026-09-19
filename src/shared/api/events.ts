@@ -1,11 +1,22 @@
 import type { RunStatus, StepStatus } from "./runs.ts";
-import type { SessionInboxItem, SessionStatus } from "./sessions.ts";
+import type { SessionStatus } from "./sessions.ts";
+
+/**
+ * The records a session change also reshapes: its project's session index and
+ * its parent's worker list. Both null for a projectless top-level session.
+ */
+export interface SessionOwners {
+  projectId: string | null;
+  parentSessionId: string | null;
+}
 
 /**
  * Discriminated union of every event the in-process bus carries. Consumers
- * narrow on `type` to get a typed payload. Payloads stay thin — an ID plus,
- * where relevant, a status; consumers refetch the affected resource for
- * anything richer.
+ * narrow on `type` to get a typed payload. Each event states a change already
+ * committed, and nothing executes because one was published. Payloads stay
+ * thin — the ids of what changed and of the records that list it, plus, where
+ * relevant, a status; consumers refetch the affected resource for anything
+ * richer.
  */
 export type KiriEvent =
   | { type: "run.started"; id: string }
@@ -26,19 +37,20 @@ export type KiriEvent =
       actionedRunId: string;
       status: RunStatus;
     }
-  | { type: "session.started"; id: string }
-  | { type: "session.message.added"; sessionId: string }
-  | { type: "session.inbox.queued"; sessionId: string; source: SessionInboxItem["source"] }
+  | ({ type: "session.started"; id: string } & SessionOwners)
+  | ({ type: "session.message.added"; sessionId: string } & SessionOwners)
+  | { type: "session.inbox.queued"; sessionId: string }
   | { type: "session.inbox.delivered"; sessionId: string }
-  | { type: "session.updated"; id: string; status: SessionStatus }
-  | { type: "session.finished"; id: string; status: SessionStatus }
-  | {
+  | { type: "session.inbox.withdrawn"; sessionId: string }
+  | ({ type: "session.updated"; id: string; status: SessionStatus } & SessionOwners)
+  | ({ type: "session.finished"; id: string; status: SessionStatus } & SessionOwners)
+  | ({
+      /** A turn came to rest, an approval pause included; `status` is where it left the session. */
       type: "session.turn.settled";
       id: string;
-      messageId: string | null;
-      outcome: "ended" | "incomplete" | "failed" | "cancelled";
-    }
-  | { type: "session.deleted"; id: string }
+      status: Exclude<SessionStatus, "running">;
+    } & SessionOwners)
+  | ({ type: "session.deleted"; id: string } & SessionOwners)
   | { type: "article.written"; sessionId: string; slug: string; projectId?: string }
   | { type: "article.deleted"; slug: string; sessionId?: string; projectId?: string }
   | { type: "project.created"; id: string }
@@ -68,6 +80,7 @@ const eventNames = {
   "session.message.added": "session.message.added",
   "session.inbox.queued": "session.inbox.queued",
   "session.inbox.delivered": "session.inbox.delivered",
+  "session.inbox.withdrawn": "session.inbox.withdrawn",
   "session.updated": "session.updated",
   "session.finished": "session.finished",
   "session.turn.settled": "session.turn.settled",

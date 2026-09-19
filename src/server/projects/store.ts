@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { articles, memories, projects, sessions, taskGroups, tasks } from "../db/schema.ts";
-import { deleteSessions } from "../sessions/store.ts";
+import { type DeletedSession, deleteSessions } from "../sessions/store.ts";
 
 /** A persisted project row. */
 export type Project = typeof projects.$inferSelect;
@@ -70,17 +70,17 @@ export class ProjectConflictError extends Error {
  * A session or delegated worker with a turn running refuses the delete with
  * `ProjectConflictError` until it is cancelled — matching the session
  * cascade, including workers that carry no project id of their own. Returns
- * the ids of the top-level sessions deleted with the project, for announcing;
- * deleting an absent project removes nothing.
+ * every session deleted with the project, for announcing; deleting an absent
+ * project removes nothing.
  */
-export function deleteProject(db: KiriDb, id: string): string[] {
+export function deleteProject(db: KiriDb, id: string): DeletedSession[] {
   return db.transaction((tx) => {
-    const members = tx
-      .select({ id: sessions.id, parentSessionId: sessions.parentSessionId })
+    const sessionIds = tx
+      .select({ id: sessions.id })
       .from(sessions)
       .where(eq(sessions.projectId, id))
-      .all();
-    const sessionIds = members.map((row) => row.id);
+      .all()
+      .map((row) => row.id);
 
     const running = tx
       .select({ id: sessions.id })
@@ -104,7 +104,7 @@ export function deleteProject(db: KiriDb, id: string): string[] {
       );
     }
 
-    deleteSessions(tx, sessionIds);
+    const deleted = deleteSessions(tx, sessionIds);
     tx.delete(articles).where(eq(articles.projectId, id)).run();
     tx.delete(memories).where(eq(memories.projectId, id)).run();
     const groupIds = tx
@@ -117,6 +117,6 @@ export function deleteProject(db: KiriDb, id: string): string[] {
     tx.delete(taskGroups).where(eq(taskGroups.projectId, id)).run();
     tx.delete(projects).where(eq(projects.id, id)).run();
 
-    return members.filter((row) => row.parentSessionId === null).map((row) => row.id);
+    return deleted;
   });
 }

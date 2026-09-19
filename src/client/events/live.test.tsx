@@ -235,8 +235,9 @@ describe("useLiveSync", () => {
       sources[0]?.emit({
         type: "session.turn.settled",
         id: "worker",
-        messageId: "reply",
-        outcome: "ended",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
       });
     });
     expect(refetch).toHaveBeenCalledTimes(1);

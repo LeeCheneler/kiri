@@ -42,23 +42,20 @@ export function DesktopNotifications({
   });
 
   useLiveEvent({
-    on: ["session.updated", "session.finished"],
+    // Only a turn coming to rest notifies. Other changes to a resting session
+    // — a rename, a model change, a deleted message — announce themselves as
+    // `session.updated` with the same status, and are not turns ending.
+    on: ["session.turn.settled"],
     handler: (event) => {
-      // A turn ending normally is `session.updated` → idle, or → waiting when
-      // it paused on tool approval; `session.finished` carries the terminal
-      // failed/cancelled. Other statuses are mid-turn.
-      const settled =
-        event.type === "session.finished" || event.status === "idle" || event.status === "waiting";
-      if (!settled) return;
+      // A delegated worker is background machinery except when it needs the
+      // user: its approval pause notifies — the mob is stalled until they
+      // answer — while its other settles are hops in the delegation
+      // exchange and stay silent.
+      if (event.parentSessionId !== null && event.status !== "waiting") return;
       const path = `/sessions/${event.id}`;
       if (suppressed(path)) return;
       void fetchSession(event.id).then(({ session, parent }) => {
-        // A delegated worker is background machinery except when it needs the
-        // user: its approval pause notifies — the mob is stalled until they
-        // answer — while its other settles are hops in the delegation
-        // exchange and stay silent.
         if (session.parentSessionId !== null) {
-          if (event.status !== "waiting") return;
           // The worker's approval prompt also renders inline on the parent's
           // page, so watching the parent counts as watching the worker.
           if (parent !== null && suppressed(`/sessions/${parent.id}`)) return;

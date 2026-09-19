@@ -24,7 +24,7 @@ import { memoryTools } from "./memory-tools.ts";
 import { projectTools } from "./project-tools.ts";
 import { shellTools } from "./shell-tools.ts";
 import { skillTools } from "./skill-tools.ts";
-import { getSession, updateSessionCwd } from "./store.ts";
+import { getSession, sessionOwners, updateSessionCwd } from "./store.ts";
 import { taskTools } from "./task-tools.ts";
 import type { ToolPermission, ToolPermissionStore } from "./tool-permissions.ts";
 import type { StartTurn } from "./turn-start.ts";
@@ -198,6 +198,7 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
         type: "session.updated",
         id: sessionId,
         status: session.status,
+        ...sessionOwners(session),
       });
     },
   });

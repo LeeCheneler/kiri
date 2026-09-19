@@ -2,7 +2,7 @@ import type { KiriDb } from "../db/index.ts";
 import type { KiriEvent, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import { createLogger } from "../log.ts";
-import { getSession, updateSessionTitle } from "./store.ts";
+import { getSession, sessionOwners, updateSessionTitle } from "./store.ts";
 
 const log = createLogger("sessions");
 
@@ -59,6 +59,7 @@ export async function generateSessionTitle(opts: {
       type: "session.updated",
       id: sessionId,
       status: session.status as SessionStatus,
+      ...sessionOwners(session),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

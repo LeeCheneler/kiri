@@ -64,7 +64,9 @@ describe("generateSessionTitle", () => {
     await generate({ llmClients });
 
     expect(getSession(db, "s1")?.title).toBe("Postgres 17 upgrade");
-    expect(events).toEqual([{ type: "session.updated", id: "s1", status: "idle" }]);
+    expect(events).toEqual([
+      { type: "session.updated", id: "s1", status: "idle", projectId: null, parentSessionId: null },
+    ]);
     expect(calls).toEqual([
       { model: "local:tiny", prompt: expect.stringContaining("How do I upgrade Postgres 16") },
     ]);

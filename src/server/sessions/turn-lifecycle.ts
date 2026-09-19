@@ -1,6 +1,6 @@
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
-import { setSessionStatus } from "./store.ts";
+import { type Session, sessionOwners, setSessionStatus } from "./store.ts";
 import type { StreamRegistry, StreamSink } from "./stream-registry.ts";
 
 /** Thrown by `acquire` when the session already has a turn executing. */
@@ -143,9 +143,17 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
 
         begin() {
           if (!holds()) throw new Error(`turn "${turnId}" no longer holds session "${sessionId}"`);
-          setSessionStatus(db, sessionId, "running", { error: null, finishedAt: null });
+          const session = setSessionStatus(db, sessionId, "running", {
+            error: null,
+            finishedAt: null,
+          });
           begun = true;
-          bus.publish({ type: "session.updated", id: sessionId, status: "running" });
+          bus.publish({
+            type: "session.updated",
+            id: sessionId,
+            status: "running",
+            ...sessionOwners(session),
+          });
         },
 
         openStream(transcriptRevision) {
@@ -158,8 +166,9 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
           const { status, error, messageId } = settlement;
           const terminal = status === "failed" || status === "cancelled";
           try {
+            let session: Session;
             try {
-              setSessionStatus(
+              session = setSessionStatus(
                 db,
                 sessionId,
                 status,
@@ -168,19 +177,16 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
             } finally {
               release();
             }
-            if (status !== "waiting") {
-              bus.publish({
-                type: "session.turn.settled",
-                id: sessionId,
-                messageId,
-                outcome: settlementOutcome(settlement),
-              });
+            const owners = sessionOwners(session);
+            bus.publish({ type: "session.turn.settled", id: sessionId, status, ...owners });
+            if (messageId !== null) {
+              bus.publish({ type: "session.message.added", sessionId, ...owners });
             }
-            if (messageId !== null) bus.publish({ type: "session.message.added", sessionId });
             bus.publish({
               type: terminal ? "session.finished" : "session.updated",
               id: sessionId,
               status,
+              ...owners,
             });
             onSettled(sessionId, settlement);
           } finally {

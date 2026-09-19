@@ -27,6 +27,7 @@ import {
 } from "../projects/store.ts";
 import { countOpenTasksByProject } from "../projects/tasks.ts";
 import { buildSessionListEntries } from "../sessions/index.ts";
+import { type DeletedSession, sessionOwners } from "../sessions/store.ts";
 import { projectTasksRoutes } from "./project-tasks.ts";
 import { serializeArticleSummary } from "./serializers/articles.ts";
 import { serializeMemory, serializeMemorySummary } from "./serializers/memories.ts";
@@ -315,20 +316,20 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     if (!getProject(db, id))
       return c.json({ error: `project "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
 
-    let sessionIds: string[];
+    let deleted: DeletedSession[];
     try {
-      sessionIds = deleteProject(db, id);
+      deleted = deleteProject(db, id);
     } catch (cause) {
       if (cause instanceof ProjectConflictError)
         return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
       throw cause;
     }
 
-    // The feed and session caches key off session ids, so each top-level
-    // session deleted with the container is announced alongside it.
+    // The feed and session caches key off session ids, so each session
+    // deleted with the container is announced alongside it.
     bus?.publish({ type: "project.deleted", id });
-    for (const sessionId of sessionIds) {
-      bus?.publish({ type: "session.deleted", id: sessionId });
+    for (const session of deleted) {
+      bus?.publish({ type: "session.deleted", id: session.id, ...sessionOwners(session) });
     }
 
     return c.body(null, 204);

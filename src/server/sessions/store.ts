@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
-import { and, asc, count, desc, eq, gte, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import type { SessionOwners } from "../../shared/api/events.ts";
 import { type ArticleSummary, articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
@@ -503,16 +504,16 @@ export function deleteMessagesFrom(
 }
 
 /**
- * Move a session to `status`. Pass `error` and/or `finishedAt` to set them in
- * the same write (a terminal `failed`/`cancelled` carries both); omit them to
- * leave the existing values untouched.
+ * Move a session to `status` and return the updated row. Pass `error` and/or
+ * `finishedAt` to set them in the same write (a terminal `failed`/`cancelled`
+ * carries both); omit them to leave the existing values untouched.
  */
 export function setSessionStatus(
   db: KiriDb,
   sessionId: string,
   status: SessionStatus,
   update: { error?: unknown; finishedAt?: Date | null } = {},
-): void {
+): Session {
   db.update(sessions)
     .set({
       status,
@@ -521,7 +522,16 @@ export function setSessionStatus(
     })
     .where(eq(sessions.id, sessionId))
     .run();
+  return getSession(db, sessionId) as Session;
 }
+
+/** The project and parent a session's events name, so their lists of it refresh. */
+export const sessionOwners = (
+  session: Pick<Session, "projectId" | "parentSessionId">,
+): SessionOwners => ({
+  projectId: session.projectId,
+  parentSessionId: session.parentSessionId,
+});
 
 /** A session operation refused because of the state the session or its family is in. */
 export class SessionConflictError extends Error {
@@ -595,29 +605,43 @@ export function moveSessionToProject(db: KiriDb, session: Session, projectId: st
   });
 }
 
+/** A deleted session, with the owners its deletion is announced to. */
+export type DeletedSession = Pick<Session, "id" | "projectId" | "parentSessionId">;
+
 /**
  * Delete the given sessions and their children with all session-owned records
  * in one transaction. Accepts an existing transaction so container deletion
  * can roll back the entire operation. Unguarded: the caller has already
  * established that nothing in these families is running. Children cannot
- * delegate, so one level of descendants is complete.
+ * delegate, so one level of descendants is complete. Returns every session
+ * deleted, children included, for announcing.
  */
-export function deleteSessions(db: Pick<KiriDb, "transaction">, sessionIds: string[]): void {
-  if (sessionIds.length === 0) return;
-  db.transaction((tx) => {
-    const childIds = tx
-      .select({ id: sessions.id })
+export function deleteSessions(
+  db: Pick<KiriDb, "transaction">,
+  sessionIds: string[],
+): DeletedSession[] {
+  if (sessionIds.length === 0) return [];
+  return db.transaction((tx) => {
+    const deleted = tx
+      .select({
+        id: sessions.id,
+        projectId: sessions.projectId,
+        parentSessionId: sessions.parentSessionId,
+      })
       .from(sessions)
-      .where(inArray(sessions.parentSessionId, sessionIds))
-      .all()
+      .where(or(inArray(sessions.id, sessionIds), inArray(sessions.parentSessionId, sessionIds)))
+      .all();
+    const ids = deleted.map((row) => row.id);
+    const childIds = deleted
+      .filter((row) => row.parentSessionId !== null && sessionIds.includes(row.parentSessionId))
       .map((row) => row.id);
-    const ids = [...childIds, ...sessionIds];
     tx.delete(articles).where(inArray(articles.sessionId, ids)).run();
     tx.delete(messages).where(inArray(messages.sessionId, ids)).run();
     tx.delete(sessionInbox).where(inArray(sessionInbox.sessionId, ids)).run();
     // Children first: they hold an FK to the parent, and foreign_keys is ON.
     if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
     tx.delete(sessions).where(inArray(sessions.id, sessionIds)).run();
+    return deleted;
   });
 }
 
@@ -626,12 +650,12 @@ export function deleteSessions(db: Pick<KiriDb, "transaction">, sessionIds: stri
  * no-op. A running turn persists as it streams, and a delegated worker runs
  * detached from its parent's turns, so either one in flight refuses the delete
  * with `SessionConflictError` until it is cancelled. The check and the delete
- * share one transaction.
+ * share one transaction. Returns every session deleted, for announcing.
  */
-export function deleteSession(db: KiriDb, id: string): void {
-  db.transaction(() => {
+export function deleteSession(db: KiriDb, id: string): DeletedSession[] {
+  return db.transaction(() => {
     const session = getSession(db, id);
-    if (!session) return;
+    if (!session) return [];
 
     if (session.status === "running") {
       throw new SessionConflictError(`session "${id}" has a turn in flight; cancel it first`);
@@ -642,6 +666,6 @@ export function deleteSession(db: KiriDb, id: string): void {
       );
     }
 
-    deleteSessions(db, [id]);
+    return deleteSessions(db, [id]);
   });
 }

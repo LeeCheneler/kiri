@@ -216,7 +216,12 @@ describe("delegate tool", () => {
     expect(child?.parentSessionId).toBe("parent");
     expect(child?.parentToolCallId).toBe("call_1");
     expect(child?.model).toBe(MODEL);
-    expect(events).toContainEqual({ type: "session.started", id: child?.id ?? "" });
+    expect(events).toContainEqual({
+      type: "session.started",
+      id: child?.id ?? "",
+      projectId: null,
+      parentSessionId: "parent",
+    });
 
     // The turn runs on detached: the transcript fills in after the call has
     // already resolved.

@@ -228,6 +228,7 @@ export function useSessionsLive(): void {
       "session.message.added",
       "session.inbox.queued",
       "session.inbox.delivered",
+      "session.inbox.withdrawn",
       "session.updated",
       "session.finished",
       "session.deleted",

@@ -127,7 +127,6 @@ describe("createDelegationMessaging", () => {
     expect(events[0]).toEqual({
       type: "session.inbox.queued",
       sessionId: "parent",
-      source: "child",
     });
   });
 
@@ -706,9 +705,21 @@ describe("createDelegationMessaging", () => {
     createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
     enqueueInboxItem(db, "parent", { source: "user", text: "queued elsewhere" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "user" });
-    bus.publish({ type: "session.updated", id: "parent", status: "idle" });
-    bus.publish({ type: "session.turn.settled", id: "worker", messageId: null, outcome: "ended" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({
+      type: "session.updated",
+      id: "parent",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
+    bus.publish({
+      type: "session.turn.settled",
+      id: "worker",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
     await tick();
 
     expect(pendingInboxItems(db, "parent")).toHaveLength(1);

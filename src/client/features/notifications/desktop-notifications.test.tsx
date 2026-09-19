@@ -137,7 +137,13 @@ describe("<DesktopNotifications>", () => {
   it("notifies when a session's turn settles to idle, opening the session on click", async () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionPayload("s1"))));
     const { emit, shown, history } = renderNotifications();
-    await emit({ type: "session.updated", id: "s1", status: "idle" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(shown).toHaveLength(1);
     const spec = shown[0] as DesktopNotificationSpec;
     expect(spec.title).toBe("Ship checklist");
@@ -150,14 +156,34 @@ describe("<DesktopNotifications>", () => {
   it("notifies when a session pauses waiting on tool approval", async () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionPayload("s1"))));
     const { emit, shown } = renderNotifications();
-    await emit({ type: "session.updated", id: "s1", status: "waiting" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s1",
+      status: "waiting",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(shown).toHaveLength(1);
     expect((shown[0] as DesktopNotificationSpec).body).toBe("Waiting for tool approval");
   });
 
-  it("ignores mid-turn session updates", async () => {
+  it("ignores a change to a resting session that is not a turn ending", async () => {
     const { emit, shown } = renderNotifications();
-    await emit({ type: "session.updated", id: "s1", status: "running" });
+    // A rename, a model change or a deleted message, seen from another view.
+    await emit({
+      type: "session.updated",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
+    await emit({
+      type: "session.finished",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(shown).toHaveLength(0);
   });
 
@@ -168,7 +194,13 @@ describe("<DesktopNotifications>", () => {
       ),
     );
     const { emit, shown } = renderNotifications();
-    await emit({ type: "session.finished", id: "s1", status: "failed" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(shown).toHaveLength(1);
     const spec = shown[0] as DesktopNotificationSpec;
     expect(spec.title).toBe("Session");
@@ -184,8 +216,20 @@ describe("<DesktopNotifications>", () => {
       ),
     );
     const { emit, shown } = renderNotifications();
-    await emit({ type: "session.updated", id: "s2", status: "idle" });
-    await emit({ type: "session.finished", id: "s2", status: "failed" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s2",
+      status: "idle",
+      projectId: null,
+      parentSessionId: "s1",
+    });
+    await emit({
+      type: "session.turn.settled",
+      id: "s2",
+      status: "failed",
+      projectId: null,
+      parentSessionId: "s1",
+    });
     expect(shown).toHaveLength(0);
   });
 
@@ -202,7 +246,13 @@ describe("<DesktopNotifications>", () => {
       ),
     );
     const { emit, shown, history } = renderNotifications();
-    await emit({ type: "session.updated", id: "s2", status: "waiting" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s2",
+      status: "waiting",
+      projectId: null,
+      parentSessionId: "s1",
+    });
     expect(shown).toHaveLength(1);
     const spec = shown[0] as DesktopNotificationSpec;
     expect(spec.title).toBe("CVE scan");
@@ -224,7 +274,13 @@ describe("<DesktopNotifications>", () => {
       ),
     );
     const { emit, shown } = renderNotifications({ path: "/sessions/s1" });
-    await emit({ type: "session.updated", id: "s2", status: "waiting" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s2",
+      status: "waiting",
+      projectId: null,
+      parentSessionId: "s1",
+    });
     expect(shown).toHaveLength(0);
   });
 
@@ -235,7 +291,13 @@ describe("<DesktopNotifications>", () => {
       ),
     );
     const { emit, shown } = renderNotifications();
-    await emit({ type: "session.updated", id: "s2", status: "waiting" });
+    await emit({
+      type: "session.turn.settled",
+      id: "s2",
+      status: "waiting",
+      projectId: null,
+      parentSessionId: "s1",
+    });
     expect(shown).toHaveLength(1);
     const spec = shown[0] as DesktopNotificationSpec;
     expect(spec.title).toBe("Worker");

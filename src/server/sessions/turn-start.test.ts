@@ -296,9 +296,21 @@ describe("createTurnStarter", () => {
       error: { message: "discovery exploded" },
     });
     expect(settledEvents()).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
-    expect(events.at(-1)).toEqual({ type: "session.finished", id: "s1", status: "failed" });
+    expect(events.at(-1)).toEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(streamRegistry.has("s1")).toBe(false);
     expect(lifecycle.cancel("s1")).toBe(false);
   });
@@ -347,7 +359,13 @@ describe("createTurnStarter", () => {
       error: { message: "model removed" },
     });
     expect(settledEvents()).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(pendingInboxItems(db, "s1")).toHaveLength(1);
     expect(lifecycle.cancel("s1")).toBe(false);

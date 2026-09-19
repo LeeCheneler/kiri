@@ -194,12 +194,22 @@ describe("projects state", () => {
     expect(await screen.findByText("name:Fetch 1")).toBeDefined();
 
     act(() => {
-      sources[0]?.emit({ type: "session.started", id: "s1" });
+      sources[0]?.emit({
+        type: "session.started",
+        id: "s1",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
     expect(await screen.findByText("name:Fetch 2")).toBeDefined();
 
     act(() => {
-      sources[0]?.emit({ type: "session.deleted", id: "s1" });
+      sources[0]?.emit({
+        type: "session.deleted",
+        id: "s1",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
     expect(await screen.findByText("name:Fetch 3")).toBeDefined();
   });

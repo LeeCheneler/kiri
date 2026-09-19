@@ -127,16 +127,39 @@ describe("createEventBus", () => {
       if (e.type === "session.message.added") messageSessionId = e.sessionId;
     });
 
-    bus.publish({ type: "session.started", id: "s1" });
-    bus.publish({ type: "session.message.added", sessionId: "s1" });
-    bus.publish({ type: "session.turn.settled", id: "s1", messageId: "m1", outcome: "ended" });
-    bus.publish({ type: "session.updated", id: "s1", status: "idle" });
+    bus.publish({ type: "session.started", id: "s1", projectId: null, parentSessionId: null });
+    bus.publish({
+      type: "session.message.added",
+      sessionId: "s1",
+      projectId: null,
+      parentSessionId: null,
+    });
+    bus.publish({
+      type: "session.turn.settled",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
+    bus.publish({
+      type: "session.updated",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
 
     expect(seen).toEqual([
-      { type: "session.started", id: "s1" },
-      { type: "session.message.added", sessionId: "s1" },
-      { type: "session.turn.settled", id: "s1", messageId: "m1", outcome: "ended" },
-      { type: "session.updated", id: "s1", status: "idle" },
+      { type: "session.started", id: "s1", projectId: null, parentSessionId: null },
+      { type: "session.message.added", sessionId: "s1", projectId: null, parentSessionId: null },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      },
+      { type: "session.updated", id: "s1", status: "idle", projectId: null, parentSessionId: null },
     ]);
     expect(messageSessionId).toBe("s1");
   });

@@ -49,6 +49,7 @@ import {
   getSession,
   getSessionLabels,
   getSessionMessages,
+  sessionOwners,
   updateMessage,
 } from "./store.ts";
 import type { StreamSink } from "./stream-registry.ts";
@@ -263,7 +264,8 @@ async function pumpStream(
 // does. One transaction moves the backlog into the transcript and acknowledges
 // it, so an interruption can neither lose a queued message nor deliver it
 // twice. Returns how many messages the turn opens on.
-function openTurn(db: KiriDb, bus: EventBus, sessionId: string, userMessage?: UIMessage): number {
+function openTurn(db: KiriDb, bus: EventBus, session: Session, userMessage?: UIMessage): number {
+  const sessionId = session.id;
   const backlog = db.transaction(() => {
     const backlog = pendingInboxItems(db, sessionId);
     for (const item of backlog) {
@@ -291,7 +293,7 @@ function openTurn(db: KiriDb, bus: EventBus, sessionId: string, userMessage?: UI
     return backlog;
   });
   if (backlog.length > 0) bus.publish({ type: "session.inbox.delivered", sessionId });
-  bus.publish({ type: "session.message.added", sessionId });
+  bus.publish({ type: "session.message.added", sessionId, ...sessionOwners(session) });
   return backlog.length + (userMessage ? 1 : 0);
 }
 
@@ -314,7 +316,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
 
   // Anything queued while the session was idle drains ahead of the message
   // that starts the turn.
-  const incomingMessageCount = openTurn(db, bus, session.id, userMessage);
+  const incomingMessageCount = openTurn(db, bus, session, userMessage);
   lease.begin();
 
   return streamCore(deps, session, lease, model, incomingMessageCount);
@@ -337,7 +339,7 @@ export async function runWakeTurn(
   const { db, bus } = deps;
   const { session, lease, model } = args;
 
-  const incomingMessageCount = openTurn(db, bus, session.id);
+  const incomingMessageCount = openTurn(db, bus, session);
   lease.begin();
 
   return streamCore(deps, session, lease, model, incomingMessageCount);

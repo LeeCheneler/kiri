@@ -610,8 +610,12 @@ describe("sessions store", () => {
       text: "Keep report",
     });
 
-    deleteSession(db, "parent");
+    const deleted = deleteSession(db, "parent");
 
+    expect(deleted.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "child", projectId: null, parentSessionId: "parent" },
+      { id: "parent", projectId: null, parentSessionId: null },
+    ]);
     expect(getSession(db, "parent")).toBeUndefined();
     expect(getSession(db, "child")).toBeUndefined();
     expect(getSessionMessages(db, "child")).toHaveLength(0);

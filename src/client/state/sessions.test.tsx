@@ -259,13 +259,36 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<SessionProbe id="s1" />);
     await screen.findByText("m-1");
 
-    act(() => sources[0]?.emit({ type: "session.updated", id: "s1", status: "running" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("m-2");
 
-    act(() => sources[0]?.emit({ type: "session.message.added", sessionId: "s1" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.message.added",
+        sessionId: "s1",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("m-3");
 
-    act(() => sources[0]?.emit({ type: "session.finished", id: "s1", status: "failed" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.finished",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("m-4");
   });
 
@@ -274,7 +297,15 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<SessionProbe id="s1" />);
     await screen.findByText("m-1");
 
-    act(() => sources[0]?.emit({ type: "session.updated", id: "other", status: "running" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.updated",
+        id: "other",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     // The detail query for s1 is untouched; only the keyed "other" query and the
     // feed (not mounted here) were invalidated, so the model stays m-1.
     await act(() => Promise.resolve());
@@ -350,7 +381,14 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<FeedProbe />);
     await screen.findByText("s-1");
 
-    act(() => sources[0]?.emit({ type: "session.started", id: "new" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.started",
+        id: "new",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("s-2");
   });
 
@@ -359,7 +397,14 @@ describe("sessions state", () => {
     const { sources } = renderProbe(<FeedProbe />);
     await screen.findByText("s-1");
 
-    act(() => sources[0]?.emit({ type: "session.deleted", id: "s-1" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.deleted",
+        id: "s-1",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("s-2");
   });
 

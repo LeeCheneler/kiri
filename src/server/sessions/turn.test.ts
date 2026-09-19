@@ -493,14 +493,15 @@ describe("runTurn", () => {
         ...(ending !== "cancel" ? { error: { code: "step_limit" } } : {}),
         finishedAt: expect.any(Date),
       });
-      expect(events).toContainEqual({ type: "session.finished", id: "s1", status });
+      expect(events).toContainEqual({
+        type: "session.finished",
+        id: "s1",
+        status,
+        projectId: null,
+        parentSessionId: null,
+      });
       expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-        {
-          type: "session.turn.settled",
-          id: "s1",
-          messageId: rows[1]?.id,
-          outcome: ending === "cancel" ? "cancelled" : "incomplete",
-        },
+        { type: "session.turn.settled", id: "s1", status, projectId: null, parentSessionId: null },
       ]);
       if (ending === "summary") {
         expect(sse).toContain("Saved 128 results. More work remains.");
@@ -754,11 +755,29 @@ describe("runTurn", () => {
     const settled = getSession(db, "s1");
     expect(settled?.status).toBe("idle");
 
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "running",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(events.filter((e) => e.type === "session.message.added")).toHaveLength(2);
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "ended" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
   });
 
@@ -1338,7 +1357,7 @@ describe("runTurn", () => {
         "Keep this decision.",
       );
       expect(events).toContainEqual(
-        expect.objectContaining({ type: "session.turn.settled", outcome: "incomplete" }),
+        expect.objectContaining({ type: "session.turn.settled", status: "failed" }),
       );
     },
   );
@@ -1416,7 +1435,7 @@ describe("runTurn", () => {
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "session.turn.settled",
-          outcome: ending === "cancel" ? "cancelled" : "incomplete",
+          status: ending === "cancel" ? "cancelled" : "failed",
         }),
       );
     },
@@ -2054,12 +2073,24 @@ describe("runTurn", () => {
     expect(settled?.status).toBe("failed");
     expect(settled?.error).toEqual({ message: "rate limited" });
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(settled?.finishedAt).toBeInstanceOf(Date);
     // The user message persisted; no assistant message was appended.
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "failed" });
+    expect(events).toContainEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it.each([
@@ -2125,10 +2156,27 @@ describe("runTurn", () => {
     ]);
     // No footprint: the aborted stream never settles its usage.
     expect(rows[1]?.contextTokens).toBeNull();
-    expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
+    expect(events).toContainEqual({
+      type: "session.message.added",
+      sessionId: "s1",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events).toContainEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "cancelled",
+      projectId: null,
+      parentSessionId: null,
+    });
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "cancelled" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "cancelled",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
   });
 
@@ -2206,7 +2254,13 @@ describe("runTurn", () => {
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe("Hello");
     expect(getSession(db, "s1")?.status).toBe("idle");
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "idle",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it("reports settlement after final persistence fails, retaining the last successful checkpoint", async () => {
@@ -2230,7 +2284,13 @@ describe("runTurn", () => {
     });
     expect(saved?.role).toBe("assistant");
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: saved?.id ?? null, outcome: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(streamRegistry.has("s1")).toBe(false);
   });
@@ -2244,7 +2304,7 @@ describe("runTurn", () => {
       subscribe: () => () => {},
       publish: (event: KiriEvent) => {
         if (event.type === "session.turn.settled") {
-          expect(getSessionMessages(db, "s1").at(-1)?.id ?? null).toBe(event.messageId);
+          expect(getSessionMessages(db, "s1").at(-1)?.role).toBe("assistant");
           expect(streamRegistry.has("s1")).toBe(false);
           expect(canceller.cancel("s1")).toBe(false);
         }
@@ -2372,7 +2432,13 @@ describe("runTurn", () => {
     expect(settled?.error).toEqual({ message: "tool construction broke" });
     // The user message persisted; no assistant message was appended.
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "failed" });
+    expect(events).toContainEqual({
+      type: "session.finished",
+      id: "s1",
+      status: "failed",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it("persists a failed tool call's real message as its errorText", async () => {
@@ -2423,8 +2489,22 @@ describe("runTurn", () => {
     // The session is waiting — blocked on the user's decision, not resting —
     // and the bus said so, so lists flip amber live.
     expect(getSession(db, "s1")?.status).toBe("waiting");
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "waiting" });
-    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([]);
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "waiting",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "waiting",
+        projectId: null,
+        parentSessionId: null,
+      },
+    ]);
   });
 
   it("runs the tool and answers when a paused turn is resumed with approval", async () => {
@@ -2454,7 +2534,20 @@ describe("runTurn", () => {
     const rows = getSessionMessages(db, "s1");
     // The continuation extended the same two rows — no extra assistant message.
     expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "ended" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "waiting",
+        projectId: null,
+        parentSessionId: null,
+      },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     const toolPart = toolPartOf(rows[1]);
@@ -3566,8 +3659,19 @@ describe("runWakeTurn", () => {
     expect(pendingInboxItems(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
-    expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
-    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
+    expect(events).toContainEqual({
+      type: "session.message.added",
+      sessionId: "s1",
+      projectId: null,
+      parentSessionId: null,
+    });
+    expect(events).toContainEqual({
+      type: "session.updated",
+      id: "s1",
+      status: "running",
+      projectId: null,
+      parentSessionId: null,
+    });
   });
 
   it("returns null and touches nothing when the backlog is already drained", async () => {

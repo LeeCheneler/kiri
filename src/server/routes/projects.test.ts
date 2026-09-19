@@ -544,9 +544,19 @@ describe("projects routes", () => {
       expect(env.db.select().from(sessionInbox).all()).toEqual([]);
       expect(observed).toEqual([true]);
       expect(events).toContainEqual({ type: "project.deleted", id: "p1" });
-      expect(events).toContainEqual({ type: "session.deleted", id: "s1" });
-      // The child was deleted with its parent, not announced separately.
-      expect(events).not.toContainEqual({ type: "session.deleted", id: "c1" });
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "s1",
+        projectId: "p1",
+        parentSessionId: null,
+      });
+      // The worker has caches of its own, so it is announced too.
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "c1",
+        projectId: "p1",
+        parentSessionId: "s1",
+      });
       expect(env.db.select().from(sessions).all()).toEqual([]);
       expect(env.db.select().from(articles).all()).toEqual([]);
       // The project's memories went with it; the workspace's did not.

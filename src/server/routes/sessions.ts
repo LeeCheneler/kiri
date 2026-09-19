@@ -50,7 +50,13 @@ import {
   withdrawInboxItem,
 } from "../sessions/index.ts";
 import type { SessionRuntime } from "../sessions/runtime.ts";
-import { SessionConflictError, type SessionMove, moveSessionToProject } from "../sessions/store.ts";
+import {
+  type DeletedSession,
+  SessionConflictError,
+  type SessionMove,
+  moveSessionToProject,
+  sessionOwners,
+} from "../sessions/store.ts";
 import { ShuttingDownError, TurnInFlightError } from "../sessions/turn-lifecycle.ts";
 import type { TurnStart } from "../sessions/turn-start.ts";
 import { ApprovalCommandError } from "../sessions/turn.ts";
@@ -277,7 +283,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ...(cwd !== undefined ? { cwd } : {}),
         ...(projectId !== undefined ? { projectId } : {}),
       });
-      bus?.publish({ type: "session.started", id: session.id });
+      bus?.publish({ type: "session.started", id: session.id, ...sessionOwners(session) });
       return c.json(
         { session: serializeSession(session) } satisfies sessionsApi.SessionResult,
         201,
@@ -552,7 +558,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // The turn endpoint resolves the model per turn, so a change applies
       // from the next turn. Announce it like any other session change so the
       // feed and the open chat refresh; status is unchanged.
-      bus?.publish({ type: "session.updated", id, status: updated.status });
+      bus?.publish({
+        type: "session.updated",
+        id,
+        status: updated.status,
+        ...sessionOwners(updated),
+      });
       return c.json({ session: serializeSession(updated) } satisfies sessionsApi.SessionResult);
     },
   );
@@ -590,7 +601,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
 
       for (const row of moved.family) {
-        bus?.publish({ type: "session.updated", id: row.id, status: row.status });
+        bus?.publish({
+          type: "session.updated",
+          id: row.id,
+          status: row.status,
+          ...sessionOwners(row),
+        });
       }
       for (const article of moved.articles) {
         bus?.publish({
@@ -705,15 +721,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
 
+      let deleted: DeletedSession[];
       try {
-        deleteSession(db, id);
+        deleted = deleteSession(db, id);
       } catch (cause) {
         if (cause instanceof SessionConflictError)
           return c.json({ error: cause.message } satisfies errorsApi.ApiErrorBody, 409);
         throw cause;
       }
 
-      bus?.publish({ type: "session.deleted", id });
+      // A session's workers go with it, and each has caches of its own.
+      for (const row of deleted) {
+        bus?.publish({ type: "session.deleted", id: row.id, ...sessionOwners(row) });
+      }
       return c.body(null, 204);
     },
   );
@@ -749,7 +769,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // Other views only learn of transcript changes from the bus, and a plain
       // delete — unlike an edit-and-resend — has no follow-up turn to announce
       // one, so publish the change here.
-      bus?.publish({ type: "session.updated", id, status: session.status });
+      bus?.publish({
+        type: "session.updated",
+        id,
+        status: session.status,
+        ...sessionOwners(session),
+      });
       return c.json({ transcriptRevision } satisfies sessionsApi.TranscriptMutationResult);
     },
   );
@@ -816,6 +841,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           404,
         );
       }
+      bus?.publish({ type: "session.inbox.withdrawn", sessionId: id });
       return c.body(null, 204);
     },
   );

@@ -9,7 +9,13 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type Effort } from "../llm/index.ts";
 import type { DelegationMessaging } from "./delegation-messaging.ts";
-import { createSession, findChildByToolCall, getSession, getSessionChildren } from "./store.ts";
+import {
+  createSession,
+  findChildByToolCall,
+  getSession,
+  getSessionChildren,
+  sessionOwners,
+} from "./store.ts";
 import type { StartTurn } from "./turn-start.ts";
 
 /** Name the model calls the delegation tool by; also its standing-permission key. */
@@ -141,7 +147,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       parentSessionId,
       parentToolCallId: toolCallId,
     });
-    bus?.publish({ type: "session.started", id: child.id });
+    bus?.publish({ type: "session.started", id: child.id, ...sessionOwners(child) });
 
     const userMessage: UIMessage = {
       id: crypto.randomUUID(),

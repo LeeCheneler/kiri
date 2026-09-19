@@ -96,7 +96,14 @@ describe("activity state", () => {
     act(() => sources[0]?.emit({ type: "run.started", id: "r9" }));
     await screen.findByText("a-2");
 
-    act(() => sources[0]?.emit({ type: "session.started", id: "s9" }));
+    act(() =>
+      sources[0]?.emit({
+        type: "session.started",
+        id: "s9",
+        projectId: null,
+        parentSessionId: null,
+      }),
+    );
     await screen.findByText("a-3");
   });
 

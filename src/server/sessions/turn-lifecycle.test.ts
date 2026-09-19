@@ -13,6 +13,7 @@ import {
   type TurnLifecycle,
   type TurnSettlement,
   createTurnLifecycle,
+  settlementOutcome,
 } from "./turn-lifecycle.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -78,7 +79,15 @@ describe("createTurnLifecycle", () => {
     expect(session?.status).toBe("running");
     expect(session?.error).toBeNull();
     expect(session?.finishedAt).toBeNull();
-    expect(events).toEqual([{ type: "session.updated", id: "s1", status: "running" }]);
+    expect(events).toEqual([
+      {
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      },
+    ]);
   });
 
   it("aborts the executing turn on cancel, even before it has begun", () => {
@@ -100,9 +109,15 @@ describe("createTurnLifecycle", () => {
     expect(streamRegistry.has("s1")).toBe(false);
     expect(lifecycle.cancel("s1")).toBe(false);
     expect(events).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: "m1", outcome: "ended" },
-      { type: "session.message.added", sessionId: "s1" },
-      { type: "session.updated", id: "s1", status: "idle" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      },
+      { type: "session.message.added", sessionId: "s1", projectId: null, parentSessionId: null },
+      { type: "session.updated", id: "s1", status: "idle", projectId: null, parentSessionId: null },
     ]);
     await lease.done;
   });
@@ -131,7 +146,7 @@ describe("createTurnLifecycle", () => {
     expect(replacement).toBeDefined();
   });
 
-  it("pauses on an approval without announcing a settlement", () => {
+  it("announces an approval pause as a settlement that leaves the session waiting", () => {
     const lease = lifecycle.acquire("s1");
     lease.begin();
     events.length = 0;
@@ -140,8 +155,21 @@ describe("createTurnLifecycle", () => {
 
     expect(getSession(db, "s1")?.status).toBe("waiting");
     expect(events).toEqual([
-      { type: "session.message.added", sessionId: "s1" },
-      { type: "session.updated", id: "s1", status: "waiting" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "waiting",
+        projectId: null,
+        parentSessionId: null,
+      },
+      { type: "session.message.added", sessionId: "s1", projectId: null, parentSessionId: null },
+      {
+        type: "session.updated",
+        id: "s1",
+        status: "waiting",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     expect(settled.map((entry) => entry.settlement.status)).toEqual(["waiting"]);
   });
@@ -158,12 +186,24 @@ describe("createTurnLifecycle", () => {
     expect(session?.error).toEqual({ message: "provider down" });
     expect(session?.finishedAt).toBeInstanceOf(Date);
     expect(events).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
-      { type: "session.finished", id: "s1", status: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
+      {
+        type: "session.finished",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
   });
 
-  it("reports a limit stop as incomplete and a cancel as cancelled", () => {
+  it("announces a terminal settle as finished, whatever ended it", () => {
     const limited = lifecycle.acquire("s1");
     limited.begin();
     limited.settle({
@@ -177,9 +217,18 @@ describe("createTurnLifecycle", () => {
     cancelled.settle({ status: "cancelled", messageId: null });
 
     expect(
-      events.flatMap((event) => (event.type === "session.turn.settled" ? [event.outcome] : [])),
-    ).toEqual(["incomplete", "cancelled"]);
+      events.flatMap((event) => (event.type === "session.finished" ? [event.status] : [])),
+    ).toEqual(["failed", "cancelled"]);
     expect(getSession(db, "s1")?.status).toBe("cancelled");
+  });
+
+  it("names how a settled turn ended", () => {
+    expect(settlementOutcome({ status: "idle", messageId: "m1" })).toBe("ended");
+    expect(settlementOutcome({ status: "failed", messageId: null })).toBe("failed");
+    expect(settlementOutcome({ status: "failed", messageId: null, incomplete: true })).toBe(
+      "incomplete",
+    );
+    expect(settlementOutcome({ status: "cancelled", messageId: null })).toBe("cancelled");
   });
 
   it("ignores a settle from a turn that no longer holds the session", () => {
@@ -224,8 +273,20 @@ describe("createTurnLifecycle", () => {
     expect(getSession(db, "s1")?.error).toEqual({ message: "discovery rejected" });
     expect(streamRegistry.has("s1")).toBe(false);
     expect(events).toEqual([
-      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
-      { type: "session.finished", id: "s1", status: "failed" },
+      {
+        type: "session.turn.settled",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
+      {
+        type: "session.finished",
+        id: "s1",
+        status: "failed",
+        projectId: null,
+        parentSessionId: null,
+      },
     ]);
     await lease.done;
   });

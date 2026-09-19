@@ -349,7 +349,13 @@ describe("sessions routes", () => {
           projectId: row.sessionId === "other" ? null : "p1",
         });
       }
-      expect(seen).toContainEqual({ type: "session.updated", id: "child", status: "idle" });
+      expect(seen).toContainEqual({
+        type: "session.updated",
+        id: "child",
+        status: "idle",
+        projectId: "p1",
+        parentSessionId: "s1",
+      });
       expect(seen).toContainEqual({
         type: "article.written",
         sessionId: "s1",
@@ -665,7 +671,12 @@ describe("sessions routes", () => {
       expect(body.session.model).toBe(MODEL);
       expect(body.session.status).toBe("idle");
       expect(getSession(env.db, body.session.id)?.model).toBe(MODEL);
-      expect(events).toContainEqual({ type: "session.started", id: body.session.id });
+      expect(events).toContainEqual({
+        type: "session.started",
+        id: body.session.id,
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("creates a session with an image model when the body carries one", async () => {
@@ -1491,7 +1502,13 @@ describe("sessions routes", () => {
       const body = (await res.json()) as { session: { model: string } };
       expect(body.session.model).toBe("anthropic:claude");
       expect(getSession(env.db, "s1")?.model).toBe("anthropic:claude");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("404s an unknown session", async () => {
@@ -1570,7 +1587,13 @@ describe("sessions routes", () => {
       expect(getSession(env.db, "s1")).toEqual({ ...before, ...changes });
       expect(observed).toEqual([
         {
-          event: { type: "session.updated", id: "s1", status: "idle" },
+          event: {
+            type: "session.updated",
+            id: "s1",
+            status: "idle",
+            projectId: null,
+            parentSessionId: null,
+          },
           session: { ...before, ...changes },
         },
       ]);
@@ -1616,7 +1639,15 @@ describe("sessions routes", () => {
         title: "Original",
       });
       expect(getSession(env.db, "s1")).toEqual(before);
-      expect(events).toEqual([{ type: "session.updated", id: "s1", status: "idle" }]);
+      expect(events).toEqual([
+        {
+          type: "session.updated",
+          id: "s1",
+          status: "idle",
+          projectId: null,
+          parentSessionId: null,
+        },
+      ]);
     });
 
     it("rejects any cwd write — the working directory has no app-side writer", async () => {
@@ -1671,7 +1702,13 @@ describe("sessions routes", () => {
       const body = (await res.json()) as { session: { effort: string } };
       expect(body.session.effort).toBe("high");
       expect(getSession(env.db, "s1")?.effort).toBe("high");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("rejects an effort outside the levels and leaves it unchanged", async () => {
@@ -1699,7 +1736,13 @@ describe("sessions routes", () => {
       // The schema trims, so surrounding whitespace never reaches storage.
       expect(body.session.title).toBe("Postgres upgrade plan");
       expect(getSession(env.db, "s1")?.title).toBe("Postgres upgrade plan");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
 
       const cleared = await patchBody(app, "s1", { title: null });
 
@@ -2636,7 +2679,13 @@ describe("sessions routes", () => {
       expect(toolPartOf(rows[1]).state).toBe("output-available");
       expect(toolPartOf(rows[1]).output).toEqual({ cwd: realpathSync(join(env.cwd, "docs")) });
       expect(getSession(env.db, "s1")?.cwd).toBe(realpathSync(join(env.cwd, "docs")));
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "running",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("heals a working directory that left the disk and announces the move to the model", async () => {
@@ -2680,6 +2729,8 @@ describe("sessions routes", () => {
         type: "session.updated",
         id: "s1",
         status: "running",
+        projectId: null,
+        parentSessionId: null,
       });
       // The turn's system prompt told the model about the move.
       expect(systemText).toContain(`"${join(env.cwd, "gone")}" no longer exists`);
@@ -3311,7 +3362,38 @@ describe("sessions routes", () => {
       expect(res.status).toBe(204);
       expect(getSession(env.db, "s1")).toBeUndefined();
       expect(getSessionMessages(env.db, "s1")).toHaveLength(0);
-      expect(events).toContainEqual({ type: "session.deleted", id: "s1" });
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "s1",
+        projectId: null,
+        parentSessionId: null,
+      });
+    });
+
+    it("announces the workers deleted with the session, each by its own id", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, {
+        id: "worker",
+        parentSessionId: "s1",
+        parentToolCallId: "call-1",
+      });
+
+      const res = await app.request("/api/sessions/s1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(events).toContainEqual({
+        type: "session.deleted",
+        id: "worker",
+        projectId: null,
+        parentSessionId: "s1",
+      });
     });
 
     it("409s a parent with a running worker without deleting records or publishing", async () => {
@@ -3395,7 +3477,13 @@ describe("sessions routes", () => {
       // The edited message and the turn after it are gone; the prior turn stays.
       expect(getSessionMessages(env.db, "s1").map((m) => m.index)).toEqual([0, 1]);
       // A truncate has no follow-up turn to announce it, so the route publishes.
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      expect(events).toContainEqual({
+        type: "session.updated",
+        id: "s1",
+        status: "idle",
+        projectId: null,
+        parentSessionId: null,
+      });
     });
 
     it("404s an unknown session", async () => {
@@ -3473,7 +3561,6 @@ describe("sessions routes", () => {
       expect(events).toContainEqual({
         type: "session.inbox.queued",
         sessionId: "s1",
-        source: "user",
       });
     });
 
@@ -3587,8 +3674,11 @@ describe("sessions routes", () => {
   });
 
   describe("DELETE /api/sessions/:id/inbox/:itemId", () => {
-    it("withdraws a still-queued message with a 204", async () => {
-      const app = makeApp(fakeClients());
+    it("withdraws a still-queued message with a 204 and announces it", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
       createSession(env.db, MODEL, { id: "s1" });
       const item = enqueueInboxItem(env.db, "s1", { source: "user", text: "on second thought" });
 
@@ -3599,6 +3689,7 @@ describe("sessions routes", () => {
 
       expect(res.status).toBe(204);
       expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+      expect(events).toContainEqual({ type: "session.inbox.withdrawn", sessionId: "s1" });
     });
 
     it("404s an item that is no longer queued — the already-delivered signal", async () => {

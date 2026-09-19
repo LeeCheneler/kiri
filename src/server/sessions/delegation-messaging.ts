@@ -151,7 +151,7 @@ export function createDelegationMessaging(deps: DelegationMessagingDeps): Delega
 
   const send: DelegationMessaging["send"] = (sessionId, message) => {
     const item = enqueueInboxItem(db, sessionId, message);
-    bus.publish({ type: "session.inbox.queued", sessionId, source: message.source });
+    bus.publish({ type: "session.inbox.queued", sessionId });
     void wake(sessionId, queuedBy(message.source));
     return item;
   };
