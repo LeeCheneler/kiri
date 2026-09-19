@@ -207,8 +207,17 @@ const toUiMessage = (row: Message): UIMessage => ({
   parts: row.parts,
 });
 
+// A provider can fail mid-stream with a plain error event rather than an
+// Error: `{ error: { message } }`, or a bare `{ message }`.
+const eventMessage = (cause: unknown): string | undefined => {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const { error, message } = cause as { error?: { message?: unknown }; message?: unknown };
+  const detail = error?.message ?? message;
+  return typeof detail === "string" && detail.trim() ? detail : undefined;
+};
+
 const errorMessage = (cause: unknown): string => {
-  const fallback = cause instanceof Error ? cause.message : String(cause);
+  const fallback = cause instanceof Error ? cause.message : (eventMessage(cause) ?? String(cause));
   if (!APICallError.isInstance(cause) || !cause.responseBody) return fallback;
   // Compatible backends can return details outside the SDK's error schema.
   // Extract only the message, never request data or the entire response body.
