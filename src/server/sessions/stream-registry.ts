@@ -23,6 +23,14 @@ import type { UIMessageChunk } from "ai";
  * time), so the buffer keeps only the latest and a long-running call retains
  * one snapshot rather than every one it ever sent.
  *
+ * Both sides of the fan-out are bounded in bytes. A step whose unsaved frames
+ * outgrow the replay limit stops being replayable: the buffer is dropped, and
+ * a reader arriving before the step is saved is held — sent nothing — until
+ * it is, then ended so it reads the transcript that now contains the step.
+ * Nothing durable is lost that way; trimming frames out of the middle of a
+ * step would be. A reader whose queue outgrows its own limit has stopped
+ * keeping up: it is ended too, and rejoins from the saved transcript.
+ *
  * An entry lives exactly as long as the turn's stream: opened when capture
  * starts, dropped when it closes. Once a turn has settled there is no entry, so
  * `subscribe` returns `null` and the resume route answers 204 — the settled turn
@@ -30,6 +38,18 @@ import type { UIMessageChunk } from "ai";
  * turn is swept to `failed` at startup.
  */
 const encoder = new TextEncoder();
+
+/** The most unsaved frames an entry keeps for replay: room for a step carrying a few generated images. */
+export const REPLAY_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/** The most a reader may leave unread. Above the replay limit, so a full replay never ends the reader it was for. */
+export const READER_LIMIT_BYTES = 32 * 1024 * 1024;
+
+/** Byte ceilings, defaulting to the module constants. Tests pass tiny values. */
+export interface StreamRegistryOptions {
+  replayLimitBytes?: number;
+  readerLimitBytes?: number;
+}
 
 /** A captured turn stream: append chunks as they arrive, then close it once. */
 export interface StreamSink {
@@ -57,9 +77,10 @@ export interface StreamRegistry {
   /**
    * A readable of the session's live turn for a client holding the transcript
    * at `transcriptRevision` — the frames buffered since that revision followed
-   * by live ones, or an already-ended stream when the buffer continues from a
-   * different revision. `null` when no turn is streaming (the resume route maps
-   * it to a 204).
+   * by live ones. When the buffer continues from a different revision the
+   * stream has already ended; when the step in progress outgrew the replay
+   * limit it stays silent and ends once that step is saved. `null` when no turn
+   * is streaming (the resume route maps it to a 204).
    */
   subscribe(sessionId: string, transcriptRevision: number): ReadableStream<Uint8Array> | null;
   /** Whether a turn is currently streaming for the session. */
@@ -76,9 +97,15 @@ interface Entry {
   /** The stream's opening `start` frame, replayed ahead of whatever the buffer holds. */
   start: Frame | undefined;
   buffer: Frame[];
+  /** Bytes held in `buffer`. */
+  bufferedBytes: number;
+  /** False once the step in progress outgrew the replay limit, until its save. */
+  replayable: boolean;
   /** The buffered frame of each transient chunk, by `transientKey`. */
   transients: Map<string, Frame>;
   subs: Set<ReadableStreamDefaultController<Uint8Array>>;
+  /** Readers that arrived while the entry was not replayable, waiting on the next save. */
+  held: Set<ReadableStreamDefaultController<Uint8Array>>;
 }
 
 // The SDK's SSE framing for a UI message stream.
@@ -100,8 +127,38 @@ const endedStream = (): ReadableStream<Uint8Array> =>
  * Build a fresh stream registry. State is private to the returned object — kiri
  * creates one where turns run and threads it to the turn and the resume route.
  */
-export function createStreamRegistry(): StreamRegistry {
+export function createStreamRegistry(options: StreamRegistryOptions = {}): StreamRegistry {
+  const { replayLimitBytes = REPLAY_LIMIT_BYTES, readerLimitBytes = READER_LIMIT_BYTES } = options;
   const entries = new Map<string, Entry>();
+  const readerQueue = new ByteLengthQueuingStrategy({ highWaterMark: readerLimitBytes });
+
+  const clearBuffer = (entry: Entry): void => {
+    entry.buffer = [];
+    entry.bufferedBytes = 0;
+    entry.transients.clear();
+  };
+
+  const buffer = (entry: Entry, chunk: UIMessageChunk, frame: Frame): void => {
+    const key = transientKey(chunk);
+    if (key !== null) {
+      const superseded = entry.transients.get(key);
+      if (superseded) {
+        entry.buffer.splice(entry.buffer.indexOf(superseded), 1);
+        entry.bufferedBytes -= superseded.bytes.byteLength;
+      }
+      entry.transients.set(key, frame);
+    }
+    entry.buffer.push(frame);
+    entry.bufferedBytes += frame.bytes.byteLength;
+    if (entry.bufferedBytes <= replayLimitBytes) return;
+    entry.replayable = false;
+    clearBuffer(entry);
+  };
+
+  const endAll = (readers: Set<ReadableStreamDefaultController<Uint8Array>>): void => {
+    for (const controller of readers) controller.close();
+    readers.clear();
+  };
 
   return {
     open(sessionId, transcriptRevision) {
@@ -109,34 +166,36 @@ export function createStreamRegistry(): StreamRegistry {
         baseRevision: transcriptRevision,
         start: undefined,
         buffer: [],
+        bufferedBytes: 0,
+        replayable: true,
         transients: new Map(),
         subs: new Set(),
+        held: new Set(),
       };
       entries.set(sessionId, entry);
       return {
         push(chunk) {
           const frame: Frame = { bytes: encodeFrame(chunk) };
-          if (chunk.type === "start") {
-            entry.start = frame;
-          } else {
-            const key = transientKey(chunk);
-            if (key !== null) {
-              const superseded = entry.transients.get(key);
-              if (superseded) entry.buffer.splice(entry.buffer.indexOf(superseded), 1);
-              entry.transients.set(key, frame);
-            }
-            entry.buffer.push(frame);
+          if (chunk.type === "start") entry.start = frame;
+          else if (entry.replayable) buffer(entry, chunk, frame);
+          for (const controller of entry.subs) {
+            controller.enqueue(frame.bytes);
+            if ((controller.desiredSize ?? 0) > 0) continue;
+            // The reader has the limit's worth unread: end it behind what is
+            // queued, and let it rejoin from the saved transcript.
+            controller.close();
+            entry.subs.delete(controller);
           }
-          for (const controller of entry.subs) controller.enqueue(frame.bytes);
         },
         checkpoint(revision) {
           entry.baseRevision = revision;
-          entry.buffer = [];
-          entry.transients.clear();
+          entry.replayable = true;
+          clearBuffer(entry);
+          endAll(entry.held);
         },
         close() {
-          for (const controller of entry.subs) controller.close();
-          entry.subs.clear();
+          endAll(entry.subs);
+          endAll(entry.held);
           // A newer turn may have replaced this entry; only drop our own.
           if (entries.get(sessionId) === entry) entries.delete(sessionId);
         },
@@ -148,20 +207,28 @@ export function createStreamRegistry(): StreamRegistry {
       if (!entry) return null;
       if (entry.baseRevision !== transcriptRevision) return endedStream();
       let controller!: ReadableStreamDefaultController<Uint8Array>;
-      return new ReadableStream<Uint8Array>({
-        start(c) {
-          controller = c;
-          // Replay what's buffered, then follow live. `start` runs synchronously,
-          // so the replay and the subscription register in one tick — no frame
-          // slips between them, and none is delivered twice.
-          if (entry.start) c.enqueue(entry.start.bytes);
-          for (const frame of entry.buffer) c.enqueue(frame.bytes);
-          entry.subs.add(c);
+      return new ReadableStream<Uint8Array>(
+        {
+          start(c) {
+            controller = c;
+            if (!entry.replayable) {
+              entry.held.add(c);
+              return;
+            }
+            // Replay what's buffered, then follow live. `start` runs synchronously,
+            // so the replay and the subscription register in one tick — no frame
+            // slips between them, and none is delivered twice.
+            if (entry.start) c.enqueue(entry.start.bytes);
+            for (const frame of entry.buffer) c.enqueue(frame.bytes);
+            entry.subs.add(c);
+          },
+          cancel() {
+            entry.subs.delete(controller);
+            entry.held.delete(controller);
+          },
         },
-        cancel() {
-          entry.subs.delete(controller);
-        },
-      });
+        readerQueue,
+      );
     },
 
     has(sessionId) {

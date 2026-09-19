@@ -146,6 +146,77 @@ describe("createStreamRegistry", () => {
     sink.close();
   });
 
+  it("stops replaying a step that outgrows the limit, holding a late reader until it is saved", async () => {
+    const big = text("x".repeat(200));
+    const reg = createStreamRegistry({ replayLimitBytes: 300 });
+    const sink = reg.open("s1", 1);
+    const live = frames(reg.subscribe("s1", 1));
+    sink.push(START);
+    sink.push(big);
+    sink.push(big);
+
+    // The step's frames no longer fit: a reader arriving now is sent nothing,
+    // while the one already following live misses nothing.
+    const late = frames(reg.subscribe("s1", 1));
+    sink.push(text("tail"));
+    sink.push(FINISH_STEP);
+    sink.checkpoint(2);
+    expect(await late.next()).toBeUndefined();
+    for (const chunk of [START, big, big, text("tail"), FINISH_STEP]) {
+      expect(await live.next()).toBe(frame(chunk));
+    }
+
+    // Saved, the step is in the transcript, and replay picks up after it.
+    sink.push(text("next step"));
+    const rejoined = frames(reg.subscribe("s1", 2));
+    expect(await rejoined.next()).toBe(frame(START));
+    expect(await rejoined.next()).toBe(frame(text("next step")));
+    sink.close();
+  });
+
+  it("ends a held reader when the turn settles before the step is saved", async () => {
+    const reg = createStreamRegistry({ replayLimitBytes: 10 });
+    const sink = reg.open("s1", 1);
+    sink.push(text("over the limit"));
+    const late = frames(reg.subscribe("s1", 1));
+    const gone = frames(reg.subscribe("s1", 1));
+    await gone.cancel();
+    sink.close();
+    expect(await late.next()).toBeUndefined();
+  });
+
+  it("counts a superseded transient out of the replay limit", async () => {
+    const snapshot = consoleSnapshot("c1", "y".repeat(100));
+    const reg = createStreamRegistry({ replayLimitBytes: 2 * frame(snapshot).length - 1 });
+    const sink = reg.open("s1", 1);
+    for (let i = 0; i < 10; i += 1) sink.push(snapshot);
+    const out = frames(reg.subscribe("s1", 1));
+    expect(await out.next()).toBe(frame(snapshot));
+    sink.close();
+    expect(await out.next()).toBeUndefined();
+  });
+
+  it("ends a reader that leaves more than its limit unread, behind what it was sent", async () => {
+    const chunk = text("z".repeat(100));
+    const reg = createStreamRegistry({ readerLimitBytes: 2 * frame(chunk).length });
+    const sink = reg.open("s1", 1);
+    const stalled = frames(reg.subscribe("s1", 1));
+    const reading = frames(reg.subscribe("s1", 1));
+    sink.push(chunk);
+    expect(await reading.next()).toBe(frame(chunk));
+    sink.push(chunk);
+    expect(await reading.next()).toBe(frame(chunk));
+    sink.push(chunk);
+    expect(await reading.next()).toBe(frame(chunk));
+
+    // The stalled reader was cut off at its limit; the one keeping up was not.
+    expect(await stalled.next()).toBe(frame(chunk));
+    expect(await stalled.next()).toBe(frame(chunk));
+    expect(await stalled.next()).toBeUndefined();
+    sink.close();
+    expect(await reading.next()).toBeUndefined();
+  });
+
   it("fans out the same frames to multiple subscribers", async () => {
     const reg = createStreamRegistry();
     const sink = reg.open("s1", 1);
