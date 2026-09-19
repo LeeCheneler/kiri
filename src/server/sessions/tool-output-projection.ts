@@ -9,7 +9,6 @@ import {
 } from "ai";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import { compactImageOutput } from "./image-tool-results.ts";
-import { toonEncodeIfSmaller } from "./toon-tool-results.ts";
 import { compactWriteOutput } from "./write-tool-diffs.ts";
 
 /** What the model receives for a settled tool result: text sent verbatim, or JSON. */
@@ -40,17 +39,14 @@ export function projectToolOutput(name: string, output: unknown): unknown {
 
 /**
  * The one serialisation of a settled tool result for the model, the same
- * whether the result was just produced or is replayed from history. In order:
- * the tool's declared payload is stripped, then a string is sent as text, an
- * object or array as TOON text where that is strictly the smaller form, and
+ * whether the result was just produced or is replayed from history: the
+ * tool's declared payload is stripped, then a string is sent as text and
  * anything else as JSON. Errored calls never reach this — the SDK reports
  * them from their error text.
  */
 export function toolModelOutput(name: string, output: unknown): ProjectedToolOutput {
   const projected = projectToolOutput(name, output);
   if (typeof projected === "string") return { type: "text", value: projected };
-  const toon = toonEncodeIfSmaller(projected);
-  if (toon !== undefined) return { type: "text", value: toon };
   return { type: "json", value: (projected ?? null) as JSONValue };
 }
 

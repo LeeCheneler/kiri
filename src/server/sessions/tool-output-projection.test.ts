@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { decode } from "@toon-format/toon";
 import type { UIMessage } from "ai";
 import {
   historyProjectionTools,
@@ -7,8 +6,6 @@ import {
   toolModelOutput,
 } from "./tool-output-projection.ts";
 
-// A uniform array of short-field records — TOON's sweet spot, where it
-// comfortably beats the JSON.
 const records = {
   results: [
     { id: 1, name: "alpha", score: 10 },
@@ -48,28 +45,17 @@ describe("toolModelOutput", () => {
     });
   });
 
-  it("sends a structured result as TOON text where that is the smaller form", () => {
-    const sent = toolModelOutput("linear__search", records);
-
-    expect(sent.type).toBe("text");
-    expect(decode(sent.value as string)).toEqual(records);
-  });
-
-  it("sends a result as JSON when TOON would not be smaller", () => {
-    // A scalar array encodes larger as TOON, so the JSON form is kept.
-    expect(toolModelOutput("read_file", [1, 2, 3])).toEqual({ type: "json", value: [1, 2, 3] });
+  it("sends anything else as JSON", () => {
+    expect(toolModelOutput("linear__search", records)).toEqual({ type: "json", value: records });
     expect(toolModelOutput("read_file", 3)).toEqual({ type: "json", value: 3 });
     expect(toolModelOutput("read_file", undefined)).toEqual({ type: "json", value: null });
   });
 
-  it("strips the declared payload before choosing the encoding", () => {
-    // The encoding is chosen over what is left, so the diff reaches the model
-    // in neither form.
-    const sent = toolModelOutput("replace_article", { ...records, diff: "@@ -1 +1 @@\n-a\n+b" });
-
-    expect(sent.type).toBe("text");
-    expect(sent.value).not.toContain("@@");
-    expect(decode(sent.value as string)).toEqual(records);
+  it("strips the declared payload from what is sent", () => {
+    expect(toolModelOutput("replace_article", { ...records, diff: "@@ -1 +1 @@" })).toEqual({
+      type: "json",
+      value: records,
+    });
   });
 });
 

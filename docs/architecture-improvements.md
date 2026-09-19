@@ -158,12 +158,6 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Inline bytes are simple but repeatedly stored, cloned, and transferred. Separate storage introduces its own lifecycle, so adopt it only when measurements justify that cost. Retaining inline storage is a valid outcome.
 
-- [ ] **27 — Measure TOON's actual benefit**
-
-  **What:** Compare representative projected tool outputs for token usage and reliable comprehension, covering live and replayed results. Label character-count proxies honestly. Record a keep, narrow, or remove decision using existing evaluation tooling where possible.
-
-  **Why:** Fewer characters do not necessarily mean fewer provider tokens or better understanding. An extra transformation should earn its maintenance cost through useful workload evidence.
-
 - [ ] **28 — Let an open view join a turn the server started**
 
   **What:** Expose the executing turn's identity to the browser: on the session detail while a turn is in flight, and on the message and stream responses a view attaches through. Have a view resume the live stream when the session's turn is not the one it is attached to, and only then. Cover a wake that follows straight after the view's own turn, a worker report waking an idle session, a second tab, and the window between a stream ending and its turn settling.
