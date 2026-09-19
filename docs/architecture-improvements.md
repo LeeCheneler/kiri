@@ -74,7 +74,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** A session identifies a conversation; its active resources belong to a particular execution. Caller-dependent checks and cleanup make concurrent starts, preparation failures, and replacement turns difficult to reason about.
 
-- [ ] **13 — Put inbox scheduling and recovery entirely on the server**
+- [x] **13 — Put inbox scheduling and recovery entirely on the server**
 
   **What:** Remove browser withdrawal-and-resend promotion. Define delivery behavior for idle, running, waiting, failed, and cancelled sessions. Transfer inbox items into transcripts atomically or through explicit idempotent acknowledgement. Give submissions stable retry identities. Distinguish expected conflicts from uncertain transport failures, and preserve pending user work until its outcome is known.
 

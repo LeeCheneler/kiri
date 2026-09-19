@@ -14,6 +14,13 @@ You can swap a session's model mid-conversation — it applies from the next
 turn — and a streaming turn survives a page reload: reopening the session
 rejoins it live.
 
+A message you send while a turn is running is queued and reaches the
+assistant at its next work step, as a course correction to the work in
+progress. If the turn finishes first, the message starts the next one. A turn
+paused for your approval takes it when you answer. If the turn fails, or you
+cancel it, the message waits: it goes ahead of the next message you send, and
+you can withdraw it before then. Queued messages carry text only.
+
 Kiri saves progress after each completed model/tool step. If a later provider
 request fails, completed actions and useful partial replies remain in the
 conversation after reload, ready for your next message. A failed turn does
