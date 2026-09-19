@@ -4,7 +4,7 @@ import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
 import { type InboxTrigger, inboxDelivery, queuedBy } from "./inbox-delivery.ts";
 import { enqueueInboxItem, sessionsWithBacklog } from "./inbox.ts";
-import { type Session, getSession, getSessionMessages } from "./store.ts";
+import { type Session, getMessage, getSession } from "./store.ts";
 import { ShuttingDownError, TurnInFlightError } from "./turn-lifecycle.ts";
 import type { StartTurn } from "./turn-start.ts";
 
@@ -38,7 +38,7 @@ const MAX_SETTLEMENT_LENGTH = 8_000;
 // prose may be work in progress, and a successful message_parent call already
 // delivered its input through the inbox. Neither proves the task is complete.
 function settlementText(db: KiriDb, child: Session, event: TurnSettlement): string {
-  const message = getSessionMessages(db, child.id).find((row) => row.id === event.messageId);
+  const message = event.messageId === null ? undefined : getMessage(db, child.id, event.messageId);
   const parts = message?.parts ?? [];
   const finalText = parts
     .slice(parts.findLastIndex(isToolUIPart) + 1)

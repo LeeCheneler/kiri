@@ -67,6 +67,7 @@ export {
   deleteMessagesFrom,
   deleteSession,
   findChildByToolCall,
+  getLastMessage,
   getSession,
   getSessionChildren,
   getSessionLabels,

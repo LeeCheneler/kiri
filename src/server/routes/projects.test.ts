@@ -204,7 +204,7 @@ describe("projects routes", () => {
         expect.objectContaining({
           id: "s1",
           title: "Titled",
-          preview: "hello there",
+          preview: null,
           status: "idle",
           projectName: "Research",
           hasWaitingChild: false,

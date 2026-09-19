@@ -44,6 +44,7 @@ import {
   type Message,
   type Session,
   appendMessage,
+  getLastMessage,
   getSession,
   getSessionLabels,
   getSessionMessages,
@@ -336,7 +337,7 @@ export function applyPendingApprovals(
   session: Session,
   approvals: ToolApprovalDecision[],
 ): AppliedApprovals {
-  const last = getSessionMessages(db, session.id).at(-1);
+  const last = getLastMessage(db, session.id);
   const pendingIds = new Set(
     last?.role === "assistant"
       ? last.parts.flatMap((part) =>

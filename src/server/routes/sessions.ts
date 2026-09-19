@@ -40,6 +40,7 @@ import {
   generateSessionTitle,
   generateSuggestedReplies,
   getInboxItem,
+  getLastMessage,
   getSession,
   getSessionChildren,
   getSessionLabels,
@@ -508,7 +509,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (model === undefined) return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       if (session.parentSessionId !== null || session.status !== "idle")
         return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
-      const last = getSessionMessages(db, id).at(-1);
+      const last = getLastMessage(db, id);
       if (!last || last.role !== "assistant")
         return c.json(none satisfies sessionsApi.SuggestedRepliesResult);
       if (hasPendingApproval(last.parts))
@@ -649,8 +650,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if ("approvals" in body) return start({ kind: "approvals", approvals: body.approvals });
 
       const { message } = body;
-      const priorMessages = getSessionMessages(db, id);
-      const last = priorMessages.at(-1);
+      const last = getLastMessage(db, id);
       const pending = last?.role === "assistant" && hasPendingApproval(last.parts);
 
       // A new user message can't start while a tool approval is still pending —
@@ -674,7 +674,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n")
         .trim();
-      if (session.title === null && priorMessages.length === 0 && userText !== "") {
+      if (session.title === null && last === undefined && userText !== "") {
         runtime.background("session title", () =>
           generateSessionTitle({
             db,

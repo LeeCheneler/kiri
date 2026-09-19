@@ -14,6 +14,8 @@ import {
   deleteMessagesFrom,
   deleteSession,
   findChildByToolCall,
+  getLastMessage,
+  getMessage,
   getSession,
   getSessionLabels,
   getSessionLastActivity,
@@ -397,6 +399,32 @@ describe("sessions store", () => {
     expect(previews.has("s2")).toBe(false);
   });
 
+  it("previews only the opening user message, whatever follows it", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "reasoning", text: "no prose" }] });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Second thoughts" }] });
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Opening" }] });
+    // A later message this build cannot read proves the history is never loaded.
+    db.$client
+      .prepare(
+        'INSERT INTO messages (id, session_id, "index", role, parts, parts_format, created_at) VALUES (?, ?, 1, ?, ?, ?, 1)',
+      )
+      .run("newer", "s2", "user", "[]", CURRENT_PARTS_FORMAT + 1);
+
+    const previews = getSessionPreviews(db, ["s1", "s2"]);
+
+    expect(previews.has("s1")).toBe(false);
+    expect(previews.get("s2")).toBe("Opening");
+  });
+
+  it("never reads a preview for a titled session", () => {
+    createSession(db, MODEL, { id: "s1", title: "Corpus sweep" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Sweep the corpus" }] });
+
+    expect(getSessionPreviews(db, ["s1"]).has("s1")).toBe(false);
+  });
+
   it("labels sessions by title, else opening message, else short id", () => {
     createSession(db, MODEL, { id: "titled-0000-0000", title: "Corpus sweep" });
     createSession(db, MODEL, { id: "spoken-0000-0000" });
@@ -450,6 +478,44 @@ describe("sessions store", () => {
     expect(activity.get("s1")).toEqual(new Date(3000));
     expect(activity.get("s2")).toEqual(new Date(2000));
     expect(activity.has("s3")).toBe(false);
+  });
+
+  it("moves a session's last activity back when its newest messages are deleted", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "Hi" }] },
+      { createdAt: new Date(1000) },
+    );
+    const reply = appendMessage(
+      db,
+      "s1",
+      { role: "assistant", parts: [{ type: "text", text: "Hello" }] },
+      { createdAt: new Date(3000) },
+    );
+
+    deleteMessagesFrom(db, "s1", reply.id);
+
+    expect(getSessionLastActivity(db, ["s1"]).get("s1")).toEqual(new Date(1000));
+  });
+
+  it("reads a session's last message and any one message by id", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "s2" });
+    expect(getLastMessage(db, "s1")).toBeUndefined();
+
+    const first = appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Hi" }] });
+    const last = appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "Hello" }],
+    });
+
+    expect(getLastMessage(db, "s1")).toEqual(last);
+    expect(getMessage(db, "s1", first.id)).toEqual(first);
+    expect(getMessage(db, "s1", "gone")).toBeUndefined();
+    // A message belongs to one session; another session's id never reaches it.
+    expect(getMessage(db, "s2", first.id)).toBeUndefined();
   });
 
   it("finds the sessions with a delegated child paused waiting on approval", () => {

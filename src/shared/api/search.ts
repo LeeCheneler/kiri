@@ -18,7 +18,7 @@ export interface SearchArticleHit {
   snippet: SearchSnippetSegment[];
 }
 
-/** A session search hit: its title (null when untitled), feed preview (may be empty), and the best-ranked matching message. */
+/** A session search hit: its title (null when untitled), feed preview (empty when titled or nothing has been sent), and the best-ranked matching message. */
 export interface SearchSessionHit {
   id: string;
   title: string | null;

@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, max, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { type ArticleSummary, articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
@@ -201,14 +202,24 @@ function messagePreview(parts: UIMessage["parts"]): string {
 }
 
 /**
- * Preview label for each of `sessionIds`, taken from its first user message
- * (whitespace collapsed, capped at 100 chars). A single batched query, ordered
- * so the lowest-index user message per session wins. Sessions without a user
- * message yet — or whose first one has no text — are absent from the map.
+ * Preview label for each untitled session in `sessionIds`, taken from its
+ * first user message (whitespace collapsed, capped at 100 chars). A titled
+ * session is named by its title wherever it is listed, so it is never read. A
+ * single batched query that reads one message per session, however long the
+ * history behind it. Sessions without a user message yet — or whose first one
+ * has no text — are absent from the map.
  */
 export function getSessionPreviews(db: KiriDb, sessionIds: string[]): Map<string, string> {
   const previews = new Map<string, string>();
   if (sessionIds.length === 0) return previews;
+
+  const candidate = alias(messages, "candidate");
+  const firstUserMessageId = db
+    .select({ id: candidate.id })
+    .from(candidate)
+    .where(and(eq(candidate.sessionId, sessions.id), eq(candidate.role, "user")))
+    .orderBy(asc(candidate.index))
+    .limit(1);
   const rows = db
     .select({
       id: messages.id,
@@ -216,15 +227,16 @@ export function getSessionPreviews(db: KiriDb, sessionIds: string[]): Map<string
       parts: messages.parts,
       partsFormat: messages.partsFormat,
     })
-    .from(messages)
-    .where(and(inArray(messages.sessionId, sessionIds), eq(messages.role, "user")))
-    .orderBy(asc(messages.index))
+    .from(sessions)
+    .innerJoin(messages, eq(messages.id, sql`(${firstUserMessageId})`))
+    .where(and(inArray(sessions.id, sessionIds), isNull(sessions.title)))
     .all();
+
   for (const row of rows) {
-    if (previews.has(row.sessionId)) continue;
     const text = messagePreview(readStoredParts(row.id, row.partsFormat, row.parts));
     if (text !== "") previews.set(row.sessionId, text);
   }
+
   return previews;
 }
 
@@ -253,24 +265,30 @@ export function getSessionLabels(db: KiriDb, sessionIds: string[]): Map<string, 
 }
 
 /**
- * When each of `sessionIds` last moved: its newest message's timestamp. A
- * single batched query ordered newest-first, so the first row per session
- * wins. Sessions with no messages yet are absent from the map — callers fall
- * back to `startedAt`.
+ * When each of `sessionIds` last moved: its last message's timestamp. Messages
+ * are only ever appended, so the highest index is the newest. A single batched
+ * query that reads one row per session. Sessions with no messages yet are
+ * absent from the map — callers fall back to `startedAt`.
  */
 export function getSessionLastActivity(db: KiriDb, sessionIds: string[]): Map<string, Date> {
-  const activity = new Map<string, Date>();
-  if (sessionIds.length === 0) return activity;
+  if (sessionIds.length === 0) return new Map();
+
+  const candidate = alias(messages, "candidate");
+  const lastIndex = db
+    .select({ index: max(candidate.index) })
+    .from(candidate)
+    .where(eq(candidate.sessionId, sessions.id));
   const rows = db
     .select({ sessionId: messages.sessionId, createdAt: messages.createdAt })
-    .from(messages)
-    .where(inArray(messages.sessionId, sessionIds))
-    .orderBy(desc(messages.createdAt))
+    .from(sessions)
+    .innerJoin(
+      messages,
+      and(eq(messages.sessionId, sessions.id), eq(messages.index, sql`(${lastIndex})`)),
+    )
+    .where(inArray(sessions.id, sessionIds))
     .all();
-  for (const row of rows) {
-    if (!activity.has(row.sessionId)) activity.set(row.sessionId, row.createdAt);
-  }
-  return activity;
+
+  return new Map(rows.map((row) => [row.sessionId, row.createdAt]));
 }
 
 /**
@@ -357,6 +375,28 @@ export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
     .map(toMessage);
 }
 
+/** Read a session's last message, or `undefined` while it has none. */
+export function getLastMessage(db: KiriDb, sessionId: string): Message | undefined {
+  const row = db
+    .select()
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(desc(messages.index))
+    .limit(1)
+    .get();
+  return row && toMessage(row);
+}
+
+/** Read one of a session's messages by id, or `undefined` if it has no such message. */
+export function getMessage(db: KiriDb, sessionId: string, messageId: string): Message | undefined {
+  const row = db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+    .get();
+  return row && toMessage(row);
+}
+
 // Runs inside the message mutation's transaction, including any outer checkpoint.
 function advanceTranscriptRevision(db: KiriDb, sessionId: string): number {
   const row = db
@@ -380,11 +420,13 @@ export function appendMessage(
   opts: { id?: string; createdAt?: Date } = {},
 ): Message {
   return db.transaction(() => {
-    const index = db
-      .select({ index: messages.index })
-      .from(messages)
-      .where(eq(messages.sessionId, sessionId))
-      .all().length;
+    const index = (
+      db
+        .select({ count: count() })
+        .from(messages)
+        .where(eq(messages.sessionId, sessionId))
+        .get() as { count: number }
+    ).count;
     const id = opts.id ?? crypto.randomUUID();
     db.insert(messages)
       .values({
