@@ -854,16 +854,31 @@ describe("<SessionChat>", () => {
     expect(screen.getByText("also check the docs")).toBeDefined();
   });
 
-  it("falls back to a normal send when the queue races the turn settling", async () => {
+  it("shows a message as queued while its submission is still unconfirmed, then repeats it", async () => {
     const user = userEvent.setup();
+    const submitted: unknown[] = [];
+    let sent = 0;
     server.use(
+      // The backlog already holds an earlier message: the unconfirmed one
+      // shows after it.
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+        HttpResponse.json(
+          sessionDetail(runningToolTranscript(), { status: "running" }, [
+            inboxItem("q0", "an earlier note"),
+          ]),
+        ),
       ),
-      http.post("*/api/sessions/:id/inbox", () =>
-        HttpResponse.json({ error: "no turn in flight" }, { status: 409 }),
-      ),
-      http.post("*/api/sessions/:id/messages", () => assistantReply("Fresh turn reply")),
+      http.post("*/api/sessions/:id/inbox", async ({ request }) => {
+        const body = (await request.json()) as { id: string; text: string };
+        submitted.push(body);
+        // The first response is lost; the repeat finds the message queued.
+        if (submitted.length === 1) return HttpResponse.json({ error: "boom" }, { status: 500 });
+        return HttpResponse.json({ item: inboxItem(body.id, body.text), delivered: false });
+      }),
+      http.post("*/api/sessions/:id/messages", () => {
+        sent += 1;
+        return assistantReply("should not happen");
+      }),
     );
     renderChat();
 
@@ -871,8 +886,44 @@ describe("<SessionChat>", () => {
     await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
     await user.keyboard("{Enter}");
 
-    // The 409 said the turn was over; the message went out as its own turn.
-    expect(await screen.findByText("Fresh turn reply")).toBeDefined();
+    await waitFor(() => expect(screen.getAllByText("queued")).toHaveLength(2));
+    await waitFor(() => expect(submitted).toHaveLength(2));
+    // One submission, repeated under one id — never a second message, and
+    // never a fresh turn in its place.
+    expect(submitted[1]).toEqual(submitted[0]);
+    expect(screen.getAllByText("also check the docs")).toHaveLength(1);
+    expect(sent).toBe(0);
+  });
+
+  it("returns a refused message to the composer, ahead of anything typed since", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return HttpResponse.json({ error: 'session "s1" not found' }, { status: 404 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("search the readme");
+    const composer = screen.getByRole("textbox", { name: /message/i });
+    await user.type(composer, "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+    await user.type(composer, "and the changelog");
+    release?.();
+
+    expect(await screen.findByText('session "s1" not found')).toBeDefined();
+    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
+    expect((composer as HTMLTextAreaElement).value).toBe(
+      "also check the docs\n\nand the changelog",
+    );
   });
 
   it("refuses to queue a message carrying images, keeping them staged", async () => {

@@ -176,8 +176,11 @@ export function usePatchSessionInbox(id: string): {
   return useMemo(
     () => ({
       append: (item: SessionInboxItem) => {
+        // The refetch its queued event triggers can land first.
         queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) =>
-          prev ? { ...prev, inbox: [...prev.inbox, item] } : prev,
+          prev && !prev.inbox.some((queued) => queued.id === item.id)
+            ? { ...prev, inbox: [...prev.inbox, item] }
+            : prev,
         );
       },
     }),

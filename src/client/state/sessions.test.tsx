@@ -10,6 +10,7 @@ import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "./query-client.ts";
 import {
   useModels,
+  usePatchSessionInbox,
   useRefreshSessionDetail,
   useSession,
   useSessionsFeed,
@@ -99,6 +100,43 @@ const serveCountingFeed = () => {
 };
 
 describe("sessions state", () => {
+  it("adds a queued message to the cached inbox once, even if a refetch already brought it", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({
+          transcriptRevision: 1,
+          session: sessionRow("s1"),
+          messages: [],
+          inbox: [],
+        }),
+      ),
+    );
+    const queryClient = createQueryClient();
+    const { result } = renderHook(
+      () => ({ session: useSession("s1"), inbox: usePatchSessionInbox("s1") }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+    await waitFor(() => expect(result.current.session.data).toBeDefined());
+    const item = {
+      id: "q1",
+      source: "user" as const,
+      text: "also check the docs",
+      fromSessionId: null,
+      createdAt: "2026-09-19T00:00:00.000Z",
+    };
+
+    act(() => {
+      result.current.inbox.append(item);
+      result.current.inbox.append(item);
+    });
+
+    await waitFor(() => expect(result.current.session.data?.inbox).toEqual([item]));
+  });
+
   it("joins a newer lifecycle read when it replaces the post-stream refresh", async () => {
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {

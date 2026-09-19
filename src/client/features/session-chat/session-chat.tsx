@@ -26,7 +26,8 @@ import {
 import { MessageComposer } from "./message-composer.tsx";
 import { modelLabel } from "./model-options.ts";
 import { PushToTalk } from "./push-to-talk.tsx";
-import { useSessionDraft } from "./session-draft.ts";
+import { queueFailureText } from "./queue-submission.ts";
+import { readSessionDraft, useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
 import type { ToolPageLinks } from "./tool-invocation.tsx";
 import { usePushToTalk } from "./use-push-to-talk.ts";
@@ -199,6 +200,7 @@ function ChatView({
     liveConsoles,
     sendMessage,
     queueMessage,
+    submitting,
     resubmit,
     deleteMessage,
     cancel,
@@ -219,7 +221,13 @@ function ChatView({
       new Set(messages.flatMap((message) => message.parts.filter(isInboxPart).map((p) => p.id))),
     [messages],
   );
-  const queued = (detail.inbox ?? []).filter((item) => !deliveredLive.has(item.id));
+  // A message still being submitted shows alongside, until the server's
+  // backlog carries it.
+  const backlog = detail.inbox ?? [];
+  const queued = [
+    ...backlog,
+    ...submitting.filter((pending) => !backlog.some((item) => item.id === pending.id)),
+  ].filter((item) => !deliveredLive.has(item.id));
   // Chips above the composer for a settled turn a short reply answers. Driven
   // by the persisted transcript rather than the live one: it refetches in the
   // same query as the `busy` status, so a settled turn's suggestions are only
@@ -337,7 +345,13 @@ function ChatView({
       }
       setQueueError(undefined);
       pinnedToBottom.current = true;
-      void queueMessage(text);
+      // A message that wasn't queued goes back in the composer, ahead of
+      // anything typed since, rather than being lost with its chip.
+      void queueMessage(text).catch((cause: unknown) => {
+        setQueueError(queueFailureText(cause));
+        const typedSince = readSessionDraft(session.id);
+        setDraft(typedSince === "" ? text : `${text}\n\n${typedSince}`);
+      });
       clearDraft();
       return;
     }

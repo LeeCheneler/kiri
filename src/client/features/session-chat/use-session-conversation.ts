@@ -14,8 +14,8 @@ import {
   jsonBytes,
 } from "../../../shared/message-limits.ts";
 import {
+  type SessionInboxItem,
   cancelSession,
-  queueSessionMessage,
   sessionStreamEndpoint,
   sessionTurnEndpoint,
   setToolPermission,
@@ -28,6 +28,7 @@ import {
 } from "../../state/sessions.ts";
 import { compactionStatusOf } from "./compaction-status.ts";
 import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./live-console.ts";
+import { submitQueuedMessage } from "./queue-submission.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
 // Tool-call states that mean a call is still running.
@@ -96,13 +97,16 @@ export interface SessionConversation {
   /** Start a turn from composed parts. */
   sendMessage: ReturnType<typeof useChat<UIMessage>>["sendMessage"];
   /**
-   * Queue `text` for the in-flight turn, delivered at its next step boundary.
-   * The queue lives server-side (it rides the session detail as `inbox`); the
-   * cached detail is patched optimistically so the chip renders at once. A
-   * failed queue (usually the 409 of racing the turn's settle) degrades to a
-   * normal send, so the message is never silently lost.
+   * Queue `text` for the session; the server schedules its delivery. The
+   * queue lives server-side (it rides the session detail as `inbox`). Until
+   * the server confirms the message it shows in `submitting`, and a submission
+   * whose outcome never arrived is repeated under the same id, so it is never
+   * queued twice. Rejects when the message was refused or could not be
+   * confirmed — the caller still holds the text.
    */
   queueMessage: (text: string) => Promise<void>;
+  /** Messages this view has submitted to the queue and not yet had confirmed. */
+  submitting: SessionInboxItem[];
   /** Replace the local transcript (used by cancel and resubmit). */
   setMessages: ReturnType<typeof useChat<UIMessage>>["setMessages"];
   /** Resend an edited user message, truncating the transcript back to it first. */
@@ -284,25 +288,32 @@ export function useSessionConversation(opts: {
     );
   }, [messages]);
 
-  // The inbox lives server-side; these patch the cached detail so a queue or
-  // withdraw shows at once instead of waiting for the SSE echo's refetch.
+  // The inbox lives server-side; a confirmed message patches the cached
+  // detail so it shows at once instead of waiting for the SSE echo's refetch.
+  // Until then it is held here, where no refetch can drop it.
   const inboxCache = usePatchSessionInbox(session.id);
+  const [submitting, setSubmitting] = useState<SessionInboxItem[]>([]);
 
   const queueMessage = useCallback(
     async (text: string) => {
+      const item: SessionInboxItem = {
+        id: crypto.randomUUID(),
+        source: "user",
+        text,
+        fromSessionId: null,
+        createdAt: new Date().toISOString(),
+      };
+      setSubmitting((prev) => [...prev, item]);
       try {
-        const { item } = await queueSessionMessage(session.id, crypto.randomUUID(), text);
-        inboxCache.append(item);
-      } catch {
-        // The queue failed — usually the 409 of racing the turn's settle,
-        // where the message is simply the next turn. Every failure degrades to
-        // a normal send: if the turn is genuinely still running the server
-        // rejects the concurrent turn and that error surfaces in the chat, so
-        // the message is never lost silently.
-        void sendMessage({ parts: [{ type: "text", text }] });
+        const result = await submitQueuedMessage(session.id, item.id, text);
+        // A repeat can find a turn has already taken the message: it is in
+        // the transcript, not the backlog.
+        if (!result.delivered) inboxCache.append(result.item);
+      } finally {
+        setSubmitting((prev) => prev.filter((pending) => pending.id !== item.id));
       }
     },
-    [session.id, sendMessage, inboxCache],
+    [session.id, inboxCache],
   );
 
   // Revisions detect replacements and deletions as well as appended content.
@@ -399,6 +410,7 @@ export function useSessionConversation(opts: {
     liveConsoles,
     sendMessage,
     queueMessage,
+    submitting,
     setMessages,
     resubmit,
     deleteMessage,
