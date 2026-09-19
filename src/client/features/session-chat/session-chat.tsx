@@ -201,6 +201,7 @@ function ChatView({
     sendMessage,
     queueMessage,
     submitting,
+    withdrawMessage,
     resubmit,
     deleteMessage,
     cancel,
@@ -361,6 +362,11 @@ function ChatView({
     clearDraft();
   };
 
+  const handleWithdraw = (itemId: string) => {
+    setQueueError(undefined);
+    void withdrawMessage(itemId).catch(() => setQueueError("Couldn't withdraw the message."));
+  };
+
   // Resend an edited user message via the conversation engine, pulling the
   // transcript back to the foot for the re-run turn. `resubmit` re-derives on
   // every streamed delta (it closes over the live transcript), so passing it
@@ -436,7 +442,12 @@ function ChatView({
         <div className="mt-8 space-y-8">
           {queued.map((item) =>
             item.source === "user" ? (
-              <QueuedMessage key={item.id} text={item.text} />
+              <QueuedMessage
+                key={item.id}
+                text={item.text}
+                // Only a message the server holds can be withdrawn from it.
+                onWithdraw={backlog.includes(item) ? () => handleWithdraw(item.id) : undefined}
+              />
             ) : (
               <InboxInterjection
                 key={item.id}

@@ -926,6 +926,78 @@ describe("<SessionChat>", () => {
     );
   });
 
+  it("withdraws a held message", async () => {
+    const user = userEvent.setup();
+    const withdrawn: string[] = [];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "search the readme")], { status: "cancelled" }, [
+            inboxItem("q0", "also refactor the tests"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/inbox/:itemId", ({ params }) => {
+        withdrawn.push(String(params.itemId));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "withdraw" }));
+
+    await waitFor(() => expect(screen.queryByText("also refactor the tests")).toBeNull());
+    expect(withdrawn).toEqual(["q0"]);
+  });
+
+  it("offers no withdraw while a message is still being submitted", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return HttpResponse.json({ error: "gone" }, { status: 404 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "one more thing");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
+    // Nothing is on the server to withdraw yet.
+    expect(screen.queryByRole("button", { name: "withdraw" })).toBeNull();
+    release?.();
+  });
+
+  it("keeps a held message and says so when the withdraw fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "search the readme")], { status: "failed" }, [
+            inboxItem("q0", "also refactor the tests"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/inbox/:itemId", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "withdraw" }));
+
+    expect(await screen.findByText("Couldn't withdraw the message.")).toBeDefined();
+    expect(screen.getByText("also refactor the tests")).toBeDefined();
+  });
+
   it("refuses to queue a message carrying images, keeping them staged", async () => {
     const user = userEvent.setup();
     const queued: unknown[] = [];

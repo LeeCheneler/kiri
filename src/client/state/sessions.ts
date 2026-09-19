@@ -164,13 +164,14 @@ export function useTruncateSessionDetail(
 }
 
 /**
- * Add a just-queued message to a session's cached inbox — the undelivered
- * backlog riding its detail — so it shows at once instead of waiting for the
- * SSE echo's refetch. The server row is the source of truth; the next refetch
- * replaces this optimistic edit with it. Memoised, safe in effect deps.
+ * Patch a session's cached inbox — the undelivered backlog riding its detail —
+ * so a queue or withdraw shows at once instead of waiting for the SSE echo's
+ * refetch. The server row is the source of truth; the next refetch replaces
+ * these optimistic edits with it. A memoised pair, safe in effect deps.
  */
 export function usePatchSessionInbox(id: string): {
   append: (item: SessionInboxItem) => void;
+  remove: (itemId: string) => void;
 } {
   const queryClient = useQueryClient();
   return useMemo(
@@ -181,6 +182,11 @@ export function usePatchSessionInbox(id: string): {
           prev && !prev.inbox.some((queued) => queued.id === item.id)
             ? { ...prev, inbox: [...prev.inbox, item] }
             : prev,
+        );
+      },
+      remove: (itemId: string) => {
+        queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) =>
+          prev ? { ...prev, inbox: prev.inbox.filter((item) => item.id !== itemId) } : prev,
         );
       },
     }),

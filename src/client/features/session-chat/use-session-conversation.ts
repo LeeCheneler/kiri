@@ -20,6 +20,7 @@ import {
   sessionTurnEndpoint,
   setToolPermission,
   truncateSessionMessages,
+  withdrawQueuedMessage,
 } from "../../api.ts";
 import {
   usePatchSessionInbox,
@@ -107,6 +108,12 @@ export interface SessionConversation {
   queueMessage: (text: string) => Promise<void>;
   /** Messages this view has submitted to the queue and not yet had confirmed. */
   submitting: SessionInboxItem[];
+  /**
+   * Withdraw a queued message before a turn takes it. Delivery wins the race:
+   * a message already taken stays in the transcript, and its chip resolves
+   * either way.
+   */
+  withdrawMessage: (itemId: string) => Promise<void>;
   /** Replace the local transcript (used by cancel and resubmit). */
   setMessages: ReturnType<typeof useChat<UIMessage>>["setMessages"];
   /** Resend an edited user message, truncating the transcript back to it first. */
@@ -316,6 +323,14 @@ export function useSessionConversation(opts: {
     [session.id, inboxCache],
   );
 
+  const withdrawMessage = useCallback(
+    async (itemId: string) => {
+      await withdrawQueuedMessage(session.id, itemId);
+      inboxCache.remove(itemId);
+    },
+    [session.id, inboxCache],
+  );
+
   // Revisions detect replacements and deletions as well as appended content.
   // Never advance the accepted revision while local work owns the transcript.
   useEffect(() => {
@@ -411,6 +426,7 @@ export function useSessionConversation(opts: {
     sendMessage,
     queueMessage,
     submitting,
+    withdrawMessage,
     setMessages,
     resubmit,
     deleteMessage,

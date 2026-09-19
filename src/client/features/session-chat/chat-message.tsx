@@ -199,19 +199,32 @@ function UserMessage({
 }
 
 /**
- * A message accepted for the in-flight turn but not yet delivered to it. Boxed
- * like a user message so it reads as part of the conversation, with a quiet
+ * A message queued for the session but not yet delivered to a turn. Boxed like
+ * a user message so it reads as part of the conversation, with a quiet
  * "queued" tag and muted text for its pending state. It resolves out of this
- * view when the turn absorbs it (it reappears as the woven interjection) or
- * the turn settles first (it promotes to an ordinary sent message).
+ * view when a turn takes it (it reappears as the woven interjection) or the
+ * user withdraws it. `onWithdraw` is absent while the message is still being
+ * submitted: there is nothing on the server to withdraw yet.
  */
-export function QueuedMessage({ text }: { text: string }) {
+export function QueuedMessage({ text, onWithdraw }: { text: string; onWithdraw?: () => void }) {
   return (
     <article>
       <Card>
         <div className="flex items-baseline justify-between">
           <Eyebrow tone="muted">You</Eyebrow>
-          <span className="font-mono text-ink-muted text-xs">queued</span>
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono text-ink-muted text-xs">queued</span>
+            {onWithdraw ? (
+              <button
+                type="button"
+                onClick={onWithdraw}
+                title="Withdraw message"
+                className="cursor-pointer font-mono text-ink-muted text-xs hover:text-status-failed"
+              >
+                withdraw
+              </button>
+            ) : null}
+          </div>
         </div>
         <p className="mt-2 whitespace-pre-wrap font-mono text-ink-muted text-sm">{text}</p>
       </Card>
