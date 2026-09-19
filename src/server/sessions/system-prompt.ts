@@ -11,6 +11,7 @@ import {
   type StandingInstructions,
   resolveStandingInstructions,
 } from "./instructions.ts";
+import { type PromptIndex, asPromptIndex, indexText } from "./prompt-index.ts";
 import type { SkillSummary } from "./skills.ts";
 import type { Session } from "./store.ts";
 import type { TaskListSummary } from "./task-tools.ts";
@@ -58,6 +59,28 @@ function buildSkillGuidance(tools: string[], skills: readonly SkillSummary[]): s
   ].join("\n");
 }
 
+/** A memory index as a prompt takes it: a complete list, or a bounded one counting what it omits. */
+export type MemoryIndex = readonly MemorySummary[] | PromptIndex<MemorySummary>;
+
+// What a bounded index says of the entries it leaves out: how many, and the
+// retrieval that reaches them. No lines when nothing is omitted.
+function omittedEntries(
+  omitted: number,
+  kind: string,
+  tools: string[],
+  searchScope: string,
+  listTool?: string,
+): string[] {
+  if (omitted === 0) return [];
+  const search = tools.includes("search_knowledge")
+    ? `find them with search_knowledge ${searchScope}`
+    : null;
+  const list =
+    listTool !== undefined && tools.includes(listTool) ? `see every one with ${listTool}` : null;
+  const routes = [search, list].flatMap((route) => route ?? []).join(", or ");
+  return [`${omitted} more ${kind} not listed here${routes === "" ? "" : ` — ${routes}`}.`];
+}
+
 // The memory index and its working discipline: each saved memory's name and
 // one-line summary, recall via read_memory, and — only when the write tools
 // ride along — when a fact earns saving. Names and summaries only: a memory's
@@ -66,17 +89,21 @@ function buildSkillGuidance(tools: string[], skills: readonly SkillSummary[]): s
 // their available tool, so a worker without mutations gets recall alone.
 function buildMemoryGuidance(
   tools: string[],
-  memories: readonly MemorySummary[],
+  memories: MemoryIndex,
   project: ProjectPromptContext | null,
 ): string | null {
   const canRead = tools.includes("read_memory");
   const canSave = tools.includes("save_memory");
   if (!canRead && !canSave) return null;
-  const workspaceMemories = canRead ? memories : [];
-  const projectMemories = canRead ? (project?.memories ?? []) : [];
+  const workspace = asPromptIndex(canRead ? memories : []);
+  const scoped = asPromptIndex(canRead ? (project?.memories ?? []) : []);
+  const workspaceMemories = workspace.entries;
+  const projectMemories = scoped.entries;
   if (workspaceMemories.length === 0 && projectMemories.length === 0 && !canSave) return null;
   const lines: string[] = [];
-  const entry = (memory: MemorySummary) => `- ${memory.name}: ${memory.description}`;
+  const entry = (memory: MemorySummary) => `- ${memory.name}: ${indexText(memory.description)}`;
+  const omitted = (index: PromptIndex<MemorySummary>, searchScope: string) =>
+    omittedEntries(index.omitted, "saved memories are", tools, searchScope);
   if (workspaceMemories.length > 0 || projectMemories.length > 0) {
     lines.push(
       "You have saved memories: small durable facts carried across sessions, indexed below by name and one-line summary. When one looks relevant to the task at hand, load its full body with read_memory before relying on it — the index carries only the summaries.",
@@ -85,12 +112,14 @@ function buildMemoryGuidance(
   if (workspaceMemories.length > 0) {
     lines.push("Saved memories, carried by every session in this workspace:");
     lines.push(...workspaceMemories.map(entry));
+    lines.push(...omitted(workspace, "across the workspace"));
   }
   if (project !== null && projectMemories.length > 0) {
     lines.push(
       `Saved memories for the project "${project.name}", carried only by this project's sessions — one shadowing a workspace memory's name wins here:`,
     );
     lines.push(...projectMemories.map(entry));
+    lines.push(...omitted(scoped, "in this project"));
   }
   if (canSave) {
     lines.push(
@@ -107,6 +136,12 @@ function buildMemoryGuidance(
   return lines.join("\n");
 }
 
+/** One line of a project's article index: the slug to read it by, and its title. */
+export interface ProjectArticleEntry {
+  slug: string;
+  heading: string;
+}
+
 /**
  * The project context a project session's prompt carries: the container's
  * name, its article index — each entry's slug with the body's first heading
@@ -116,8 +151,8 @@ function buildMemoryGuidance(
  */
 export interface ProjectPromptContext {
   name: string;
-  articles: readonly { slug: string; heading: string }[];
-  memories: readonly MemorySummary[];
+  articles: readonly ProjectArticleEntry[] | PromptIndex<ProjectArticleEntry>;
+  memories: MemoryIndex;
   instructions?: string | null;
   tasks?: TaskListSummary;
 }
@@ -134,12 +169,20 @@ function buildProjectGuidance(
 ): string | null {
   if (project === null || !tools.includes("read_article")) return null;
   const canWrite = tools.includes("create_article");
+  const articles = asPromptIndex(project.articles);
   const lines = [
     `This session belongs to the project "${project.name}". The project owns a shared corpus of articles — its sessions all read${canWrite ? " and write" : ""} the same documents, and your article tools operate on that corpus rather than on session-private articles.`,
-    ...(project.articles.length > 0
+    ...(articles.entries.length > 0
       ? [
           "The project's articles (slug: title):",
-          ...project.articles.map((article) => `- ${article.slug}: ${article.heading}`),
+          ...articles.entries.map((article) => `- ${article.slug}: ${indexText(article.heading)}`),
+          ...omittedEntries(
+            articles.omitted,
+            "older articles are",
+            tools,
+            "in this project",
+            "list_articles",
+          ),
           "The index carries titles only — load an article's body with read_article before relying on its content.",
         ]
       : ["The corpus is currently empty."]),
@@ -535,7 +578,7 @@ function buildCorePrompt(
   delegateRoles: readonly DelegateRole[],
   effort: Effort,
   skills: readonly SkillSummary[],
-  memories: readonly MemorySummary[],
+  memories: MemoryIndex,
   project: ProjectPromptContext | null,
 ): string {
   const today = now.toISOString().slice(0, 10);
@@ -585,7 +628,7 @@ export interface BuildChildSessionPromptOptions {
   /** The available skills, listed by name and description when `use_skill` is active. */
   skills?: readonly SkillSummary[];
   /** The saved memories, indexed by name and summary when `read_memory` is active. */
-  memories?: readonly MemorySummary[];
+  memories?: MemoryIndex;
   /** The worker's project context — the shared corpus map — when its parent session belongs to one. */
   project?: ProjectPromptContext | null;
   /** The worker's effort level, stated with its calibration expectation; defaults to `medium`. */
@@ -716,7 +759,7 @@ export interface BuildSystemPromptOptions {
   /** The available skills, listed by name and description when `use_skill` is active. */
   skills?: readonly SkillSummary[];
   /** The saved memories, indexed by name and summary when `read_memory` is active. */
-  memories?: readonly MemorySummary[];
+  memories?: MemoryIndex;
   /** The session's project context — the shared corpus map — when it belongs to one. */
   project?: ProjectPromptContext | null;
   /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
@@ -770,7 +813,7 @@ export function createSystemPromptBuilder(
   allowedDirectories: readonly string[] = [],
   delegateRoles: readonly DelegateRole[] = [],
   skills: readonly SkillSummary[] = [],
-  memories: readonly MemorySummary[] = [],
+  memories: MemoryIndex = [],
   project: ProjectPromptContext | null | (() => ProjectPromptContext | null) = null,
   instructionContext?: InstructionContext,
 ): (session: Session) => string {

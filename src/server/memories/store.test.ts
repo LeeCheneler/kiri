@@ -2,14 +2,18 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import { memories } from "../db/schema.ts";
 import { createProject } from "../projects/store.ts";
 import {
+  countMemories,
   deleteMemory,
   getScopedMemory,
   listMemories,
   listProjectMemories,
+  listRecentMemories,
   saveMemory,
   updateMemory,
 } from "./store.ts";
@@ -116,6 +120,42 @@ describe("memories store", () => {
 
       expect(summaries.map((s) => s.name)).toEqual(["alpha", "zulu"]);
       expect(summaries[0]?.description).toBe("First alphabetically.");
+    });
+  });
+
+  describe("listRecentMemories", () => {
+    const touch = (name: string, at: number) =>
+      db
+        .update(memories)
+        .set({ updatedAt: new Date(at) })
+        .where(eq(memories.name, name))
+        .run();
+
+    it("keeps the memories touched last, in the full index's alphabetical order", () => {
+      save(null, "alpha");
+      save(null, "mike");
+      save(null, "zulu");
+      save(projectId, "project-only");
+      touch("alpha", 3000);
+      touch("mike", 1000);
+      touch("zulu", 2000);
+
+      expect(listRecentMemories(db, null, 2).map((s) => s.name)).toEqual(["alpha", "zulu"]);
+      expect(listRecentMemories(db, null, 10).map((s) => s.name)).toEqual([
+        "alpha",
+        "mike",
+        "zulu",
+      ]);
+      expect(listRecentMemories(db, projectId, 10).map((s) => s.name)).toEqual(["project-only"]);
+    });
+
+    it("counts one scope's memories", () => {
+      save(null, "alpha");
+      save(null, "zulu");
+      save(projectId, "project-only");
+
+      expect(countMemories(db, null)).toBe(2);
+      expect(countMemories(db, projectId)).toBe(1);
     });
   });
 

@@ -1,13 +1,14 @@
-import { listArticleSummaries } from "../articles/store.ts";
+import { countArticles, listArticleSummaries } from "../articles/store.ts";
 import { configuredDelegateRoles } from "../config/schema.ts";
 import type { ConfigService, ConfigSnapshot } from "../config/service.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
-import { listMemories, listProjectMemories } from "../memories/store.ts";
+import { countMemories, listRecentMemories } from "../memories/store.ts";
 import { getProject } from "../projects/store.ts";
 import { createInstructionContext } from "./instruction-context.ts";
+import { INDEX_ENTRY_LIMIT, promptIndex } from "./prompt-index.ts";
 import { listSkills } from "./skills.ts";
 import { type Session, getSession } from "./store.ts";
 import { createSystemPromptBuilder } from "./system-prompt.ts";
@@ -45,23 +46,33 @@ export interface TurnPreparation {
 export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparation {
   const { db, config, configService, llmClients, bus, turnTools } = deps;
 
+  // One scope's memory index as the prompt carries it: the memories touched
+  // last, up to the index ceiling, and a count of the rest.
+  const memoryIndexFor = (projectId: string | null) =>
+    promptIndex(listRecentMemories(db, projectId, INDEX_ENTRY_LIMIT), countMemories(db, projectId));
+
   // The prompt-layer context for a session's project: its name, the corpus
-  // index the prompt map lists — each slug titled by its body's first heading,
-  // falling back to the display name — the project's memory index, and its
-  // standing instructions. Null for projectless sessions.
+  // index the prompt map lists — the newest articles up to the index ceiling,
+  // each slug titled by its body's first heading, falling back to the display
+  // name — the project's memory index, and its standing instructions. Null for
+  // projectless sessions.
   const projectContextFor = (sessionId: string) => {
     const projectId = getSession(db, sessionId)?.projectId ?? null;
     const project = projectId !== null ? getProject(db, projectId) : undefined;
     if (!project) return null;
+    const owner = { projectId: project.id };
     return {
       name: project.name,
-      articles: listArticleSummaries(db, { projectId: project.id }, { newestFirst: true }).map(
-        (article) => ({
-          slug: article.slug,
-          heading: article.heading ?? article.name,
-        }),
+      articles: promptIndex(
+        listArticleSummaries(db, owner, { newestFirst: true, limit: INDEX_ENTRY_LIMIT }).map(
+          (article) => ({
+            slug: article.slug,
+            heading: article.heading ?? article.name,
+          }),
+        ),
+        countArticles(db, owner),
       ),
-      memories: listProjectMemories(db, project.id),
+      memories: memoryIndexFor(project.id),
       instructions: project.instructions,
       tasks: summariseTaskList(db, project.id),
     };
@@ -95,7 +106,7 @@ export function createTurnPreparation(deps: TurnPreparationDeps): TurnPreparatio
         sandbox,
         configuredDelegateRoles(snapshot.models.delegates),
         listSkills(config),
-        listMemories(db),
+        memoryIndexFor(null),
         () => projectContextFor(sessionId),
         instructionContext,
       ),

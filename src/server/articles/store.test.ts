@@ -9,6 +9,7 @@ import { createProject } from "../projects/store.ts";
 import { createSession } from "../sessions/store.ts";
 import {
   articleSummariesByOwner,
+  countArticles,
   createArticle,
   deleteArticle,
   getArticle,
@@ -171,6 +172,14 @@ describe("articles store", () => {
       );
 
       expect(slugs).toEqual(["second", "first"]);
+    });
+
+    it("cuts the list to a limit and counts the owner's articles apart from it", () => {
+      const newest = listArticleSummaries(db, { projectId }, { newestFirst: true, limit: 1 });
+
+      expect(newest.map((a) => a.slug)).toEqual(["second"]);
+      expect(countArticles(db, { projectId })).toBe(2);
+      expect(countArticles(db, { sessionId })).toBe(1);
     });
   });
 

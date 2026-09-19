@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
+import { INDEX_TEXT_LIMIT, promptIndex } from "./prompt-index.ts";
 import type { Session } from "./store.ts";
 import {
   AGENTS_FILENAME,
@@ -518,6 +519,92 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("load an article's body with read_article");
     expect(prompt).toMatch(/corpus is shared.*project sessions/);
     expect(prompt).toMatch(/rather than creating a duplicate/);
+  });
+
+  it("counts what a bounded index leaves out and names the retrieval that reaches it", () => {
+    const memory = { name: "prefers-bun", description: "Use bun.", updatedAt: FIXED_NOW };
+    const project = {
+      name: "Research",
+      articles: promptIndex([{ slug: "corpus-doc", heading: "Field Notes" }], 38),
+      memories: promptIndex([memory], 3),
+    };
+
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["read_article", "list_articles", "read_memory", "search_knowledge"],
+      memories: promptIndex([memory], 9),
+      project,
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain(
+      "37 more older articles are not listed here — find them with search_knowledge in this project, or see every one with list_articles.",
+    );
+    expect(prompt).toContain(
+      "8 more saved memories are not listed here — find them with search_knowledge across the workspace.",
+    );
+    expect(prompt).toContain(
+      "2 more saved memories are not listed here — find them with search_knowledge in this project.",
+    );
+
+    // Without the retrieval tools the count still stands, pointing nowhere.
+    const bare = buildSystemPrompt({
+      config,
+      tools: ["read_article", "read_memory"],
+      project,
+      now: FIXED_NOW,
+    });
+    expect(bare).toContain("37 more older articles are not listed here.");
+    expect(bare).toContain("2 more saved memories are not listed here.");
+  });
+
+  it("says nothing of omissions while an index lists everything", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["read_article", "read_memory", "search_knowledge"],
+      memories: [{ name: "prefers-bun", description: "Use bun.", updatedAt: FIXED_NOW }],
+      project: {
+        name: "Research",
+        articles: [{ slug: "corpus-doc", heading: "Field Notes" }],
+        memories: [],
+      },
+      now: FIXED_NOW,
+    });
+
+    expect(prompt).not.toContain("not listed here");
+  });
+
+  it("cuts an over-long title or summary in the index, never the slug or name", () => {
+    const slug = "s".repeat(INDEX_TEXT_LIMIT + 20);
+    const name = "n".repeat(INDEX_TEXT_LIMIT + 20);
+
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["read_article", "read_memory"],
+      memories: [{ name, description: "d".repeat(500), updatedAt: FIXED_NOW }],
+      project: { name: "Research", articles: [{ slug, heading: "h".repeat(500) }], memories: [] },
+      now: FIXED_NOW,
+    });
+
+    expect(prompt).toContain(`- ${slug}: ${"h".repeat(INDEX_TEXT_LIMIT)}…`);
+    expect(prompt).toContain(`- ${name}: ${"d".repeat(INDEX_TEXT_LIMIT)}…`);
+  });
+
+  it("carries standing instructions whole, whatever the indexes beside them omit", () => {
+    const instructions = `Cite every source. ${"Keep to the house style. ".repeat(400)}`.trim();
+
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["read_article", "search_knowledge"],
+      project: {
+        name: "Research",
+        articles: promptIndex([{ slug: "corpus-doc", heading: "Field Notes" }], 900),
+        memories: [],
+        instructions,
+      },
+      now: FIXED_NOW,
+    });
+
+    expect(prompt).toContain(instructions);
   });
 
   it("states an empty corpus rather than listing nothing", () => {

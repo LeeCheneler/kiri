@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import { memories } from "../db/schema.ts";
@@ -52,6 +52,37 @@ export function listMemories(db: KiriDb): MemorySummary[] {
 /** List one project's memory index entries, alphabetically by name. */
 export function listProjectMemories(db: KiriDb, projectId: string): MemorySummary[] {
   return listScopedMemories(db, projectId);
+}
+
+/**
+ * The `limit` most recently updated memories of one scope — the given
+ * project's, or the workspace's global ones when `projectId` is null —
+ * alphabetically by name. A bounded index keeps the facts touched last and
+ * still reads in the stable order of the full one.
+ */
+export function listRecentMemories(
+  db: KiriDb,
+  projectId: string | null,
+  limit: number,
+): MemorySummary[] {
+  return db
+    .select({
+      name: memories.name,
+      description: memories.description,
+      updatedAt: memories.updatedAt,
+    })
+    .from(memories)
+    .where(inScope(projectId))
+    .orderBy(desc(memories.updatedAt), asc(memories.name))
+    .limit(limit)
+    .all()
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/** How many memories one scope holds: the given project's, or the workspace's when `projectId` is null. */
+export function countMemories(db: KiriDb, projectId: string | null): number {
+  const row = db.select({ count: count() }).from(memories).where(inScope(projectId)).get();
+  return (row as { count: number }).count;
 }
 
 /**

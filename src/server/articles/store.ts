@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { resolveArticleName } from "../../shared/article-name.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -63,15 +63,16 @@ export function getArticle(db: KiriDb, owner: ArticleOwner, slug: string): Artic
 }
 
 /**
- * An owner's article index, oldest first unless `newestFirst` is set. Bodies
- * are never read — detail surfaces serve them.
+ * An owner's article index, oldest first unless `newestFirst` is set, and cut
+ * to the first `limit` entries when one is given. Bodies are never read —
+ * detail surfaces serve them.
  */
 export function listArticleSummaries(
   db: KiriDb,
   owner: ArticleOwner,
-  opts: { newestFirst?: boolean } = {},
+  opts: { newestFirst?: boolean; limit?: number } = {},
 ): ArticleSummary[] {
-  return db
+  const ordered = db
     .select(summaryColumns)
     .from(articles)
     .where(ownedBy(owner))
@@ -79,8 +80,15 @@ export function listArticleSummaries(
       ...(opts.newestFirst === true
         ? [desc(articles.createdAt), desc(articles.id)]
         : [asc(articles.createdAt)]),
-    )
-    .all();
+    );
+
+  return (opts.limit === undefined ? ordered : ordered.limit(opts.limit)).all();
+}
+
+/** How many articles an owner has. */
+export function countArticles(db: KiriDb, owner: ArticleOwner): number {
+  const row = db.select({ count: count() }).from(articles).where(ownedBy(owner)).get();
+  return (row as { count: number }).count;
 }
 
 /**

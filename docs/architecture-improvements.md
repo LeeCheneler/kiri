@@ -134,7 +134,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Lists need small summaries, but their work can grow with full histories and attachment bytes. Keeping authoritative records complete does not require loading them for every summary view.
 
-- [ ] **23 — Bound prompt indexes and use scoped retrieval**
+- [x] **23 — Bound prompt indexes and use scoped retrieval**
 
   **What:** Give article and memory indexes explicit prompt budgets, indicate omitted entries, and use existing scoped knowledge retrieval for the rest. Keep mandatory standing instructions separate from optional discoverability indexes.
 

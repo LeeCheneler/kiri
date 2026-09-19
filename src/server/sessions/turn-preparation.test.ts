@@ -8,9 +8,13 @@ import type { ConfigService, ConfigSnapshot } from "../config/service.ts";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import { articles } from "../db/schema.ts";
 import { createEventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
+import { saveMemory } from "../memories/store.ts";
+import { createProject } from "../projects/store.ts";
 import { createRegistry } from "../workflows/index.ts";
+import { INDEX_ENTRY_LIMIT } from "./prompt-index.ts";
 import { createSession, getSession, updateSessionCwd } from "./store.ts";
 import { createToolPermissionStore } from "./tool-permissions.ts";
 import { createTurnPreparation } from "./turn-preparation.ts";
@@ -149,5 +153,35 @@ describe("turn preparation", () => {
     expect(toolNamesOf(prepared)).toContain("read_file");
     // The next turn sees the edit.
     expect(toolNamesOf(preparation().prepareTurn(prepared.session))).not.toContain("read_file");
+  });
+
+  it("holds the prompt's article and memory indexes to their ceiling and counts the rest", () => {
+    const project = createProject(db, "Research");
+    const extra = 3;
+    db.insert(articles)
+      .values(
+        Array.from({ length: INDEX_ENTRY_LIMIT + extra }, (_, i) => ({
+          id: `article-${i}`,
+          projectId: project.id,
+          slug: `doc-${i}`,
+          name: `Doc ${i}`,
+          contentMd: "Body.",
+          createdAt: new Date(1000 + i),
+        })),
+      )
+      .run();
+    for (let i = 0; i < INDEX_ENTRY_LIMIT + extra; i++) {
+      saveMemory(db, null, { name: `fact-${i}`, description: "A fact.", contentMd: "Body." });
+    }
+    const session = createSession(db, MODEL, { id: "s1", cwd: root, projectId: project.id });
+
+    const prompt = promptOf(preparation().prepareTurn(session));
+
+    // The newest articles are listed; the oldest fall out of the index.
+    expect(prompt).toContain(`- doc-${INDEX_ENTRY_LIMIT + extra - 1}: `);
+    expect(prompt).not.toContain("- doc-0: ");
+    expect(prompt).toContain(`${extra} more older articles are not listed here`);
+    expect(prompt.match(/^- fact-\d+: /gm)).toHaveLength(INDEX_ENTRY_LIMIT);
+    expect(prompt).toContain(`${extra} more saved memories are not listed here`);
   });
 });
