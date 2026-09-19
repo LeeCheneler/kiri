@@ -2680,7 +2680,7 @@ describe("sessions routes", () => {
       // turn is involved.
       const settled = waitForSettled("s1");
       enqueueInboxItem(env.db, "s1", { source: "child", text: "the report" });
-      bus.publish({ type: "session.inbox.queued", sessionId: "s1" });
+      bus.publish({ type: "session.inbox.queued", sessionId: "s1", source: "child" });
       await settled;
 
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
@@ -3419,6 +3419,15 @@ describe("sessions routes", () => {
 
   describe("POST /api/sessions/:id/inbox", () => {
     const ITEM_ID = "7d0e4a52-6f0b-4c53-9d53-0f5f2f6f3a11";
+    const replying = () =>
+      fakeClients({
+        model: streamingModel([
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "On it" },
+          { type: "text-end", id: "t1" },
+          { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+        ]),
+      });
     const queue = (app: ReturnType<typeof makeApp>, sessionId: string, body: unknown) =>
       app.request(`/api/sessions/${sessionId}/inbox`, {
         method: "POST",
@@ -3441,7 +3450,11 @@ describe("sessions routes", () => {
       expect(body.delivered).toBe(false);
       expect(body.item).toMatchObject({ id: ITEM_ID, text: "also check X", source: "user" });
       expect(pendingInboxItems(env.db, "s1").map((row) => row.id)).toEqual([ITEM_ID]);
-      expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "s1" });
+      expect(events).toContainEqual({
+        type: "session.inbox.queued",
+        sessionId: "s1",
+        source: "user",
+      });
     });
 
     it("accepts a queue for a turn paused on tool approval", async () => {
@@ -3455,13 +3468,37 @@ describe("sessions routes", () => {
       expect(pendingInboxItems(env.db, "s1")).toHaveLength(1);
     });
 
-    it("409s a session with no turn in flight — the message should be sent instead", async () => {
-      const app = makeApp(fakeClients());
+    it("starts a turn for a message queued to a session with none in flight", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(replying(), { bus });
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await queue(app, "s1", { id: ITEM_ID, text: "too late" });
+      const settled = waitForSettled("s1");
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "the turn settled first" });
+      await settled;
 
-      expect(res.status).toBe(409);
+      // Queued rather than refused: the server opens a turn on it.
+      expect(res.status).toBe(201);
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+      const rows = getSessionMessages(env.db, "s1");
+      expect(rows.map((row) => row.role)).toEqual(["user", "assistant"]);
+      expect(JSON.stringify(rows[0]?.parts)).toContain("the turn settled first");
+      expect(JSON.stringify(rows[1]?.parts)).toContain("On it");
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+    });
+
+    it("restarts a cancelled session for the user's queued message", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(replying(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "cancelled");
+
+      const settled = waitForSettled("s1");
+      const res = await queue(app, "s1", { id: ITEM_ID, text: "carry on" });
+      await settled;
+
+      expect(res.status).toBe(201);
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
       expect(pendingInboxItems(env.db, "s1")).toEqual([]);
     });
 

@@ -1,26 +1,43 @@
 import { describe, expect, it } from "bun:test";
-import { inboxDelivery } from "./inbox-delivery.ts";
+import { inboxDelivery, queuedBy } from "./inbox-delivery.ts";
+
+const QUEUED = ["user-queued", "session-queued"] as const;
 
 describe("inboxDelivery", () => {
   it("leaves a running session's backlog to the turn in flight", () => {
-    expect(inboxDelivery("running", "queued")).toBe("weave");
-    expect(inboxDelivery("running", "settled")).toBe("weave");
+    for (const trigger of [...QUEUED, "settled"] as const) {
+      expect(inboxDelivery("running", trigger)).toBe("weave");
+    }
   });
 
   it("wakes an idle session for a new message and for a backlog its turn left behind", () => {
-    expect(inboxDelivery("idle", "queued")).toBe("wake");
-    expect(inboxDelivery("idle", "settled")).toBe("wake");
+    for (const trigger of [...QUEUED, "settled"] as const) {
+      expect(inboxDelivery("idle", trigger)).toBe("wake");
+    }
   });
 
   it("wakes a failed session for a new message but not on its own settle", () => {
-    expect(inboxDelivery("failed", "queued")).toBe("wake");
+    for (const trigger of QUEUED) expect(inboxDelivery("failed", trigger)).toBe("wake");
     expect(inboxDelivery("failed", "settled")).toBe("hold");
   });
 
-  it("never starts a session the user must act on first", () => {
-    for (const status of ["waiting", "cancelled"] as const) {
-      expect(inboxDelivery(status, "queued")).toBe("hold");
-      expect(inboxDelivery(status, "settled")).toBe("hold");
+  it("never starts a session paused on the user's approval", () => {
+    for (const trigger of [...QUEUED, "settled"] as const) {
+      expect(inboxDelivery("waiting", trigger)).toBe("hold");
     }
+  });
+
+  it("restarts a cancelled session only for the user's own new message", () => {
+    expect(inboxDelivery("cancelled", "user-queued")).toBe("wake");
+    expect(inboxDelivery("cancelled", "session-queued")).toBe("hold");
+    expect(inboxDelivery("cancelled", "settled")).toBe("hold");
+  });
+});
+
+describe("queuedBy", () => {
+  it("separates the user's messages from another session's", () => {
+    expect(queuedBy("user")).toBe("user-queued");
+    expect(queuedBy("parent")).toBe("session-queued");
+    expect(queuedBy("child")).toBe("session-queued");
   });
 });

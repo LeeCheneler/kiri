@@ -1,5 +1,5 @@
 import type { RunStatus, StepStatus } from "./runs.ts";
-import type { SessionStatus } from "./sessions.ts";
+import type { SessionInboxItem, SessionStatus } from "./sessions.ts";
 
 /**
  * Discriminated union of every event the in-process bus carries. Consumers
@@ -28,7 +28,7 @@ export type KiriEvent =
     }
   | { type: "session.started"; id: string }
   | { type: "session.message.added"; sessionId: string }
-  | { type: "session.inbox.queued"; sessionId: string }
+  | { type: "session.inbox.queued"; sessionId: string; source: SessionInboxItem["source"] }
   | { type: "session.inbox.delivered"; sessionId: string }
   | { type: "session.updated"; id: string; status: SessionStatus }
   | { type: "session.finished"; id: string; status: SessionStatus }

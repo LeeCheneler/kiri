@@ -357,11 +357,11 @@ describe("api client", () => {
     ]);
   });
 
-  it("throws an ApiError carrying 409 when the queue races the turn settling", async () => {
+  it("throws an ApiError carrying the status of a refused queue", async () => {
     server.use(
       http.post("*/api/sessions/:id/inbox", () =>
         HttpResponse.json(
-          { error: 'session "s1" has no turn in flight to queue for' },
+          { error: 'message "q1" was queued for another session' },
           {
             status: 409,
           },

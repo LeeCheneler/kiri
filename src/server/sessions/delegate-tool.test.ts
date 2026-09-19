@@ -529,7 +529,11 @@ describe("message_worker tool", () => {
     expect(item?.text).toBe("Also cover the dev dependencies.");
     // The worker has exactly one parent, so the sender needs no id.
     expect(item?.fromSessionId).toBeNull();
-    expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "worker" });
+    expect(events).toContainEqual({
+      type: "session.inbox.queued",
+      sessionId: "worker",
+      source: "parent",
+    });
   });
 
   it("tells the parent how the message will land, by the worker's state", async () => {
@@ -609,7 +613,11 @@ describe("message_parent tool", () => {
     // title wherever the message surfaces.
     expect(item?.fromSessionId).toBe("worker");
     expect(item?.text).toBe(report);
-    expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "parent" });
+    expect(events).toContainEqual({
+      type: "session.inbox.queued",
+      sessionId: "parent",
+      source: "child",
+    });
   });
 
   it("caps the message size so an essay can't flood the parent", () => {

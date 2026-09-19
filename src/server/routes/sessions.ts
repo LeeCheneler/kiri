@@ -864,20 +864,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           delivered: accepted.deliveredAt !== null,
         } satisfies sessionsApi.SessionInboxResult);
       }
-      // Queueing only makes sense against a turn that can still deliver it:
-      // one running now, or paused awaiting a tool approval (delivered on
-      // resume). Anything else takes a normal message — the 409 tells the
-      // client it lost that race and should send instead of queue.
-      if (session.status !== "running" && session.status !== "waiting") {
-        return c.json(
-          {
-            error: `session "${id}" has no turn in flight to queue for`,
-          } satisfies errorsApi.ApiErrorBody,
-          409,
-        );
-      }
+      // Accepted whatever the session is doing: the delivery policy weaves
+      // the message into a running turn, holds it for a paused one, or starts
+      // a turn for it. The sender never has to pick another endpoint because
+      // the turn it was queueing for settled first.
       const item = enqueueInboxItem(db, id, { id: itemId, source: "user", text });
-      bus?.publish({ type: "session.inbox.queued", sessionId: id });
+      bus?.publish({ type: "session.inbox.queued", sessionId: id, source: "user" });
       return c.json(
         {
           item: serializeInboxItem(item),

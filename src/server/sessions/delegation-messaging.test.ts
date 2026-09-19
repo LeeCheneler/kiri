@@ -115,12 +115,31 @@ describe("mountDelegationMessaging", () => {
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "the report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
 
     await until(() => getSessionMessages(db, "parent").length === 2);
     await until(() => getSession(db, "parent")?.status === "idle");
     expect(JSON.stringify(prompts[0])).toContain("the report");
     expect(pendingInboxItems(db, "parent")).toEqual([]);
+  });
+
+  it("restarts a cancelled session for the user's own message, ahead of which its held backlog drains", async () => {
+    const prompts: unknown[] = [];
+    const { bus } = mount(prompts);
+    createSession(db, MODEL, { id: "stopped" });
+    setSessionStatus(db, "stopped", "cancelled");
+    enqueueInboxItem(db, "stopped", { source: "child", text: "held report" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "stopped", source: "child" });
+    await tick();
+    expect(getSession(db, "stopped")?.status).toBe("cancelled");
+
+    enqueueInboxItem(db, "stopped", { source: "user", text: "carry on" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "stopped", source: "user" });
+
+    await until(() => getSession(db, "stopped")?.status === "idle");
+    const prompt = JSON.stringify(prompts[0]);
+    expect(prompt.indexOf("held report")).toBeLessThan(prompt.indexOf("carry on"));
+    expect(pendingInboxItems(db, "stopped")).toEqual([]);
   });
 
   it("runs the wake turn with the session and dependencies its preparation returns", async () => {
@@ -151,7 +170,7 @@ describe("mountDelegationMessaging", () => {
     createSession(db, MODEL, { id: "parent", cwd: join(dir, "gone") });
     enqueueInboxItem(db, "parent", { source: "child", text: "the report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
 
     await until(() => getSession(db, "parent")?.status === "idle" && prompted.length > 0);
     expect(prompted[0]).toBe(dir);
@@ -176,7 +195,7 @@ describe("mountDelegationMessaging", () => {
     createSession(db, MODEL, { id: "parent" });
 
     // The queued message was withdrawn, or an earlier turn already drained it.
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(prepared).toBe(0);
@@ -192,7 +211,7 @@ describe("mountDelegationMessaging", () => {
     });
     enqueueInboxItem(db, "parent", { source: "child", text: "done" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
 
     await until(() => getSession(db, "parent")?.status === "idle");
     expect(getSession(db, "parent")?.error).toBeNull();
@@ -207,7 +226,7 @@ describe("mountDelegationMessaging", () => {
     // wove in). The settle is the only signal left.
     setSessionStatus(db, "parent", "running");
     enqueueInboxItem(db, "parent", { source: "child", text: "late report" });
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
     await tick();
     expect(getSessionMessages(db, "parent")).toEqual([]);
 
@@ -229,9 +248,9 @@ describe("mountDelegationMessaging", () => {
       createSession(db, MODEL, { id });
       setSessionStatus(db, id, status);
       enqueueInboxItem(db, id, { source: "parent", text: "steer" });
-      bus.publish({ type: "session.inbox.queued", sessionId: id });
+      bus.publish({ type: "session.inbox.queued", sessionId: id, source: "parent" });
     }
-    bus.publish({ type: "session.inbox.queued", sessionId: "no-such-session" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "no-such-session", source: "child" });
     await tick();
 
     for (const [id, status] of [
@@ -258,7 +277,7 @@ describe("mountDelegationMessaging", () => {
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
     await tick();
 
     // The turn that holds the session delivers the backlog; nothing went wrong here.
@@ -293,7 +312,7 @@ describe("mountDelegationMessaging", () => {
     createSession(db, MODEL, { id: "parent" });
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
     await tick();
 
     // The failed resolve did not drain the backlog or start a model call.
@@ -559,7 +578,7 @@ describe("mountDelegationMessaging", () => {
     setSessionStatus(db, "parent", "waiting");
     createSession(db, MODEL, { id: "worker", parentSessionId: "parent" });
     enqueueInboxItem(db, "worker", { source: "parent", text: "Follow up" });
-    bus.publish({ type: "session.inbox.queued", sessionId: "worker" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "worker", source: "parent" });
     await until(() => getSession(db, "worker")?.status === "failed");
     expect(pendingInboxItems(db, "parent")[0]?.text).toContain("model removed");
     expect(pendingInboxItems(db, "worker")).toHaveLength(1);
@@ -649,7 +668,7 @@ describe("mountDelegationMessaging", () => {
     enqueueInboxItem(db, "parent", { source: "child", text: "report" });
 
     unsubscribe();
-    bus.publish({ type: "session.inbox.queued", sessionId: "parent" });
+    bus.publish({ type: "session.inbox.queued", sessionId: "parent", source: "child" });
     await tick();
 
     expect(pendingInboxItems(db, "parent")).toHaveLength(1);

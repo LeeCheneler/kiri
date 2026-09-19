@@ -2,7 +2,7 @@ import { type UIMessage, isToolUIPart } from "ai";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
-import { type InboxTrigger, inboxDelivery } from "./inbox-delivery.ts";
+import { type InboxTrigger, inboxDelivery, queuedBy } from "./inbox-delivery.ts";
 import { enqueueInboxItem } from "./inbox.ts";
 import { type Session, getSession, getSessionMessages } from "./store.ts";
 import { TurnInFlightError } from "./turn-lifecycle.ts";
@@ -126,11 +126,15 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
     });
     // Publishing the queued event hands delivery to the same loop: the
     // notice weaves into a busy parent or wakes an idle one.
-    bus.publish({ type: "session.inbox.queued", sessionId: child.parentSessionId });
+    bus.publish({
+      type: "session.inbox.queued",
+      sessionId: child.parentSessionId,
+      source: "child",
+    });
   };
 
   return bus.subscribe((event) => {
-    if (event.type === "session.inbox.queued") void wake(event.sessionId, "queued");
+    if (event.type === "session.inbox.queued") void wake(event.sessionId, queuedBy(event.source));
     if (event.type === "session.updated" && event.status === "idle") void wake(event.id, "settled");
     if (event.type === "session.turn.settled") {
       const session = getSession(db, event.id);

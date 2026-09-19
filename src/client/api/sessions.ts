@@ -222,14 +222,14 @@ export const truncateSessionMessages = async (
   );
 
 /**
- * Queue a message for a session whose turn is in flight; the turn delivers it
- * at its next step boundary. `itemId` names the submission: repeating the call
- * with it returns the message already queued rather than queueing another,
- * `delivered` telling whether a turn has since taken it. The id is also the
- * handle `withdrawQueuedMessage` takes, and the id the delivered `data-inbox`
- * part carries in the transcript. Throws `ApiError` on non-2xx — 404 (unknown
- * session), 409 (no turn in flight to queue for; send it as a normal message
- * instead — the caller's race with the turn settling).
+ * Queue a message for a session. The server schedules it: a running turn
+ * delivers it at its next step boundary, a paused one on resume, and a session
+ * out of a turn starts one for it. `itemId` names the submission: repeating
+ * the call with it returns the message already queued rather than queueing
+ * another, `delivered` telling whether a turn has since taken it. The id is
+ * also the handle `withdrawQueuedMessage` takes, and the id the delivered
+ * `data-inbox` part carries in the transcript. Throws `ApiError` on non-2xx —
+ * 404 (unknown session), 409 (the id belongs to another session's message).
  */
 export const queueSessionMessage = async (
   id: string,

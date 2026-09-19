@@ -181,7 +181,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       // found, not the turn it caused.
       const status = child.status;
       enqueueInboxItem(db, sessionId, { source: "parent", text: message });
-      bus?.publish({ type: "session.inbox.queued", sessionId });
+      bus?.publish({ type: "session.inbox.queued", sessionId, source: "parent" });
       if (status === "running") {
         return "Delivered: the worker is mid-turn, so the message weaves in at its next step.";
       }
@@ -271,7 +271,11 @@ export function messageParentTool(deps: MessageParentToolDeps): ToolSet {
           fromSessionId: child.id,
           text: message,
         });
-        bus?.publish({ type: "session.inbox.queued", sessionId: child.parentSessionId });
+        bus?.publish({
+          type: "session.inbox.queued",
+          sessionId: child.parentSessionId,
+          source: "child",
+        });
         return "Delivered to the session that delegated your task.";
       },
     }),

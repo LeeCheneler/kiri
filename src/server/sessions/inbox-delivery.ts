@@ -1,7 +1,16 @@
+import type { InboxItem } from "./inbox.ts";
 import type { Session } from "./store.ts";
 
-/** What prompts a look at a session's backlog: a message just queued, or a turn that just settled. */
-export type InboxTrigger = "queued" | "settled";
+/**
+ * What prompts a look at a session's backlog: a message just queued — by the
+ * user, or by another session (its parent, or one of its workers) — or a turn
+ * that just settled.
+ */
+export type InboxTrigger = "user-queued" | "session-queued" | "settled";
+
+/** The trigger a message queued by `source` raises. */
+export const queuedBy = (source: InboxItem["source"]): InboxTrigger =>
+  source === "user" ? "user-queued" : "session-queued";
 
 /**
  * How a session's queued messages reach it:
@@ -15,12 +24,26 @@ export type InboxDelivery = "weave" | "hold" | "wake";
 
 // A paused turn delivers on resume, but only the user resolves its approvals,
 // so nothing queued may start or resume a `waiting` session. The user stopped
-// a `cancelled` session, and its backlog waits for them. A `failed` session
-// wakes for a new message — a dead parent still hears a worker's report — but
-// not when it settles: the failed turn was itself the delivery attempt, and
-// waking on the same backlog would loop.
+// a `cancelled` session: a message of their own is them starting it again,
+// while another session's waits for them, as does whatever was queued before
+// the stop. A `failed` session wakes for a new message — a dead parent still
+// hears a worker's report — but not when it settles: the failed turn was
+// itself the delivery attempt, and waking on the same backlog would loop.
 const DELIVERY: Record<InboxTrigger, Record<Session["status"], InboxDelivery>> = {
-  queued: { running: "weave", waiting: "hold", idle: "wake", failed: "wake", cancelled: "hold" },
+  "user-queued": {
+    running: "weave",
+    waiting: "hold",
+    idle: "wake",
+    failed: "wake",
+    cancelled: "wake",
+  },
+  "session-queued": {
+    running: "weave",
+    waiting: "hold",
+    idle: "wake",
+    failed: "wake",
+    cancelled: "hold",
+  },
   settled: { running: "weave", waiting: "hold", idle: "wake", failed: "hold", cancelled: "hold" },
 };
 
