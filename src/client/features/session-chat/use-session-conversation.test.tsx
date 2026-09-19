@@ -57,6 +57,17 @@ const reply = (text: string, finish = Promise.resolve()) =>
     }),
   });
 
+// What the server sends a view whose transcript the live stream does not continue from.
+const endedStream = () =>
+  new HttpResponse(
+    new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
+
 describe("transcript reconciliation", () => {
   it("ignores a delayed deletion response overtaken by a newer snapshot", async () => {
     const deleted = deferred();
@@ -105,6 +116,60 @@ describe("transcript reconciliation", () => {
     );
     const { result } = mount(snapshot(2, [], "running"));
     await waitFor(() => expect(result.current.messages).toEqual([message("final")]));
+  });
+
+  it("re-reads the transcript and rejoins when the live stream no longer continues from its own", async () => {
+    const finish = deferred();
+    const revisions: (string | null)[] = [];
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/:id/stream", ({ request }) => {
+        const revision = new URL(request.url).searchParams.get("revision");
+        revisions.push(revision);
+        return revision === "5" ? reply(" and live", finish.promise) : endedStream();
+      }),
+      http.get("*/api/sessions/:id", () => {
+        reads += 1;
+        return HttpResponse.json(
+          detail(
+            reads === 1
+              ? snapshot(5, [message("saved step")], "running")
+              : snapshot(6, [message("final")]),
+          ),
+        );
+      }),
+    );
+    const { result } = mount(snapshot(2, [], "running"));
+    // The replay extends the saved message rather than starting another.
+    await waitFor(() =>
+      expect(
+        result.current.messages.map((m) =>
+          m.parts.map((part) => (part.type === "text" ? part.text : part.type)),
+        ),
+      ).toEqual([["saved step", " and live"]]),
+    );
+    expect(revisions).toEqual(["2", "5"]);
+    await act(async () => finish.resolve());
+    await waitFor(() => expect(result.current.messages).toEqual([message("final")]));
+  });
+
+  it("stops rejoining a stream that keeps ending, leaving the transcript it read", async () => {
+    let rejoins = 0;
+    server.use(
+      http.get("*/api/sessions/:id/stream", () => {
+        rejoins += 1;
+        return endedStream();
+      }),
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(detail(snapshot(5, [message("saved step")], "running"))),
+      ),
+    );
+    const { result } = mount(snapshot(2, [], "running"));
+    await waitFor(() => expect(rejoins).toBe(4));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(rejoins).toBe(4);
+    expect(result.current.messages).toEqual([message("saved step")]);
   });
 
   it("keeps a cancelled tail through a running baseline until persistence finishes", async () => {

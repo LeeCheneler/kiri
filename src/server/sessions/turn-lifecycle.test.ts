@@ -78,7 +78,7 @@ describe("createTurnLifecycle", () => {
   it("settles an ended turn: idle, stream closed, events in order", async () => {
     const lease = lifecycle.acquire("s1");
     lease.begin();
-    lease.openStream([], 0);
+    lease.openStream(0);
     events.length = 0;
 
     lease.settle({ status: "idle", messageId: "m1" });
@@ -164,7 +164,7 @@ describe("createTurnLifecycle", () => {
     stale.settle({ status: "idle", messageId: null });
     const current = lifecycle.acquire("s1");
     current.begin();
-    current.openStream([], 0);
+    current.openStream(0);
     events.length = 0;
 
     stale.settle({ status: "failed", error: { message: "late" }, messageId: null });
@@ -191,7 +191,7 @@ describe("createTurnLifecycle", () => {
   it("settles a begun turn that fails as failed, closing its stream", async () => {
     const lease = lifecycle.acquire("s1");
     lease.begin();
-    lease.openStream([], 0);
+    lease.openStream(0);
     events.length = 0;
 
     lease.fail("discovery rejected");

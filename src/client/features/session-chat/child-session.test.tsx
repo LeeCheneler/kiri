@@ -182,7 +182,11 @@ describe("<ChildSession>", () => {
     withChildDetail("running", [
       childMessage("m1", "user", [{ type: "text", text: "Research pelicans" }]),
     ]);
-    server.use(http.get("*/api/sessions/child-1/stream", () => compaction.response));
+    // The worker still reads as running once the stream ends, so the view
+    // asks to rejoin; by then there is no live stream left to serve.
+    server.use(
+      http.get("*/api/sessions/child-1/stream", () => compaction.response, { once: true }),
+    );
     renderBox();
 
     await userEvent.click(await screen.findByRole("button", { name: /worker/i }));

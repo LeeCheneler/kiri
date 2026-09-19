@@ -1,6 +1,6 @@
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
-import { type Message, setSessionStatus } from "./store.ts";
+import { setSessionStatus } from "./store.ts";
 import type { StreamRegistry, StreamSink } from "./stream-registry.ts";
 
 /** Thrown by `acquire` when the session already has a turn executing. */
@@ -44,8 +44,8 @@ export interface TurnLease {
   signal: AbortSignal;
   /** Mark the session `running`, clearing the markers of an earlier failed or cancelled turn. */
   begin(): void;
-  /** Open the turn's resumable stream over the transcript as it stood before the turn; closed when the lease settles. */
-  openStream(messages: Message[], transcriptRevision: number): StreamSink;
+  /** Open the turn's resumable stream, continuing from the saved transcript at `transcriptRevision`; closed when the lease settles. */
+  openStream(transcriptRevision: number): StreamSink;
   /**
    * Bring the turn to rest: record the status, close the stream, release the
    * session, then publish what happened. The session is released before the
@@ -142,8 +142,8 @@ export function createTurnLifecycle(deps: TurnLifecycleDeps): TurnLifecycle {
           bus.publish({ type: "session.updated", id: sessionId, status: "running" });
         },
 
-        openStream(messages, transcriptRevision) {
-          sink = streamRegistry.open(sessionId, messages, transcriptRevision);
+        openStream(transcriptRevision) {
+          sink = streamRegistry.open(sessionId, transcriptRevision);
           return sink;
         },
 

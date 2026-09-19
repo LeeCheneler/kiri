@@ -33,7 +33,7 @@ import {
   updateSessionEffort,
   updateSessionModel,
 } from "./store.ts";
-import { createStreamRegistry } from "./stream-registry.ts";
+import { type StreamRegistry, createStreamRegistry } from "./stream-registry.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -117,6 +117,27 @@ const parkedStream = (
   });
 
 // A model whose stream emits a little then stays open: only an abort ends it.
+// What a reader holding the transcript at `revision` is sent on rejoining the
+// session's live turn: read until `until` shows up, or the stream ends.
+async function replayOf(
+  streamRegistry: StreamRegistry,
+  sessionId: string,
+  revision: number,
+  until: string,
+): Promise<string> {
+  const reader = streamRegistry.subscribe(sessionId, revision)?.getReader();
+  if (!reader) throw new Error(`no live turn for session "${sessionId}"`);
+  const decoder = new TextDecoder();
+  let replayed = "";
+  while (!replayed.includes(until)) {
+    const next = await reader.read();
+    if (next.done) break;
+    replayed += decoder.decode(next.value);
+  }
+  await reader.cancel();
+  return replayed;
+}
+
 const pendingModel = (): LlmModel =>
   new MockLanguageModelV3({
     doStream: async ({ abortSignal }) => ({
@@ -935,9 +956,23 @@ describe("runTurn", () => {
     let actions = 0;
     let summaries = 0;
     let system = "Original standing rules";
+    const streamRegistry = createStreamRegistry();
+    // A reader rejoining as the first summary lands: retried, since the save
+    // commits a moment before the stream's buffer moves up to it.
+    let rejoined: Promise<string> | undefined;
+    const rejoin = async (): Promise<string> => {
+      for (let i = 0; i < 100; i += 1) {
+        const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+        const replayed = await replayOf(streamRegistry, "s1", revision, '"toolCallId":"c2"');
+        if (replayed !== "") return replayed;
+        await Bun.sleep(1);
+      }
+      return "";
+    };
     const model = new MockLanguageModelV3({
       doStream: async (options) => {
         calls += 1;
+        if (calls === 2) rejoined = rejoin();
         const sent = JSON.stringify(options.prompt);
         if (calls >= 2) {
           expect(sent).toContain(`Checkpoint ${Math.min(calls - 1, 2)}`);
@@ -980,6 +1015,7 @@ describe("runTurn", () => {
     const { response, done } = await runTurn(
       {
         db,
+        streamRegistry,
         buildSystemPrompt: () => system,
         llmClients: {
           ...clientsFor(model),
@@ -1026,6 +1062,11 @@ describe("runTurn", () => {
     expect(calls).toBe(4);
     expect(actions).toBe(3);
     expect(summaries).toBe(2);
+    // The summary and the action behind it were saved: the rejoin carries neither.
+    const replayed = await rejoined;
+    expect(replayed).toContain('"toolCallId":"c2"');
+    expect(replayed).not.toContain("data-checkpoint");
+    expect(replayed).not.toContain("x".repeat(1000));
     expect(pendingInboxItems(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
     const capture: { prompt?: unknown } = {};
@@ -2103,14 +2144,10 @@ describe("runTurn", () => {
     // The turn parks; its stream is registered so a reconnecting client can rejoin.
     expect(streamRegistry.has("s1")).toBe(true);
 
-    // A reader joining now is served the turn so far as SSE frames.
-    const rejoined = streamRegistry.subscribe("s1")?.getReader();
-    const decoder = new TextDecoder();
-    let replayed = "";
-    while (rejoined && !replayed.includes("Hel")) {
-      replayed += decoder.decode((await rejoined.read()).value);
-    }
-    expect(replayed).toContain('data: {"type":"start"');
+    // A reader holding the transcript the turn opened on is served the turn so far.
+    const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+    const replayed = await replayOf(streamRegistry, "s1", revision, "Hel");
+    expect(replayed).toStartWith('data: {"type":"start"');
     expect(replayed).toContain('"type":"text-delta","id":"t1","delta":"Hel"');
 
     canceller.cancel("s1");
@@ -2406,6 +2443,49 @@ describe("runTurn", () => {
     // The context footprint is the resumed step's alone (3+4), replacing the
     // paused step's.
     expect(rows[1]?.contextTokens).toBe(7);
+  });
+
+  it("rejoins a resumed approval behind the approved action's saved result", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const first = await runTurn(
+      { db, llmClients: clientsFor(toolLoopModel()), tools: gatedEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    const paused = getSessionMessages(db, "s1")[1];
+
+    const streamRegistry = createStreamRegistry();
+    const canceller = turnCanceller();
+    const second = await resumeTurn(
+      {
+        db,
+        llmClients: clientsFor(pendingModel()),
+        tools: gatedEchoTools,
+        streamRegistry,
+        canceller,
+      },
+      {
+        session,
+        approvals: [{ toolCallId: toolPartOf(paused).toolCallId as string, approved: true }],
+      },
+    );
+    for (let i = 0; i < 100; i += 1) {
+      if (toolPartOf(getSessionMessages(db, "s1")[1]).state === "output-available") break;
+      await Bun.sleep(5);
+    }
+
+    // The result is saved on the paused message, so a reader holding that
+    // save continues the same message from the model's reply alone.
+    const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+    const replayed = await replayOf(streamRegistry, "s1", revision, "Hel");
+    expect(replayed).toStartWith(`data: {"type":"start","messageId":"${paused?.id}"`);
+    expect(replayed).not.toContain("tool-output-available");
+    expect(await replayOf(streamRegistry, "s1", revision - 1, "never")).toBe("");
+
+    canceller.cancel("s1");
+    await second.response.text();
+    await second.done;
   });
 
   it("refuses the tool and lets the model continue when resumed with a denial", async () => {
@@ -2732,9 +2812,15 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("running");
-      expect(streamRegistry.snapshotBeforeTurn("s1")?.messages.map((m) => m.role)).toEqual([
-        "user",
-      ]);
+      // A reader holding the saved step rejoins behind it: the action is in
+      // its transcript, so the replay carries only the step still streaming.
+      const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
+      const replayed = await replayOf(streamRegistry, "s1", revision, "The action completed.");
+      expect(replayed).toStartWith('data: {"type":"start"');
+      expect(replayed).not.toContain('"toolCallId":"c1"');
+      // One holding the transcript from before that save would run the action's
+      // frames into a message that already has them, so it is turned away.
+      expect(await replayOf(streamRegistry, "s1", revision - 1, "never")).toBe("");
       fail();
       await started.done;
 
@@ -2751,7 +2837,7 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("failed");
-      expect(streamRegistry.snapshotBeforeTurn("s1")).toBeNull();
+      expect(streamRegistry.has("s1")).toBe(false);
 
       const capture: { prompt?: unknown } = {};
       const resumed = await runTurn(

@@ -93,6 +93,9 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
+// The transcript revision a rejoining client holds (see the stream registry).
+const streamQuerySchema = z.object({ revision: z.coerce.number().int().nonnegative() });
+
 // `imageModel` starts the session with image generation on — the
 // first-shortcut default when image shortcuts are configured; otherwise it's
 // simply not sent. `projectId` creates the session within a project; later
@@ -422,17 +425,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       const parentId = session.parentSessionId;
-      const snapshot = streamRegistry.snapshotBeforeTurn(id) ?? {
-        messages: getSessionMessages(db, id),
-        transcriptRevision: session.transcriptRevision,
-      };
       return c.json({
         session: serializeSession(session),
-        transcriptRevision: snapshot.transcriptRevision,
-        // Replaying a live stream starts from its original transcript. Durable
-        // checkpoints already contain some of those frames and would duplicate
-        // text/steps if used as the client's starting point.
-        messages: withoutContextCalibration(snapshot.messages.map(serializeMessage)),
+        // The revision names this transcript to the live stream: a client
+        // rejoining a running turn is replayed into only from the saved step
+        // it holds, so a read that has fallen behind never duplicates one.
+        transcriptRevision: session.transcriptRevision,
+        messages: withoutContextCalibration(getSessionMessages(db, id).map(serializeMessage)),
         // The undelivered backlog rides the detail so queued messages stay
         // visible across reloads and other views — the inbox table, not any
         // client's local state, is the queue's source of truth.
@@ -477,11 +476,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   app.get(
     "/sessions/:id/stream",
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    zValidator("query", streamQuerySchema, onZodFail("invalid transcript revision")),
     (c) => {
-      // Resume an in-flight turn: replay what's buffered, then stream live. With
+      // Resume an in-flight turn: replay what's buffered since the transcript
+      // the client holds, then stream live. A client holding any other revision
+      // gets a stream that ends at once, and reads the transcript again. With
       // no turn in flight there's nothing to rejoin — a 204 tells the client's
       // resume to stand down and read the settled turn from storage instead.
-      const body = streamRegistry.subscribe(c.req.valid("param").id);
+      const body = streamRegistry.subscribe(c.req.valid("param").id, c.req.valid("query").revision);
       if (!body) return c.body(null, 204);
       return new Response(body, { headers: UI_MESSAGE_STREAM_HEADERS });
     },

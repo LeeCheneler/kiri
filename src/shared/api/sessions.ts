@@ -93,7 +93,7 @@ export interface SessionInboxItem {
 
 /** A session with its ordered messages and undelivered inbox, as returned by `GET /api/sessions/:id`. */
 export interface SessionDetail {
-  /** Revision of messages, which may be the baseline of an active replay stream. */
+  /** Revision of `messages`; a view rejoining a running turn names it, and is replayed into only from there. */
   transcriptRevision: number;
   session: Session;
   messages: SessionMessage[];

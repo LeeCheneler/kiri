@@ -912,8 +912,7 @@ describe("sessions routes", () => {
         { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
       ]);
       const { bus, waitForSettled } = createSessionWaiter();
-      const streamRegistry = createStreamRegistry();
-      const app = makeApp(fakeClients({ model }), { bus, streamRegistry });
+      const app = makeApp(fakeClients({ model }), { bus });
       const session = createSession(env.db, MODEL, { id: "s1" });
       const settled = waitForSettled("s1");
       await (await postMessage(app, "s1", "Hi there")).text();
@@ -931,11 +930,6 @@ describe("sessions routes", () => {
       const stored = getSessionMessages(env.db, "s1");
       expect(JSON.stringify(stored)).toContain("data-context-calibration");
       expect(JSON.stringify(body.messages)).not.toContain("data-context-calibration");
-      const sink = streamRegistry.open("s1", stored);
-      const replay = await (await app.request(`/api/sessions/${session.id}`)).json();
-      expect(JSON.stringify(replay.messages)).not.toContain("data-context-calibration");
-      sink.close();
-      expect(getSessionMessages(env.db, "s1")).toEqual(stored);
     });
 
     it("names a child's parent so its page can link back up", async () => {
@@ -959,29 +953,22 @@ describe("sessions routes", () => {
       expect(parent.parent).toBeNull();
     });
 
-    it("serves the stream's baseline while running, then the saved progress once it closes", async () => {
+    it("serves the saved progress and its revision while a turn streams", async () => {
       const streamRegistry = createStreamRegistry();
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Do the work" }] });
-      const baseline = getSessionMessages(env.db, "s1");
-      const sink = streamRegistry.open("s1", baseline, 1);
+      const sink = streamRegistry.open("s1", 1);
       appendMessage(env.db, "s1", {
         role: "assistant",
         parts: [{ type: "text", text: "Progress" }],
       });
 
       const live = await (await app.request("/api/sessions/s1")).json();
-      expect(live.messages.map((m: { role: string }) => m.role)).toEqual(["user"]);
-      expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
-      expect(live.transcriptRevision).toBe(1);
-      expect(live.session.transcriptRevision).toBe(2);
-
+      expect(live.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+      expect(live.transcriptRevision).toBe(2);
+      expect(live.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
       sink.close();
-      const settled = await (await app.request("/api/sessions/s1")).json();
-      expect(settled.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
-      expect(settled.transcriptRevision).toBe(2);
-      expect(settled.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
     });
 
     it("404s an unknown session", async () => {
@@ -1245,12 +1232,12 @@ describe("sessions routes", () => {
       // concurrent streaming bodies; live capture is covered by the stream-registry
       // tests and the client resume tests.)
       const streamRegistry = createStreamRegistry();
-      const sink = streamRegistry.open("s1");
+      const sink = streamRegistry.open("s1", 4);
       sink.push({ type: "text-delta", id: "t1", delta: "rejoined" });
       const app = makeApp(fakeClients(), { streamRegistry });
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await app.request("/api/sessions/s1/stream");
+      const res = await app.request("/api/sessions/s1/stream?revision=4");
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/event-stream");
 
@@ -1259,11 +1246,31 @@ describe("sessions routes", () => {
       expect(await res.text()).toContain("rejoined");
     });
 
+    it("ends the stream at once for a client holding another revision", async () => {
+      const streamRegistry = createStreamRegistry();
+      const sink = streamRegistry.open("s1", 4);
+      sink.push({ type: "text-delta", id: "t1", delta: "already saved" });
+      const app = makeApp(fakeClients(), { streamRegistry });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/stream?revision=3");
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("");
+      sink.close();
+    });
+
+    it("400s a rejoin that names no revision", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/stream");
+      expect(res.status).toBe(400);
+    });
+
     it("204s when no turn is in flight for the session", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
 
-      const res = await app.request("/api/sessions/s1/stream");
+      const res = await app.request("/api/sessions/s1/stream?revision=0");
 
       expect(res.status).toBe(204);
     });
@@ -1283,7 +1290,7 @@ describe("sessions routes", () => {
       await (await postMessage(app, "s1", "Hi there")).text();
       await settled;
 
-      const res = await app.request("/api/sessions/s1/stream");
+      const res = await app.request("/api/sessions/s1/stream?revision=2");
 
       expect(res.status).toBe(204);
     });

@@ -32,6 +32,11 @@ import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./
 import { submitQueuedMessage } from "./queue-submission.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
+// How many times in a row a view re-reads the transcript and rejoins a turn
+// whose stream ended under it. A rejoin that keeps ending is not going to
+// take; the view then shows the session as busy until the turn settles.
+const MAX_REJOINS = 3;
+
 // Tool-call states that mean a call is still running.
 const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
 
@@ -154,6 +159,7 @@ export function useSessionConversation(opts: {
     revision: transcriptRevision,
     generation: 0,
     protected: false,
+    rejoins: 0,
   });
   if (sync.current.id !== session.id) {
     sync.current = {
@@ -161,6 +167,7 @@ export function useSessionConversation(opts: {
       revision: transcriptRevision,
       generation: 0,
       protected: false,
+      rejoins: 0,
     };
   }
   const transcript = sync.current;
@@ -182,8 +189,12 @@ export function useSessionConversation(opts: {
         protectTranscript();
         return prepareSessionTurnRequest(request);
       },
-      // Resume reconnects to the GET stream endpoint, not the POST turn `api`.
-      prepareReconnectToStreamRequest: () => ({ api: sessionStreamEndpoint(session.id) }),
+      // Resume reconnects to the GET stream endpoint, not the POST turn `api`,
+      // naming the transcript this view holds: the server replays only what
+      // follows that revision, so a rejoin can never duplicate a saved step.
+      prepareReconnectToStreamRequest: () => ({
+        api: sessionStreamEndpoint(session.id, sync.current.revision),
+      }),
     });
   }, [session.id, protectTranscript]);
 
@@ -206,8 +217,9 @@ export function useSessionConversation(opts: {
     id: session.id,
     messages: initialMessages,
     transport,
-    onFinish: () => {
-      void refreshTranscript();
+    // A stream this view did not stop may have ended short of the turn.
+    onFinish: ({ isAbort }) => {
+      void refreshTranscript({ rejoin: !isAbort });
     },
     // Cap transcript re-renders to ~16/s. A fast provider otherwise delivers
     // deltas quicker than a grown transcript can re-render, and the backlog
@@ -229,26 +241,40 @@ export function useSessionConversation(opts: {
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
-  // A read begun after streaming ended can release local protection. Cached
-  // reads begun during the turn may describe only its replay baseline.
-  const refreshTranscript = useCallback(async (): Promise<void> => {
-    const generation = transcript.generation;
-    let detail: Awaited<ReturnType<typeof refreshDetail>>;
-    try {
-      detail = await refreshDetail();
-    } catch {
-      // fetchQuery exposes the failure through useSession. Keep local work
-      // until a later successful refresh rather than applying an older cache.
-      return;
-    }
-    if (sync.current !== transcript || generation !== transcript.generation) return;
-    transcript.protected = false;
-    if (detail.transcriptRevision <= transcript.revision) return;
-    transcript.revision = detail.transcriptRevision;
-    // Cancellation can finish the browser stream before the server settles.
-    // Its active replay baseline must not erase the locally rendered tail.
-    if (detail.session.status !== "running") setMessages(detail.messages);
-  }, [refreshDetail, setMessages, transcript]);
+  // A read begun after streaming ended can release local protection. When the
+  // turn is still running the stream ended short of it — this view held a
+  // transcript the live stream no longer continues from, or fell too far
+  // behind it — so `rejoin` takes the fresh transcript and resumes from there.
+  const refreshTranscript = useCallback(
+    async ({ rejoin = false } = {}): Promise<void> => {
+      const generation = transcript.generation;
+      let detail: Awaited<ReturnType<typeof refreshDetail>>;
+      try {
+        detail = await refreshDetail();
+      } catch {
+        // fetchQuery exposes the failure through useSession. Keep local work
+        // until a later successful refresh rather than applying an older cache.
+        return;
+      }
+      if (sync.current !== transcript || generation !== transcript.generation) return;
+      transcript.protected = false;
+      if (detail.session.status === "running") {
+        // Cancellation can finish the browser stream before the server settles;
+        // the saved transcript must not erase the locally rendered tail.
+        if (!rejoin || transcript.rejoins >= MAX_REJOINS) return;
+        transcript.rejoins += 1;
+        transcript.revision = detail.transcriptRevision;
+        setMessages(detail.messages);
+        void resumeStream();
+        return;
+      }
+      transcript.rejoins = 0;
+      if (detail.transcriptRevision <= transcript.revision) return;
+      transcript.revision = detail.transcriptRevision;
+      setMessages(detail.messages);
+    },
+    [refreshDetail, resumeStream, setMessages, transcript],
+  );
 
   const sendMessage = useCallback<SessionConversation["sendMessage"]>(
     (...args) => {
@@ -415,7 +441,7 @@ export function useSessionConversation(opts: {
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
     void cancelSession(session.id)
       .catch(() => {})
-      .then(refreshTranscript);
+      .then(() => refreshTranscript());
     // Stopping mid-call leaves the tool part on "working"; mark it cancelled so
     // the transcript reflects the stop rather than spinning forever.
     setMessages(cancelInFlightTools);

@@ -219,19 +219,34 @@ const errorMessage = (cause: unknown): string => {
   }
 };
 
+// What saving a finished step committed: the transcript revision, or nothing
+// when the step held nothing worth keeping or its save failed.
+type StepSave = number | undefined;
+
 // Read a turn's stream to completion, mirroring each chunk into `sink`.
 // Draining server-side guarantees the turn reaches `onFinish` — and so persists
 // and settles — even when no client is reading the response (the user navigated
 // away, reloaded, or dropped the connection). A turn is only ever cancelled by
 // an explicit request through its lease, never by a lost consumer. The sink
 // captures the chunks for a client that reconnects mid-turn; the lease closes
-// it as the turn settles — in step with persistence — not at the stream's end. Any failure is recorded via the stream's own error handling, so it's
+// it as the turn settles — in step with persistence — not at the stream's end.
+// The stream saves each step before it forwards the `finish-step` that ends
+// it, so `saves` lines up with those chunks one for one: a save's revision is
+// the transcript a reader can continue from once that chunk has been pushed.
+// Any failure is recorded via the stream's own error handling, so it's
 // swallowed here; the pump just has to not raise.
-async function pumpStream(stream: ReadableStream<UIMessageChunk>, sink: StreamSink): Promise<void> {
+async function pumpStream(
+  stream: ReadableStream<UIMessageChunk>,
+  sink: StreamSink,
+  saves: StepSave[],
+): Promise<void> {
   const reader = stream.getReader();
   try {
     for (let next = await reader.read(); !next.done; next = await reader.read()) {
       sink.push(next.value);
+      if (next.value.type !== "finish-step") continue;
+      const revision = saves.shift();
+      if (revision !== undefined) sink.checkpoint(revision);
     }
   } catch {
     // settled through the stream's error path
@@ -499,7 +514,8 @@ async function streamCore(
   // The turn captures into it as it drains, and `onFinish` closes it in step with
   // persistence — so a client that loads the just-settled turn from storage gets a
   // 204 on resume and never replays it into a duplicate.
-  const sink = lease.openStream(rows, transcriptRevision);
+  const sink = lease.openStream(transcriptRevision);
+  const saves: StepSave[] = [];
 
   // Assigned synchronously by `execute` below (the SDK invokes it as the stream
   // is created); `onFinish` reads the settled usage off it. Left unassigned only
@@ -539,7 +555,7 @@ async function streamCore(
       .filter(isInboxPart)
       .map((part) => part.id)
       .filter((id) => deliveredIds.has(id) && !acknowledgedIds.has(id));
-    db.transaction(() => {
+    const revision = db.transaction(() => {
       persistAssistantMessage(
         db,
         session.id,
@@ -549,11 +565,13 @@ async function streamCore(
         contextTokens,
       );
       acknowledgeInboxItems(db, inboxIds);
+      return getSession(db, session.id)?.transcriptRevision;
     });
     checkpointed = true;
     for (const id of inboxIds) acknowledgedIds.add(id);
     if (inboxIds.length > 0)
       bus.publish({ type: "session.inbox.delivered", sessionId: session.id });
+    return revision;
   };
 
   const stream = createUIMessageStream<UIMessage>({
@@ -920,9 +938,10 @@ async function streamCore(
       }
     },
     onStepFinish: ({ responseMessage, isContinuation }) => {
+      let saved: StepSave;
       try {
         if (finaliseInterruptedParts(responseMessage.parts) === null) return;
-        persistProgress(responseMessage, isContinuation);
+        saved = persistProgress(responseMessage, isContinuation);
       } catch (cause) {
         // The SDK reports checkpoint errors without stopping its tool loop.
         // Abort here so further actions cannot outrun failed persistence.
@@ -931,6 +950,7 @@ async function streamCore(
         checkpointAbort.abort();
         throw cause;
       } finally {
+        saves.push(saved);
         // A failed save has already aborted the turn, which ended every wait.
         barrier.settle();
       }
@@ -1017,7 +1037,7 @@ async function streamCore(
   // cancelled only by an explicit request (through its lease's signal), never
   // by a dropped connection.
   const [live, captured] = stream.tee();
-  void pumpStream(captured, sink);
+  void pumpStream(captured, sink, saves);
   const response = createUIMessageStreamResponse({ stream: live });
 
   return { response, done: lease.done };

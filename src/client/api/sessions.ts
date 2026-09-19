@@ -276,5 +276,5 @@ export const sessionTurnEndpoint = (
  * the hook polls on mount when `resume` is set. A safe GET (no CSRF header), it
  * returns the in-flight turn's event-stream to rejoin, or 204 when none is live.
  */
-export const sessionStreamEndpoint = (id: string): string =>
-  apiUrl(`/api/sessions/${encodeURIComponent(id)}/stream`);
+export const sessionStreamEndpoint = (id: string, transcriptRevision: number): string =>
+  apiUrl(`/api/sessions/${encodeURIComponent(id)}/stream?revision=${transcriptRevision}`);
