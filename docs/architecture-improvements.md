@@ -152,7 +152,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Infinite query stale time makes invalidation part of correctness. Missing events leave views stale indefinitely, while synchronous execution triggered by notifications creates hidden ordering requirements.
 
-- [ ] **26 — Measure whether binary assets need separate storage**
+- [x] **26 — Measure whether binary assets need separate storage**
 
   **What:** After attachment and replay fixes, measure database size, response size, turn-start memory, and reconnect cost with representative binary histories. If justified, plan a workspace-local asset store with references, legacy data-URL reads, retention/deletion ownership, backup behavior, and missing-file recovery.
 
