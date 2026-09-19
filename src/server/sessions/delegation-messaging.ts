@@ -2,6 +2,7 @@ import { type UIMessage, isToolUIPart } from "ai";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
+import { type InboxTrigger, inboxDelivery } from "./inbox-delivery.ts";
 import { enqueueInboxItem } from "./inbox.ts";
 import { type Session, getSession, getSessionMessages } from "./store.ts";
 import { TurnInFlightError } from "./turn-lifecycle.ts";
@@ -20,14 +21,6 @@ export interface DelegationMessagingDeps {
    */
   startTurn: StartTurn;
 }
-
-// The statuses a queued message wakes: out of a turn, with nothing else set
-// to deliver the backlog. `waiting` is excluded — approvals stay user-only,
-// so the backlog delivers when the user resolves them — as is `cancelled`:
-// the user explicitly stopped that session, so its backlog waits for them.
-// `failed` wakes so a dead parent still hears a worker's report (the wake
-// turn clears the terminal markers, like any resumed turn).
-const WAKEABLE: ReadonlySet<Session["status"]> = new Set(["idle", "failed"]);
 
 type TurnSettlement = Extract<KiriEvent, { type: "session.turn.settled" }>;
 
@@ -104,9 +97,9 @@ function settlementText(db: KiriDb, child: Session, event: TurnSettlement): stri
 export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => void {
   const { db, bus, startTurn } = deps;
 
-  const wake = async (sessionId: string) => {
+  const wake = async (sessionId: string, trigger: InboxTrigger) => {
     const session = getSession(db, sessionId);
-    if (!session || !WAKEABLE.has(session.status)) return;
+    if (!session || inboxDelivery(session.status, trigger) !== "wake") return;
     // A wake start runs synchronously up to marking the session `running`
     // (or resolves null on an already-drained backlog — the wake raced an
     // earlier drain), so a second queued event on the same tick finds it
@@ -137,8 +130,8 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
   };
 
   return bus.subscribe((event) => {
-    if (event.type === "session.inbox.queued") void wake(event.sessionId);
-    if (event.type === "session.updated" && event.status === "idle") void wake(event.id);
+    if (event.type === "session.inbox.queued") void wake(event.sessionId, "queued");
+    if (event.type === "session.updated" && event.status === "idle") void wake(event.id, "settled");
     if (event.type === "session.turn.settled") {
       const session = getSession(db, event.id);
       if (session) notifyParent(session, event);
