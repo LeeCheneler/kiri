@@ -279,7 +279,7 @@ describe("turn tools", () => {
       expect(parent).toContain("delegate");
       expect(parent).toContain("message_worker");
       expect(parent).not.toContain("message_parent");
-      expect(worker).toContain("message_parent");
+      expect(worker.filter((name) => !parent.includes(name))).toEqual(["message_parent"]);
       // A worker can't spawn or steer workers, and leaves the durable record —
       // articles, memories, project instructions, tasks — to the conversation.
       expect(parent.filter((name) => !worker.includes(name)).sort()).toEqual([

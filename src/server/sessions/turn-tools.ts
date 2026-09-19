@@ -181,8 +181,8 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
   // The first-party tool sets bound to a session, before permission gating.
   // The image tools self-gate on selection the same way the filesystem tools
   // self-gate on configuration: no image model on the session, no
-  // generate_image offered. The delegate tool is merged separately by each
-  // caller — only a top-level session's own turn offers it.
+  // generate_image offered. The delegation tools are merged in by the
+  // assembly below.
   // The session's working directory as the filesystem tools see it: read live
   // from the row, and written back — with a `session.updated` publish — when
   // set_working_directory moves it.
@@ -253,33 +253,6 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
     };
   };
 
-  // Withheld from a delegate-driven worker regardless of permission: a worker
-  // can't spawn or steer workers, and its deliverable rides message_parent —
-  // articles it wrote would land on a hidden session rather than a surface
-  // the user sees. Memory
-  // writes stay with the user-facing conversation too: a worker recalls
-  // memories but never rewrites the durable record, and the project's standing
-  // instructions — which workers inherit — are the user's to change
-  // through the conversation they're in. The task list follows the same rule:
-  // a worker reads it but leaves its upkeep to the conversation.
-  const childWithheld = new Set([
-    "delegate",
-    "message_worker",
-    "create_article",
-    "replace_article",
-    "edit_article",
-    "delete_article",
-    "save_memory",
-    "delete_memory",
-    "update_project_instructions",
-    "add_task",
-    "update_task",
-    "delete_task",
-    "create_task_group",
-    "update_task_group",
-    "delete_task_group",
-  ]);
-
   // The tools offered to a turn: the live MCP server tools plus the
   // first-party sets. Read per turn (not once) so a config reload that adds
   // or drops MCP servers, and a permission change since the last turn, are
@@ -292,11 +265,11 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
   // The filesystem and shell tools self-gate on configuration like an MCP
   // server: no declared directories, no tools — a BUILTIN_TOOLS entry absent
   // from the merged set is simply withheld.
-  // A delegated child runs this same gated catalogue, minus the withheld set
-  // above and with message_parent in place of the delegation tools. An
-  // ask-gated call pauses the child like any session — surfaced on the
-  // parent, resolved only by the user — so delegation still never widens
-  // what runs unprompted.
+  // A delegated child runs this same gated catalogue, minus the tools its
+  // descriptor keeps top-level and with message_parent in place of the
+  // delegation tools. An ask-gated call pauses the child like any session —
+  // surfaced on the parent, resolved only by the user — so delegation still
+  // never widens what runs unprompted.
   const activeTools = (
     sessionId: string,
     snapshot: ConfigSnapshot,
@@ -311,25 +284,24 @@ export function createTurnTools(deps: TurnToolsDeps): TurnTools {
     }
     const builtin: ToolSet = {
       ...builtinToolsFor(sessionId, sandboxOf(snapshot), writer, instructionContext),
-      // A worker can't spawn workers: the delegation tools (delegate and
-      // message_worker) are offered only to a session with no parent, and
-      // message_parent only to one with a parent to message. Delegate
-      // models, when configured, make the worker's model a required role
-      // choice, taken from the turn's snapshot so a kiri.yaml edit applies on
-      // the next turn.
-      ...(isChild
-        ? messageParentTool({ db, childSessionId: sessionId, bus })
-        : delegateTool({
-            db,
-            parentSessionId: sessionId,
-            startTurn,
-            bus,
-            delegates: snapshot.models.delegates,
-          })),
+      // Both halves of delegation messaging are built for every session;
+      // each descriptor's availability decides which a session is offered.
+      // Delegate models, when configured, make the worker's model a required
+      // role choice, taken from the turn's snapshot so a kiri.yaml edit
+      // applies on the next turn.
+      ...delegateTool({
+        db,
+        parentSessionId: sessionId,
+        startTurn,
+        bus,
+        delegates: snapshot.models.delegates,
+      }),
+      ...messageParentTool({ db, childSessionId: sessionId, bus }),
     };
-    for (const { name, defaultPermission } of BUILTIN_TOOLS) {
+    const withheld = isChild ? "top-level" : "worker";
+    for (const { name, defaultPermission, availability } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
-      if (builtinTool === undefined || (isChild && childWithheld.has(name))) continue;
+      if (builtinTool === undefined || availability === withheld) continue;
       const offered = gate(name, builtinTool, defaultPermission);
       if (offered !== null) tools[name] = offered;
     }
