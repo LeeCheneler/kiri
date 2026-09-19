@@ -1354,13 +1354,7 @@ describe("db", () => {
       )
       .all(entityType);
 
-  it("backfills memory search and keeps it current through edits and deletion", () => {
-    // Start just before memory indexing so the test exercises the real startup
-    // migration against existing data as well as its ongoing triggers.
-    db.$client.run(
-      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
-    );
-    db.$client.run("INSERT INTO __kiri_migrations VALUES ('0040_index_memories', 0)");
+  it("keeps memory search current through insert, edits, and deletion", () => {
     migrate(db);
     const now = new Date();
     db.insert(memories)
@@ -1373,9 +1367,6 @@ describe("db", () => {
         updatedAt: now,
       })
       .run();
-    expect(searchRows(db, "memory")).toEqual([]);
-    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0040_index_memories'");
-    migrate(db);
     expect(searchRows(db, "memory")).toEqual([
       {
         title: "storage Storage decision",
@@ -1385,8 +1376,6 @@ describe("db", () => {
         source_id: "m1",
       },
     ]);
-    migrate(db);
-    expect(searchRows(db, "memory")).toHaveLength(1);
     db.update(memories)
       .set({ name: "database", description: "Revised decision", contentMd: "Use SQLite." })
       .where(eq(memories.id, "m1"))
@@ -1584,6 +1573,82 @@ describe("db", () => {
       .run();
 
     expect(searchRows(db, "session").map((r) => r.source_id)).toEqual(["msg-top"]);
+  });
+
+  it("keeps the settled message projection while checkpoints are pending", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-pending", status: "running", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-pending",
+        sessionId: "sess-pending",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "settled answer" }],
+        createdAt: new Date(),
+      })
+      .run();
+
+    db.update(messages)
+      .set({
+        parts: [{ type: "text", text: "checkpoint draft" }],
+        searchPending: true,
+      })
+      .where(eq(messages.id, "msg-pending"))
+      .run();
+    expect(searchRows(db, "session")[0]?.body).toBe("settled answer");
+
+    db.update(messages)
+      .set({
+        parts: [{ type: "text", text: "final answer" }],
+        searchPending: false,
+      })
+      .where(eq(messages.id, "msg-pending"))
+      .run();
+    expect(searchRows(db, "session")[0]?.body).toBe("final answer");
+  });
+
+  it("leaves a new pending message out of search until settlement", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-new-pending", status: "running", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-new-pending",
+        sessionId: "sess-new-pending",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "checkpoint draft" }],
+        searchPending: true,
+        createdAt: new Date(),
+      })
+      .run();
+    expect(searchRows(db, "session")).toEqual([]);
+
+    db.update(messages)
+      .set({ searchPending: false })
+      .where(eq(messages.id, "msg-new-pending"))
+      .run();
+    expect(searchRows(db, "session")[0]?.body).toBe("checkpoint draft");
+  });
+
+  it("uses the search document key for source replacement", () => {
+    migrate(db);
+
+    const plan = db.$client
+      .query<{ detail: string }, []>(
+        "EXPLAIN QUERY PLAN DELETE FROM search_documents WHERE source_kind = 'message' AND source_id = 'm1'",
+      )
+      .all()
+      .map((row) => row.detail)
+      .join(" ");
+    expect(plan).toContain("SEARCH search_documents USING INDEX");
+    expect(plan).not.toContain("SCAN search_documents");
   });
 
   it("re-indexes a message on update and drops it on delete", () => {

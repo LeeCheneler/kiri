@@ -2931,6 +2931,13 @@ describe("failed turns keep their progress", () => {
         }),
       );
       expect(getSession(db, "s1")?.status).toBe("running");
+      expect(
+        db.$client
+          .query<{ search_pending: number }, [string]>(
+            "SELECT search_pending FROM messages WHERE id = ?",
+          )
+          .get(checkpoint?.id ?? "")?.search_pending,
+      ).toBe(1);
       // A reader holding the saved step rejoins behind it: the action is in
       // its transcript, so the replay carries only the step still streaming.
       const revision = getSession(db, "s1")?.transcriptRevision ?? 0;
@@ -2949,6 +2956,13 @@ describe("failed turns keep their progress", () => {
       const saved = getSessionMessages(db, "s1");
       expect(saved).toHaveLength(2);
       expect(saved[1]?.id).toBe(checkpoint?.id ?? "");
+      expect(
+        db.$client
+          .query<{ search_pending: number }, [string]>(
+            "SELECT search_pending FROM messages WHERE id = ?",
+          )
+          .get(checkpoint?.id ?? "")?.search_pending,
+      ).toBe(0);
       expect(textParts(saved[1]?.parts)).toContainEqual(
         expect.objectContaining({
           type: "text",

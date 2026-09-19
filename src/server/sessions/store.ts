@@ -14,9 +14,13 @@ export type Session = typeof sessions.$inferSelect;
  * A persisted message. `parts` is an AI SDK `UIMessage` parts array in the
  * current parts format, whichever format its row was written in.
  */
-export type Message = Omit<typeof messages.$inferSelect, "partsFormat">;
+export type Message = Omit<typeof messages.$inferSelect, "partsFormat" | "searchPending">;
 
-const toMessage = ({ partsFormat, ...row }: typeof messages.$inferSelect): Message => ({
+const toMessage = ({
+  partsFormat,
+  searchPending: _,
+  ...row
+}: typeof messages.$inferSelect): Message => ({
   ...row,
   parts: readStoredParts(row.id, partsFormat, row.parts),
 });
@@ -412,13 +416,15 @@ function advanceTranscriptRevision(db: KiriDb, sessionId: string): number {
 
 /**
  * Append `message` to a session at the next index. Messages are only ever
- * appended, so the current count is the next index. Returns the persisted row.
+ * appended, so the current count is the next index. Pass `searchPending` for
+ * an in-progress assistant checkpoint that should not enter search yet.
+ * Returns the persisted row.
  */
 export function appendMessage(
   db: KiriDb,
   sessionId: string,
   message: NewMessage,
-  opts: { id?: string; createdAt?: Date } = {},
+  opts: { id?: string; createdAt?: Date; searchPending?: boolean } = {},
 ): Message {
   return db.transaction(() => {
     const index = (
@@ -438,6 +444,7 @@ export function appendMessage(
         parts: message.parts,
         partsFormat: CURRENT_PARTS_FORMAT,
         contextTokens: message.contextTokens ?? null,
+        searchPending: opts.searchPending ?? false,
         createdAt: opts.createdAt ?? new Date(),
       })
       .run();
@@ -454,12 +461,13 @@ export function appendMessage(
  * message is patched with the user's verdicts (parts only, footprint left as
  * is), then the streamed continuation extends it in place and records the
  * resumed turn's footprint — a high-water mark, so the latest value stands.
+ * `searchPending` defers projection refresh until a settled write clears it.
  */
 export function updateMessage(
   db: KiriDb,
   sessionId: string,
   messageId: string,
-  update: { parts: UIMessage["parts"]; contextTokens?: number },
+  update: { parts: UIMessage["parts"]; contextTokens?: number; searchPending?: boolean },
 ): void {
   db.transaction(() => {
     const result = db
@@ -468,6 +476,7 @@ export function updateMessage(
         parts: update.parts,
         partsFormat: CURRENT_PARTS_FORMAT,
         ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
+        ...("searchPending" in update ? { searchPending: update.searchPending ?? false } : {}),
       })
       .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
       .returning({ id: messages.id })
