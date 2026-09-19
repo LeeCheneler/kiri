@@ -29,7 +29,7 @@ import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type InboxDelivery,
   type SenderLabelResolver,
-  deleteInboxItems,
+  acknowledgeInboxItems,
   expandInboxMessages,
   inboxUIPart,
   insertInboxModelMessages,
@@ -212,25 +212,42 @@ async function pumpStream(stream: ReadableStream<string>, sink: StreamSink): Pro
   }
 }
 
-// Drain everything queued while the session was out of a turn: each item
-// becomes its own user-role message ahead of the turn, so the model reads the
-// backlog in arrival order. Rows are deleted only after their messages are
-// appended — a crash between the two redelivers rather than loses. Returns
-// how many items drained.
-function drainBacklog(db: KiriDb, bus: EventBus, sessionId: string): number {
-  const backlog = pendingInboxItems(db, sessionId);
-  for (const item of backlog) {
-    appendMessage(db, sessionId, {
-      role: "user",
-      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
-    });
-  }
-  deleteInboxItems(
-    db,
-    backlog.map((item) => item.id),
-  );
+// Write a turn's opening messages: everything queued while the session was
+// out of a turn — each item its own user-role message, so the model reads the
+// backlog in arrival order — then the message that starts the turn, if one
+// does. One transaction moves the backlog into the transcript and acknowledges
+// it, so an interruption can neither lose a queued message nor deliver it
+// twice. Returns how many messages the turn opens on.
+function openTurn(db: KiriDb, bus: EventBus, sessionId: string, userMessage?: UIMessage): number {
+  const backlog = db.transaction(() => {
+    const backlog = pendingInboxItems(db, sessionId);
+    for (const item of backlog) {
+      appendMessage(db, sessionId, {
+        role: "user",
+        parts: [inboxUIPart(item) as UIMessage["parts"][number]],
+      });
+    }
+    acknowledgeInboxItems(
+      db,
+      backlog.map((item) => item.id),
+    );
+    // Persist under the message's own id so the client and server agree on
+    // it — edit-and-resend truncates the transcript by this id, which only
+    // works if the stored row carries the id the client holds rather than a
+    // fresh one.
+    if (userMessage) {
+      appendMessage(
+        db,
+        sessionId,
+        { role: "user", parts: userMessage.parts },
+        { id: userMessage.id },
+      );
+    }
+    return backlog;
+  });
   if (backlog.length > 0) bus.publish({ type: "session.inbox.delivered", sessionId });
-  return backlog.length;
+  bus.publish({ type: "session.message.added", sessionId });
+  return backlog.length + (userMessage ? 1 : 0);
 }
 
 /**
@@ -252,13 +269,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
 
   // Anything queued while the session was idle drains ahead of the message
   // that starts the turn.
-  const incomingMessageCount = drainBacklog(db, bus, session.id) + 1;
-
-  // Persist under the message's own id so the client and server agree on it —
-  // edit-and-resend truncates the transcript by this id, which only works if the
-  // stored row carries the id the client holds rather than a fresh one.
-  appendMessage(db, session.id, { role: "user", parts: userMessage.parts }, { id: userMessage.id });
-  bus.publish({ type: "session.message.added", sessionId: session.id });
+  const incomingMessageCount = openTurn(db, bus, session.id, userMessage);
   lease.begin();
 
   return streamCore(deps, session, lease, model, incomingMessageCount);
@@ -281,8 +292,7 @@ export async function runWakeTurn(
   const { db, bus } = deps;
   const { session, lease, model } = args;
 
-  const incomingMessageCount = drainBacklog(db, bus, session.id);
-  bus.publish({ type: "session.message.added", sessionId: session.id });
+  const incomingMessageCount = openTurn(db, bus, session.id);
   lease.begin();
 
   return streamCore(deps, session, lease, model, incomingMessageCount);
@@ -489,7 +499,7 @@ async function streamCore(
         isContinuation || checkpointed,
         contextTokens,
       );
-      deleteInboxItems(db, inboxIds);
+      acknowledgeInboxItems(db, inboxIds);
     });
     checkpointed = true;
     for (const id of inboxIds) acknowledgedIds.add(id);

@@ -1,5 +1,5 @@
 import type { ModelMessage, UIMessage } from "ai";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { type InboxUIPart, isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
 import { sessionInbox } from "../db/schema.ts";
@@ -50,7 +50,7 @@ export function pendingInboxItems(db: KiriDb, sessionId: string): InboxItem[] {
     db
       .select()
       .from(sessionInbox)
-      .where(eq(sessionInbox.sessionId, sessionId))
+      .where(and(eq(sessionInbox.sessionId, sessionId), isNull(sessionInbox.deliveredAt)))
       // rowid breaks same-millisecond ties, keeping delivery strictly FIFO.
       .orderBy(asc(sessionInbox.createdAt), asc(sql`rowid`))
       .all()
@@ -58,13 +58,35 @@ export function pendingInboxItems(db: KiriDb, sessionId: string): InboxItem[] {
 }
 
 /**
- * Remove delivered rows. Called only once the delivery is persisted in the
- * transcript, so a turn that fails before persisting leaves its items queued
- * for redelivery rather than losing them.
+ * Mark rows delivered. Called in the transaction that writes the delivery
+ * into the transcript, so an interruption can neither lose an item (stamped
+ * but never written) nor redeliver it (written but still pending).
  */
-export function deleteInboxItems(db: KiriDb, ids: string[]): void {
+export function acknowledgeInboxItems(db: KiriDb, ids: string[]): void {
   if (ids.length === 0) return;
-  db.delete(sessionInbox).where(inArray(sessionInbox.id, ids)).run();
+  db.update(sessionInbox)
+    .set({ deliveredAt: new Date() })
+    .where(and(inArray(sessionInbox.id, ids), isNull(sessionInbox.deliveredAt)))
+    .run();
+}
+
+/**
+ * Withdraw one of `sessionId`'s queued messages. Resolves false, removing
+ * nothing, when it is no longer pending — delivery won the race.
+ */
+export function withdrawInboxItem(db: KiriDb, sessionId: string, id: string): boolean {
+  const withdrawn = db
+    .delete(sessionInbox)
+    .where(
+      and(
+        eq(sessionInbox.id, id),
+        eq(sessionInbox.sessionId, sessionId),
+        isNull(sessionInbox.deliveredAt),
+      ),
+    )
+    .returning({ id: sessionInbox.id })
+    .all();
+  return withdrawn.length > 0;
 }
 
 /**

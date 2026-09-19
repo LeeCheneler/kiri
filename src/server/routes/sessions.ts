@@ -29,7 +29,6 @@ import {
   type ToolApprovalDecision,
   buildSessionListEntries,
   createSession,
-  deleteInboxItems,
   deleteMessagesFrom,
   deleteSession,
   enqueueInboxItem,
@@ -43,6 +42,7 @@ import {
   pendingInboxItems,
   transcribeDraft,
   updateSessionSettings,
+  withdrawInboxItem,
 } from "../sessions/index.ts";
 import type { SessionRuntime } from "../sessions/runtime.ts";
 import { TurnInFlightError } from "../sessions/turn-lifecycle.ts";
@@ -874,9 +874,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!session)
         return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
       // Withdrawing races delivery, and delivery wins: once the turn has
-      // consumed the item its row is gone, so the 404 doubles as the "already
-      // delivered" signal the client's auto-promotion keys off.
-      if (!pendingInboxItems(db, id).some((item) => item.id === itemId)) {
+      // acknowledged the item it is no longer pending, so the 404 doubles as
+      // the "already delivered" signal the client's auto-promotion keys off.
+      if (!withdrawInboxItem(db, id, itemId)) {
         return c.json(
           {
             error: `message "${itemId}" is not queued for session "${id}"`,
@@ -884,7 +884,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           404,
         );
       }
-      deleteInboxItems(db, [itemId]);
       return c.body(null, 204);
     },
   );

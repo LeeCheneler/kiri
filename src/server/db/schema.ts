@@ -331,7 +331,9 @@ export const messages = sqliteTable(
  * session's inbox. A turn drains the inbox at each step boundary (and a fresh
  * turn drains what queued while the session was idle); a drained row's content
  * moves into the transcript as a `data-inbox` message part and the row is
- * deleted, so the table only ever holds the undelivered backlog. `source`
+ * stamped `delivered_at` in the same transaction. A delivered row stays as the
+ * record that its id was accepted, so a repeated submission of it is never
+ * delivered twice; the undelivered backlog is the rows with no stamp. `source`
  * records who queued it: the user, the session's parent (steering a delegated
  * worker), or one of the session's delegated children (progress, questions,
  * and results messaged back). `from_session_id` carries a child sender's
@@ -352,6 +354,7 @@ export const sessionInbox = sqliteTable(
     text: text("text").notNull(),
     fromSessionId: text("from_session_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("session_inbox_session_id_idx").on(t.sessionId)],
 );

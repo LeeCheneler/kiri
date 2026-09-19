@@ -60,6 +60,7 @@ import migration0038 from "../../../drizzle/0038_add_session_inbox.sql" with { t
 import migration0039 from "../../../drizzle/0039_add_inbox_sender.sql" with { type: "text" };
 import migration0040 from "../../../drizzle/0040_index_memories.sql" with { type: "text" };
 import migration0041 from "../../../drizzle/0041_add_transcript_revision.sql" with { type: "text" };
+import migration0042 from "../../../drizzle/0042_add_inbox_delivered_at.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -133,6 +134,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0039_add_inbox_sender", sql: migration0039 },
   { name: "0040_index_memories", sql: migration0040 },
   { name: "0041_add_transcript_revision", sql: migration0041 },
+  { name: "0042_add_inbox_delivered_at", sql: migration0042 },
 ];
 
 /**

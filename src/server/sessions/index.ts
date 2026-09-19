@@ -42,9 +42,9 @@ export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export { type InstructionContext, createInstructionContext } from "./instruction-context.ts";
 export {
   type InboxItem,
-  deleteInboxItems,
   enqueueInboxItem,
   pendingInboxItems,
+  withdrawInboxItem,
 } from "./inbox.ts";
 export {
   type LiveConsoleEmitter,

@@ -3248,6 +3248,26 @@ describe("session inbox in turns", () => {
     expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
   });
 
+  it("leaves the backlog queued when the turn's opening messages cannot all be saved", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+    // The opening message's id is already taken, so saving it fails after the
+    // backlog has been written ahead of it.
+    appendMessage(db, "s1", { role: "user", parts: USER_MESSAGE.parts }, { id: USER_MESSAGE.id });
+    const queued = enqueueInboxItem(db, "s1", { source: "user", text: "queued while idle" });
+
+    await expect(
+      runTurn(
+        { db, llmClients: clientsFor(capturingModel({})), bus: recordingBus(events) },
+        { session, userMessage: USER_MESSAGE },
+      ),
+    ).rejects.toThrow();
+
+    expect(pendingInboxItems(db, "s1").map((row) => row.id)).toEqual([queued.id]);
+    expect(getSessionMessages(db, "s1")).toHaveLength(1);
+    expect(events).not.toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+  });
+
   it("keeps a delivered mid-turn message in failed history without redelivering it", async () => {
     let step = 0;
     const failingSecondStep = new MockLanguageModelV3({
@@ -3349,7 +3369,7 @@ describe("session inbox in turns", () => {
 
   it("rolls back the checkpoint if acknowledging its inbox delivery fails", async () => {
     db.$client.exec(`
-      CREATE TRIGGER reject_inbox_ack BEFORE DELETE ON session_inbox
+      CREATE TRIGGER reject_inbox_ack BEFORE UPDATE ON session_inbox
       BEGIN SELECT RAISE(FAIL, 'inbox unavailable'); END;
     `);
     const session = createSession(db, MODEL, { id: "s1" });
