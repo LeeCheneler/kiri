@@ -86,7 +86,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** Several independently maintained string lists describe the same tools. New tools should declare their mechanical policy once without introducing a universal plugin framework.
 
-- [ ] **15 — Unify live and historical tool-output projection**
+- [x] **15 — Unify live and historical tool-output projection**
 
   **What:** Separate historical serialization from current execution availability. Use SDK conversion hooks with projections for known historical tools, including disabled tools. Apply generic compact encoding in a defined order while preserving text/JSON/error semantics. Remove duplicate strip transforms only after their behavior is covered.
 
