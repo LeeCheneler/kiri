@@ -289,10 +289,12 @@ describe("Codex provider through the AI SDK", () => {
   it("lists only visible models and carries capabilities into effort resolution", async () => {
     server.use(
       http.get(`${CODEX_BASE_URL}/models`, ({ request }) => {
-        expect(new URL(request.url).searchParams.get("client_version")).toBe("0.153.4");
+        expect(new URL(request.url).searchParams.get("client_version")).toBe("0.156.1");
         return HttpResponse.json({
           models: [
             listedModel,
+            { ...listedModel, slug: "gpt-6-sol" },
+            { ...listedModel, slug: "gpt-6-luna" },
             { ...listedModel, slug: "hidden", visibility: "hide" },
             { slug: "plain", visibility: "list" },
             {
@@ -309,6 +311,8 @@ describe("Codex provider through the AI SDK", () => {
     expect(failures).toEqual([]);
     expect(models.map((m) => m.id)).toEqual([
       "chatgpt:gpt-5.4-mini",
+      "chatgpt:gpt-6-sol",
+      "chatgpt:gpt-6-luna",
       "chatgpt:plain",
       "chatgpt:none-only",
     ]);
@@ -325,7 +329,7 @@ describe("Codex provider through the AI SDK", () => {
         documents: expect.arrayContaining(["application/pdf"]),
       },
     });
-    expect(models[1]).toMatchObject({ model: { reasoning: false, reasoningLevels: [] } });
+    expect(models[3]).toMatchObject({ model: { reasoning: false, reasoningLevels: [] } });
     const mini = await clients.describeModel("chatgpt:gpt-5.4-mini");
     expect(mini.model.contextWindow).toBe(200_000);
     expect(effortProviderOptions(mini, "max")).toEqual({
