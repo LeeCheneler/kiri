@@ -1,5 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { generateImage, generateText, experimental_transcribe as transcribe } from "ai";
+import { generateImage, generateText, streamText, experimental_transcribe as transcribe } from "ai";
 import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import { type LlmClients, createLlmClients, generateLlmText } from "./clients.ts";
@@ -97,6 +97,131 @@ describe("llm clients", () => {
 
     expect(result.text).toBe("hi from openai");
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 13, totalTokens: 20 });
+  });
+
+  it("overrides Bun's socket timeout only for compatible language generation", async () => {
+    server.use(
+      chatCompletions("http://localhost:1234/v1/chat/completions", "local reply"),
+      chatCompletions("https://api.openai.com/v1/chat/completions", "hosted reply"),
+    );
+    const originalFetch = globalThis.fetch;
+    const options: { url: string; timeout: unknown }[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          options.push({ url: String(input), timeout: (init as { timeout?: unknown })?.timeout });
+          return originalFetch(input, init);
+        },
+        { preconnect: () => {} },
+      ),
+    );
+    try {
+      const clients = createLlmClients(registryWith(local, openai), { OPENAI_API_KEY: "sk-test" });
+      expect((await clients.generateText({ model: "local:model", prompt: "hello" })).text).toBe(
+        "local reply",
+      );
+      expect((await clients.generateText({ model: "openai:model", prompt: "hello" })).text).toBe(
+        "hosted reply",
+      );
+      expect(options).toEqual([
+        { url: "http://localhost:1234/v1/chat/completions", timeout: false },
+        { url: "https://api.openai.com/v1/chat/completions", timeout: undefined },
+      ]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("preserves cancellation while compatible generation waits for response headers", async () => {
+    const started = Promise.withResolvers<void>();
+    const caller = new AbortController();
+    let requestAborted = false;
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
+                requestAborted = true;
+                reject(init.signal?.reason);
+              },
+              { once: true },
+            );
+            started.resolve();
+          }),
+        { preconnect: () => {} },
+      ),
+    );
+    try {
+      const clients = createLlmClients(registryWith(local), {});
+      const result = generateText({
+        model: clients.resolveModel("local:model"),
+        prompt: "hello",
+        abortSignal: caller.signal,
+        maxRetries: 0,
+      });
+      const outcome = result.catch((error: unknown) => error);
+      await started.promise;
+      caller.abort(new Error("stopped by user"));
+      expect(await outcome).toMatchObject({ message: "stopped by user" });
+      expect(requestAborted).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("preserves cancellation after compatible generation starts streaming", async () => {
+    const caller = new AbortController();
+    let requestSignal: AbortSignal | null | undefined;
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          requestSignal = init?.signal;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                const chunk = {
+                  id: "chatcmpl-1",
+                  object: "chat.completion.chunk",
+                  created: 0,
+                  model: "test-model",
+                  choices: [{ index: 0, delta: { content: "hello" }, finish_reason: null }],
+                };
+                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                requestSignal?.addEventListener(
+                  "abort",
+                  () => controller.error(requestSignal?.reason),
+                  { once: true },
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        },
+        { preconnect: () => {} },
+      ),
+    );
+    try {
+      const clients = createLlmClients(registryWith(local), {});
+      const result = streamText({
+        model: clients.resolveModel("local:model"),
+        prompt: "hello",
+        abortSignal: caller.signal,
+        maxRetries: 0,
+      });
+      let receivedText = false;
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          receivedText = true;
+          caller.abort();
+        }
+      }
+      expect(receivedText).toBe(true);
+      expect(requestSignal?.aborted).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("asks OpenRouter for the free document parser only where the model lacks native support", async () => {
