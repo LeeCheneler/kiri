@@ -131,6 +131,14 @@ OpenRouter model take PDFs — parsed natively where the model reads files,
 otherwise through OpenRouter's free text parser — while sessions on a local
 server or another gateway take text files and images only.
 
+For `openai-compatible` language generation, Kiri disables Bun's socket
+inactivity timeout so slow local prompt processing can exceed five minutes.
+There is no replacement timeout setting: if a session stalls, use **Stop**;
+shutting down Kiri also cancels active work. Explicit caller deadlines and
+upstream server or proxy timeouts can still apply. Model discovery and tool
+execution retain their own limits; image generation and transcription are
+unchanged.
+
 ## Model shortcuts
 
 Name the models you actually use per modality — text and image — under

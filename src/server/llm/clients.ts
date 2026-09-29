@@ -268,6 +268,15 @@ function buildModel(
         baseURL: provider.baseUrl as string,
         apiKey,
         includeUsage: true,
+        // Slow local prefill can exceed Bun's five-minute socket timeout.
+        // Disable that deadline, leaving the caller's abort signal untouched.
+        fetch: Object.assign(
+          (input: RequestInfo | URL, init?: RequestInit) => {
+            const options = { ...init, timeout: false };
+            return fetch(input, options);
+          },
+          { preconnect: fetch.preconnect },
+        ),
       })(modelId);
   }
 }

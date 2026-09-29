@@ -54,6 +54,63 @@ describe("toolModelOutput", () => {
     expect(toolModelOutput("read_file", undefined)).toEqual({ type: "json", value: null });
   });
 
+  it("preserves MCP text, images and other content without its result envelope", () => {
+    const resource = { type: "resource", resource: { uri: "file:///note", text: "note" } };
+    const output = {
+      content: [
+        { type: "text", text: "found it", annotations: { audience: ["assistant"] } },
+        { type: "image", data: "AAAA", mimeType: "image/png" },
+        resource,
+      ],
+      isError: false,
+      _meta: { trace: "not model content" },
+    };
+    const before = JSON.stringify(output);
+
+    expect(toolModelOutput("search__find", output)).toEqual({
+      type: "content",
+      value: [
+        { type: "text", text: "found it" },
+        { type: "image-data", data: "AAAA", mediaType: "image/png" },
+        { type: "text", text: JSON.stringify(resource) },
+      ],
+    });
+    expect(JSON.stringify(output)).toBe(before);
+  });
+
+  it("does not interpret a built-in's content field as MCP content", () => {
+    const output = { content: [{ type: "text", text: "file content" }] };
+    expect(toolModelOutput("read_file", output)).toEqual({ type: "json", value: output });
+  });
+
+  it("keeps non-content MCP results as JSON and empty content as content", () => {
+    for (const output of [null, 3, [], {}, { content: "plain" }]) {
+      expect(toolModelOutput("search__find", output)).toEqual({ type: "json", value: output });
+    }
+    expect(toolModelOutput("search__find", { content: [] })).toEqual({
+      type: "content",
+      value: [],
+    });
+  });
+
+  it("represents unrecognised content parts as text without losing them", () => {
+    const content = [
+      null,
+      "plain",
+      {},
+      { type: "text" },
+      { type: "text", text: 3 },
+      { type: "image" },
+      { type: "image", data: 3 },
+      { type: "image", data: "AAAA" },
+      { type: "image", data: "AAAA", mimeType: 3 },
+    ];
+    expect(toolModelOutput("search__find", { content })).toEqual({
+      type: "content",
+      value: content.map((part) => ({ type: "text", text: JSON.stringify(part) })),
+    });
+  });
+
   it("strips the declared payload from what is sent", () => {
     expect(toolModelOutput("replace_article", { ...records, diff: "@@ -1 +1 @@" })).toEqual({
       type: "json",
@@ -151,10 +208,21 @@ describe("withLiveProjection", () => {
     expect(withLiveProjection({ read_file: echo }).read_file?.execute).toBe(echo.execute);
   });
 
-  it("leaves an MCP tool the projection its own adapter gave it", () => {
+  it("uses the historical projection even when the MCP adapter supplies its own", async () => {
     const toModelOutput = () => ({ type: "text" as const, value: "from the adapter" });
-    const tools = withLiveProjection({ linear__search: { ...echo, toModelOutput } });
+    const offered = { ...echo, toModelOutput };
+    const tools = withLiveProjection({ linear__search: offered });
+    const call = {
+      toolCallId: "mcp-call",
+      input: {},
+      output: { content: [{ type: "text", text: "found it" }] },
+    };
 
-    expect(tools.linear__search?.toModelOutput).toBe(toModelOutput);
+    expect(await tools.linear__search?.toModelOutput?.(call)).toEqual({
+      type: "content",
+      value: [{ type: "text", text: "found it" }],
+    });
+    expect(tools.linear__search?.execute).toBe(offered.execute);
+    expect(offered.toModelOutput).toBe(toModelOutput);
   });
 });

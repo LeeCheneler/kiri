@@ -11,10 +11,19 @@ import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import { compactImageOutput } from "./image-tool-results.ts";
 import { compactWriteOutput } from "./write-tool-diffs.ts";
 
-/** What the model receives for a settled tool result: text sent verbatim, or JSON. */
+/** A settled tool result as text, JSON, or MCP text/image content for the model. */
 export type ProjectedToolOutput =
   | { type: "text"; value: string }
-  | { type: "json"; value: JSONValue };
+  | { type: "json"; value: JSONValue }
+  | {
+      type: "content";
+      value: (
+        | { type: "text"; text: string }
+        | { type: "image-data"; data: string; mediaType: string }
+      )[];
+    };
+
+const BUILTIN_NAMES: ReadonlySet<string> = new Set(BUILTIN_TOOLS.map((tool) => tool.name));
 
 // Keyed by the tool's name as history records it, never by the tools a turn
 // is offered: a result outlives its tool being switched off or unconfigured,
@@ -38,38 +47,59 @@ export function projectToolOutput(name: string, output: unknown): unknown {
 }
 
 /**
- * The one serialisation of a settled tool result for the model, the same
- * whether the result was just produced or is replayed from history: the
- * tool's declared payload is stripped, then a string is sent as text and
- * anything else as JSON. Errored calls never reach this — the SDK reports
- * them from their error text.
+ * Project a live or historical result identically, without needing its tool
+ * to remain connected. Strips built-in app-only payloads and preserves MCP
+ * text/image content; other results become text or JSON. Tool errors are
+ * reported separately by the SDK.
  */
 export function toolModelOutput(name: string, output: unknown): ProjectedToolOutput {
   const projected = projectToolOutput(name, output);
+  if (
+    !BUILTIN_NAMES.has(name) &&
+    projected !== null &&
+    typeof projected === "object" &&
+    "content" in projected &&
+    Array.isArray(projected.content)
+  ) {
+    // Match the MCP adapter's content representation on both sides of a turn
+    // boundary; wrapping historical content in JSON changes the cached prefix.
+    return {
+      type: "content",
+      value: projected.content.map((part: unknown) => {
+        if (part !== null && typeof part === "object" && "type" in part) {
+          if (part.type === "text" && "text" in part && typeof part.text === "string") {
+            return { type: "text", text: part.text };
+          }
+          if (
+            part.type === "image" &&
+            "data" in part &&
+            typeof part.data === "string" &&
+            "mimeType" in part &&
+            typeof part.mimeType === "string"
+          ) {
+            return { type: "image-data", data: part.data, mediaType: part.mimeType };
+          }
+        }
+        return { type: "text", text: JSON.stringify(part) ?? "null" };
+      }),
+    };
+  }
   if (typeof projected === "string") return { type: "text", value: projected };
   return { type: "json", value: (projected ?? null) as JSONValue };
 }
 
-const BUILTIN_NAMES: ReadonlySet<string> = new Set(BUILTIN_TOOLS.map((tool) => tool.name));
-
 /**
- * A turn's tools with each built-in's live result sent through
- * `toolModelOutput` — the projection that replays it from history on later
- * turns, so the two are the same bytes and an app-only payload reaches the
- * model in neither. Any other tool keeps the projection its own adapter gave
- * it: an MCP result can carry content, such as images, that only that
- * adapter knows how to present.
+ * Give every tool the same live projection used for its historical results,
+ * preserving MCP media and stripping built-in app-only payloads on both paths.
  */
 export function withLiveProjection(tools: ToolSet): ToolSet {
   return Object.fromEntries(
     Object.entries(tools).map(([name, offered]) => [
       name,
-      BUILTIN_NAMES.has(name)
-        ? {
-            ...offered,
-            toModelOutput: ({ output }: { output: unknown }) => toolModelOutput(name, output),
-          }
-        : offered,
+      {
+        ...offered,
+        toModelOutput: ({ output }: { output: unknown }) => toolModelOutput(name, output),
+      },
     ]),
   );
 }
