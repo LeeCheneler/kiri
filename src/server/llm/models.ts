@@ -351,7 +351,7 @@ const nativeListingSchema = z
 type ProviderModel = z.infer<typeof listingEntrySchema> & { reasoningLevels?: string[] };
 
 // The Codex backend requires a client version; pinned to the verified protocol.
-const CODEX_CLIENT_VERSION = "0.156.1";
+const CODEX_CLIENT_VERSION = "0.159.2";
 const codexListingEntrySchema = z.object({
   slug: z.string().min(1),
   visibility: z.literal("list"),
