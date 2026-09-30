@@ -289,7 +289,7 @@ describe("Codex provider through the AI SDK", () => {
   it("lists only visible models and carries capabilities into effort resolution", async () => {
     server.use(
       http.get(`${CODEX_BASE_URL}/models`, ({ request }) => {
-        expect(new URL(request.url).searchParams.get("client_version")).toBe("0.156.1");
+        expect(new URL(request.url).searchParams.get("client_version")).toBe("0.159.2");
         return HttpResponse.json({
           models: [
             listedModel,
