@@ -19,6 +19,7 @@ interface ResultRow {
   key: string;
   href: string;
   label: string;
+  projectName?: string | null;
   detail?: SearchSnippetSegment[] | string;
 }
 
@@ -52,6 +53,7 @@ const toGroups = (results: SearchResults): ResultGroup[] =>
         key: `session-${hit.id}`,
         href: `/sessions/${encodeURIComponent(hit.id)}`,
         label: hit.title ?? (hit.preview === "" ? "Untitled session" : hit.preview),
+        projectName: hit.projectName,
         detail: hit.snippet,
       })),
     },
@@ -197,6 +199,11 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                           <span className="block truncate font-mono text-ink text-sm">
                             {row.label}
                           </span>
+                          {row.projectName == null ? null : (
+                            <span className="mt-0.5 block truncate font-mono text-ink-muted text-xs">
+                              Project: {row.projectName}
+                            </span>
+                          )}
                           {row.detail === undefined ? null : typeof row.detail === "string" ? (
                             <span className="mt-0.5 block truncate font-mono text-ink-faint text-xs">
                               {row.detail}

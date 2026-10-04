@@ -23,6 +23,8 @@ export interface SearchSessionHit {
   id: string;
   title: string | null;
   preview: string;
+  /** Current project name, or null when the session belongs to no project. */
+  projectName: string | null;
   snippet: SearchSnippetSegment[];
 }
 

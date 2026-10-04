@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type {
   SearchArticleHit as ArticleHit,
   SearchRunHit as RunHit,
@@ -8,7 +8,7 @@ import type {
   SearchWorkflowHit as WorkflowHit,
 } from "../../shared/api/search.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, sessions } from "../db/schema.ts";
+import { articles, projects, sessions } from "../db/schema.ts";
 import { getSessionPreviews } from "../sessions/store.ts";
 import type { Registry } from "../workflows/index.ts";
 
@@ -148,6 +148,7 @@ export function search(deps: SearchDeps, rawQuery: string, limit = 20): SearchRe
         id: row.entity_id,
         title: null,
         preview: "",
+        projectName: null,
         snippet: parseSnippet(row.snip),
       });
       taken += 1;
@@ -178,16 +179,19 @@ export function search(deps: SearchDeps, rawQuery: string, limit = 20): SearchRe
   if (results.sessions.length > 0) {
     const hitIds = results.sessions.map((hit) => hit.id);
     const previews = getSessionPreviews(db, hitIds);
-    const titles = new Map(
+    const metadata = new Map(
       db
-        .select({ id: sessions.id, title: sessions.title })
+        .select({ id: sessions.id, title: sessions.title, projectName: projects.name })
         .from(sessions)
+        .leftJoin(projects, eq(sessions.projectId, projects.id))
         .where(inArray(sessions.id, hitIds))
         .all()
-        .map((row) => [row.id, row.title]),
+        .map((row) => [row.id, row]),
     );
     for (const hit of results.sessions) {
-      hit.title = titles.get(hit.id) ?? null;
+      const session = metadata.get(hit.id);
+      hit.title = session?.title ?? null;
+      hit.projectName = session?.projectName ?? null;
       hit.preview = previews.get(hit.id) ?? "";
     }
   }

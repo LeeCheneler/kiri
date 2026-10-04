@@ -80,7 +80,7 @@ describe("search routes", () => {
     expect(body.articles.map((hit) => hit.id)).toEqual(["a1"]);
     expect(body.articles[0]?.snippet.some((segment) => segment.match)).toBe(true);
     expect(body.sessions).toEqual([
-      expect.objectContaining({ id: "s1", preview: "pelican facts please" }),
+      expect.objectContaining({ id: "s1", preview: "pelican facts please", projectName: null }),
     ]);
     expect(body.runs.map((hit) => hit.id)).toEqual(["r1"]);
     expect(body.workflows.map((w) => w.name)).toEqual(["pelican-digest"]);
