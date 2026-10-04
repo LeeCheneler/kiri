@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -50,13 +50,21 @@ const fullResults = {
       id: "s1",
       title: null,
       preview: "Tell me about pelicans",
+      projectName: "Birdwatching",
       snippet: [{ text: "pelicans", match: true }],
     },
-    { id: "s2", title: null, preview: "", snippet: [{ text: "pelican", match: true }] },
+    {
+      id: "s2",
+      title: null,
+      preview: "",
+      projectName: null,
+      snippet: [{ text: "pelican", match: true }],
+    },
     {
       id: "s3",
       title: "Pelican migration plan",
       preview: "Where do pelicans go",
+      projectName: null,
       snippet: [{ text: "pelican", match: true }],
     },
   ],
@@ -144,6 +152,22 @@ describe("<SearchOverlay>", () => {
     expect(screen.getByRole("link", { name: /pelican-digest/i }).getAttribute("href")).toBe(
       "/workflows/pelican-digest",
     );
+  });
+
+  it("shows project metadata only for sessions belonging to a project", async () => {
+    const onClose = mock(() => {});
+    server.use(http.get("*/api/search", () => HttpResponse.json(fullResults)));
+    const { history } = renderOverlay(onClose);
+
+    await userEvent.type(searchBox(), "pelican");
+    const projectSession = await screen.findByRole("link", { name: /tell me about pelicans/i });
+    expect(within(projectSession).getByText("Project: Birdwatching")).toBeDefined();
+    const standaloneSession = screen.getByRole("link", { name: /untitled session/i });
+    expect(within(standaloneSession).queryByText(/project:/i)).toBeNull();
+
+    await userEvent.click(within(projectSession).getByText("Project: Birdwatching"));
+    expect(history?.at(-1)).toBe("/sessions/s1");
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("marks the matched snippet segments", async () => {

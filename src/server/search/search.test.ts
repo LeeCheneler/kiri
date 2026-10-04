@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, messages, runs, sessions } from "../db/schema.ts";
+import { articles, messages, projects, runs, sessions } from "../db/schema.ts";
 import { type Registry, createRegistry } from "../workflows/index.ts";
 import type { WorkflowDefinition } from "../workflows/index.ts";
 import { buildMatchExpression, search } from "./search.ts";
@@ -155,6 +155,27 @@ describe("search", () => {
     expect(results.sessions[0]?.snippet.some((segment) => segment.match)).toBe(true);
   });
 
+  it("enriches session hits with current project names without changing matching", () => {
+    db.insert(projects).values({ id: "p1", name: "Birdwatching", createdAt: new Date() }).run();
+    seedSession("project-session");
+    seedSession("standalone-session");
+    db.update(sessions).set({ projectId: "p1" }).where(eq(sessions.id, "project-session")).run();
+    seedMessage("m1", "project-session", 0, "user", "Tell me about pelicans");
+    seedMessage("m2", "standalone-session", 0, "user", "Tell me about pelicans");
+
+    const hits = search({ db, registry }, "pelican").sessions;
+    expect(hits).toHaveLength(2);
+    expect(hits.find((hit) => hit.id === "project-session")?.projectName).toBe("Birdwatching");
+    expect(hits.find((hit) => hit.id === "standalone-session")?.projectName).toBeNull();
+    expect(search({ db, registry }, "Birdwatching").sessions).toEqual([]);
+
+    db.update(projects).set({ name: "Coastal birds" }).where(eq(projects.id, "p1")).run();
+    expect(
+      search({ db, registry }, "pelican").sessions.find((hit) => hit.id === "project-session")
+        ?.projectName,
+    ).toBe("Coastal birds");
+  });
+
   it("never surfaces a child session's transcript", () => {
     seedSession("parent");
     seedMessage("m1", "parent", 0, "user", "Tell me about pelicans");
@@ -184,6 +205,7 @@ describe("search", () => {
         id: "sess-2",
         title: null,
         preview: "",
+        projectName: null,
         snippet: [
           { text: "Unprompted ", match: false },
           { text: "pelican", match: true },
