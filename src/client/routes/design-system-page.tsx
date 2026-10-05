@@ -811,8 +811,10 @@ export function DesignSystemContent() {
                 heading at rest; a trailing arrow tints accent and nudges along on hover. It
                 inherits its font-size from the surrounding element, so the caller picks the scale.
                 Internal routes trail a <Code>→</Code>; an <Code>href</Code> that points off-app
-                opens in a new tab and trails a ↗ instead. Reach for this for a run, an article, or
-                any entity you list and link — prose links are <Code>InlineLink</Code>.
+                opens in a new tab and trails a ↗ instead. The arrow stays attached to the final
+                word while the rest of the title wraps naturally. External prose links keep their
+                arrow attached too. Reach for this for a run, an article, or any entity you list and
+                link — prose links are <Code>InlineLink</Code>.
               </p>
             </Prose>
             <div className="mt-5">
@@ -825,6 +827,21 @@ export function DesignSystemContent() {
                     <HeadlineLink href="https://example.com">An external report</HeadlineLink>
                   </li>
                 </ul>
+                <div className="mt-6 max-w-48 space-y-3">
+                  <HeadlineLink href="/runs/demo">
+                    A longer article title that wraps across several lines
+                  </HeadlineLink>
+                  <p>
+                    <HeadlineLink href="https://example.com">
+                      An external report with a longer title
+                    </HeadlineLink>
+                  </p>
+                  <p>
+                    <InlineLink href="https://example.com">
+                      A prose reference with an emphasised <em>ending</em>
+                    </InlineLink>
+                  </p>
+                </div>
               </Card>
             </div>
           </article>

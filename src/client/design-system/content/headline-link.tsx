@@ -5,12 +5,11 @@ import { isExternalHref } from "../utils/is-external-href.ts";
 const LINK_CLASS =
   "group font-display leading-tight text-ink no-underline outline-none transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1";
 
-// The arrow flows inline immediately after the text (no whitespace before it),
-// so when the headline wraps it stays glued to the last word instead of floating
-// off to the column edge. `inline-block` keeps the hover/focus nudge transform
-// applying; `ml-2` is the visual gap and, being a margin, adds no break point.
+// Keep the arrow in the text flow so the word joiner prevents a line break.
+// Relative positioning preserves the hover nudge without an atomic inline-block,
+// which browsers can wrap independently of the preceding word joiner.
 const ARROW_CLASS =
-  "ml-2 inline-block font-mono text-ink-muted transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-accent group-focus-visible:translate-x-0.5 group-focus-visible:text-accent";
+  "relative left-0 ml-2 font-mono text-ink-muted transition-all duration-150 group-hover:left-0.5 group-hover:text-accent group-focus-visible:left-0.5 group-focus-visible:text-accent";
 
 /**
  * A standalone link to a destination — the title of a thing you click through
@@ -39,7 +38,7 @@ export function HeadlineLink({
       <a href={href} target="_blank" rel="noreferrer noopener" className={LINK_CLASS}>
         {children}
         <span aria-hidden="true" className={ARROW_CLASS}>
-          ↗
+          {"\u2060↗"}
         </span>
       </a>
     );
@@ -48,7 +47,7 @@ export function HeadlineLink({
     <Link href={href} className={LINK_CLASS}>
       {children}
       <span aria-hidden="true" className={ARROW_CLASS}>
-        →
+        {"\u2060→"}
       </span>
     </Link>
   );
