@@ -72,6 +72,7 @@ import migration0045 from "../../../drizzle/0045_add_article_heading.sql" with {
 import migration0046 from "../../../drizzle/0046_defer_search_index_updates.sql" with {
   type: "text",
 };
+import migration0047 from "../../../drizzle/0047-add-session-articles.sql" with { type: "text" };
 import { backfillArticleHeadings } from "./backfill-article-headings.ts";
 import type { KiriDb } from "./index.ts";
 
@@ -167,6 +168,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0044_enforce_message_order_and_lineage", sql: migration0044 },
   { name: "0045_add_article_heading", sql: migration0045, backfill: backfillArticleHeadings },
   { name: "0046_defer_search_index_updates", sql: migration0046 },
+  { name: "0047-add-session-articles", sql: migration0047 },
 ];
 
 /**

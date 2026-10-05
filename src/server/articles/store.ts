@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { resolveArticleName } from "../../shared/article-name.ts";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles } from "../db/schema.ts";
+import { articles, sessionArticles } from "../db/schema.ts";
 
 /** A persisted article row. */
 export type Article = typeof articles.$inferSelect;
@@ -85,6 +85,20 @@ export function listArticleSummaries(
   return (opts.limit === undefined ? ordered : ordered.limit(opts.limit)).all();
 }
 
+/** List articles this session successfully wrote, newest touch first, without reading bodies. */
+export function listSessionArticleActivity(
+  db: KiriDb,
+  sessionId: string,
+): (ArticleSummary & { lastTouchedAt: Date })[] {
+  return db
+    .select({ ...summaryColumns, lastTouchedAt: sessionArticles.lastTouchedAt })
+    .from(sessionArticles)
+    .innerJoin(articles, eq(articles.id, sessionArticles.articleId))
+    .where(eq(sessionArticles.sessionId, sessionId))
+    .orderBy(desc(sessionArticles.lastTouchedAt), desc(sessionArticles.articleId))
+    .all();
+}
+
 /** How many articles an owner has. */
 export function countArticles(db: KiriDb, owner: ArticleOwner): number {
   const row = db.select({ count: count() }).from(articles).where(ownedBy(owner)).get();
@@ -121,51 +135,76 @@ export function articleSummariesByOwner(
   return byOwner;
 }
 
+const recordSessionWrite = (
+  db: Pick<KiriDb, "insert">,
+  sessionId: string,
+  articleId: string,
+  lastTouchedAt: Date,
+): void => {
+  db.insert(sessionArticles)
+    .values({ sessionId, articleId, lastTouchedAt })
+    .onConflictDoUpdate({
+      target: [sessionArticles.sessionId, sessionArticles.articleId],
+      set: { lastTouchedAt },
+    })
+    .run();
+};
+
 /**
- * Create an article under `owner`. The display name defaults to a humanised
- * form of the slug, and the body is stored without trailing whitespace, its
- * first heading beside it. A slug the owner already uses throws from the
- * unique index. Returns the persisted row.
+ * Create an article under `owner`, trimming trailing whitespace and deriving its
+ * heading and default name. An optional writer session is recorded atomically.
+ * Duplicate owner slugs throw. Returns the persisted row.
  */
 export function createArticle(
   db: KiriDb,
   owner: ArticleOwner,
   input: { slug: string; name?: string | undefined; contentMd: string },
+  writerSessionId?: string,
 ): Article {
-  const id = crypto.randomUUID();
-  db.insert(articles)
-    .values({
-      id,
-      ...owner,
-      slug: input.slug,
-      name: resolveArticleName(input.slug, input.name),
-      ...storedBody(input.contentMd),
-      createdAt: new Date(),
-    })
-    .run();
+  return db.transaction((tx) => {
+    const id = crypto.randomUUID();
+    const createdAt = new Date();
+    tx.insert(articles)
+      .values({
+        id,
+        ...owner,
+        slug: input.slug,
+        name: resolveArticleName(input.slug, input.name),
+        ...storedBody(input.contentMd),
+        createdAt,
+      })
+      .run();
+    if (writerSessionId !== undefined) recordSessionWrite(tx, writerSessionId, id, createdAt);
 
-  return db.select().from(articles).where(eq(articles.id, id)).get() as Article;
+    return tx.select().from(articles).where(eq(articles.id, id)).get() as Article;
+  });
 }
 
 /**
- * Rewrite an article's body, and its display name when one is given. The body
- * is stored without trailing whitespace and its stored heading follows it.
- * Returns the updated row.
+ * Rewrite an article's body and optional display name, keeping its heading in
+ * sync. An optional writer session is recorded atomically. Throws if absent.
  */
 export function updateArticle(
   db: KiriDb,
   id: string,
   patch: { name?: string | undefined; contentMd: string },
+  writerSessionId?: string,
 ): Article {
-  db.update(articles)
-    .set({
-      ...storedBody(patch.contentMd),
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-    })
-    .where(eq(articles.id, id))
-    .run();
+  return db.transaction((tx) => {
+    const updated = tx
+      .update(articles)
+      .set({
+        ...storedBody(patch.contentMd),
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+      })
+      .where(eq(articles.id, id))
+      .returning()
+      .get();
+    if (!updated) throw new Error(`article "${id}" not found`);
+    if (writerSessionId !== undefined) recordSessionWrite(tx, writerSessionId, id, new Date());
 
-  return db.select().from(articles).where(eq(articles.id, id)).get() as Article;
+    return updated;
+  });
 }
 
 /** Permanently delete an article. Deleting an absent article removes nothing. */

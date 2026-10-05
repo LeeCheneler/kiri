@@ -19,6 +19,7 @@ import {
   deleteArticle,
   getArticle,
   listArticleSummaries,
+  listSessionArticleActivity,
   sessionArticleOwner,
 } from "../articles/store.ts";
 import type { ModelsConfig } from "../config/schema.ts";
@@ -359,6 +360,23 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       return c.json({
         articles: listArticleSummaries(db, { sessionId: id }).map(serializeArticleSummary),
       } satisfies articlesApi.ArticlesResult);
+    },
+  );
+
+  app.get(
+    "/sessions/:id/article-activity",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      if (!getSession(db, id))
+        return c.json({ error: `session "${id}" not found` } satisfies errorsApi.ApiErrorBody, 404);
+
+      return c.json({
+        articles: listSessionArticleActivity(db, id).map(({ lastTouchedAt, ...summary }) => ({
+          ...serializeArticleSummary(summary),
+          lastTouchedAt: lastTouchedAt.toISOString(),
+        })),
+      } satisfies articlesApi.SessionArticleActivityResult);
     },
   );
 

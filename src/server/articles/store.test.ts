@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { runs } from "../db/schema.ts";
+import { runs, sessionArticles } from "../db/schema.ts";
 import { createProject } from "../projects/store.ts";
-import { createSession } from "../sessions/store.ts";
+import { createSession, deleteSession } from "../sessions/store.ts";
 import {
   articleSummariesByOwner,
   countArticles,
@@ -14,6 +14,7 @@ import {
   deleteArticle,
   getArticle,
   listArticleSummaries,
+  listSessionArticleActivity,
   sessionArticleOwner,
   updateArticle,
 } from "./store.ts";
@@ -43,6 +44,7 @@ describe("articles store", () => {
   });
 
   afterEach(() => {
+    setSystemTime();
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -94,6 +96,138 @@ describe("articles store", () => {
       expect(createArticle(db, { runId }, { slug: "notes", contentMd: "Run body." }).runId).toBe(
         runId,
       );
+    });
+  });
+
+  describe("session article activity", () => {
+    it("keeps only each session's latest write, ordered by touch rather than creation", () => {
+      createSession(db, "openai:gpt", { id: "session-2", projectId });
+      setSystemTime(new Date(1000));
+      const first = createArticle(
+        db,
+        { projectId },
+        { slug: "first", contentMd: "# First" },
+        sessionId,
+      );
+      setSystemTime(new Date(2000));
+      createArticle(db, { projectId }, { slug: "second", contentMd: "# Second" }, sessionId);
+      createArticle(db, { projectId }, { slug: "untouched", contentMd: "# Library" });
+      setSystemTime(new Date(3000));
+      updateArticle(db, first.id, { contentMd: "# Sibling edit" }, "session-2");
+      setSystemTime(new Date(4000));
+      updateArticle(db, first.id, { name: "Revised", contentMd: "# Revised" }, sessionId);
+
+      expect(listSessionArticleActivity(db, sessionId)).toEqual([
+        {
+          slug: "first",
+          name: "Revised",
+          heading: "Revised",
+          createdAt: new Date(1000),
+          lastTouchedAt: new Date(4000),
+        },
+        {
+          slug: "second",
+          name: "Second",
+          heading: "Second",
+          createdAt: new Date(2000),
+          lastTouchedAt: new Date(2000),
+        },
+      ]);
+      expect(listSessionArticleActivity(db, "session-2")).toEqual([
+        {
+          slug: "first",
+          name: "Revised",
+          heading: "Revised",
+          createdAt: new Date(1000),
+          lastTouchedAt: new Date(3000),
+        },
+      ]);
+      expect(db.select().from(sessionArticles).all()).toHaveLength(3);
+      expect(getArticle(db, { projectId }, "first")).toMatchObject({
+        projectId,
+        sessionId: null,
+        runId: null,
+      });
+    });
+
+    it("breaks equal touch times deterministically by article id", () => {
+      setSystemTime(new Date(1000));
+      const first = createArticle(
+        db,
+        { sessionId },
+        { slug: "first", contentMd: "First" },
+        sessionId,
+      );
+      const second = createArticle(
+        db,
+        { sessionId },
+        { slug: "second", contentMd: "Second" },
+        sessionId,
+      );
+      const expected = [first, second].sort((a, b) => b.id.localeCompare(a.id)).map((a) => a.slug);
+      expect(listSessionArticleActivity(db, sessionId).map((a) => a.slug)).toEqual(expected);
+    });
+
+    it("rolls back article creation and updates when recording their writer fails", () => {
+      expect(() =>
+        createArticle(db, { projectId }, { slug: "failed", contentMd: "# Failed" }, "missing"),
+      ).toThrow();
+      expect(getArticle(db, { projectId }, "failed")).toBeUndefined();
+      const article = createArticle(
+        db,
+        { projectId },
+        { slug: "kept", contentMd: "# Original" },
+        sessionId,
+      );
+      const activity = listSessionArticleActivity(db, sessionId);
+
+      expect(() =>
+        updateArticle(db, article.id, { name: "Failed", contentMd: "# Failed" }, "missing"),
+      ).toThrow();
+      expect(getArticle(db, { projectId }, "kept")).toEqual(article);
+      expect(listSessionArticleActivity(db, sessionId)).toEqual(activity);
+      expect(
+        db.$client.query("SELECT 1 FROM search_fts WHERE search_fts MATCH 'failed'").all(),
+      ).toEqual([]);
+    });
+
+    it("deletes a session's links and standalone articles but preserves the shared corpus and other writers", () => {
+      createSession(db, "openai:gpt", { id: "session-2", projectId });
+      createArticle(db, { sessionId }, { slug: "standalone", contentMd: "Owned" }, sessionId);
+      const shared = createArticle(
+        db,
+        { projectId },
+        { slug: "shared", contentMd: "Shared" },
+        sessionId,
+      );
+      updateArticle(db, shared.id, { contentMd: "Shared edit" }, "session-2");
+
+      deleteSession(db, sessionId);
+
+      expect(listSessionArticleActivity(db, sessionId)).toEqual([]);
+      expect(getArticle(db, { sessionId }, "standalone")).toBeUndefined();
+      expect(getArticle(db, { projectId }, "shared")?.contentMd).toBe("Shared edit");
+      expect(listSessionArticleActivity(db, "session-2").map((a) => a.slug)).toEqual(["shared"]);
+      expect(db.select().from(sessionArticles).all()).toHaveLength(1);
+    });
+
+    it("does not record duplicate creates or missing updates", () => {
+      const article = createArticle(
+        db,
+        { projectId },
+        { slug: "notes", contentMd: "Notes" },
+        sessionId,
+      );
+      const activity = listSessionArticleActivity(db, sessionId);
+      expect(() =>
+        createArticle(db, { projectId }, { slug: "notes", contentMd: "Again" }, sessionId),
+      ).toThrow();
+      expect(() => updateArticle(db, "missing", { contentMd: "Missing" }, sessionId)).toThrow(
+        "not found",
+      );
+      expect(listSessionArticleActivity(db, sessionId)).toEqual(activity);
+      deleteArticle(db, article.id);
+      expect(db.select().from(sessionArticles).all()).toEqual([]);
     });
   });
 

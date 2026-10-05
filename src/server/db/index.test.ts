@@ -36,6 +36,39 @@ describe("db", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("backfills only known session article owners from creation time, once", () => {
+    migrate(db);
+    db.$client.run("DROP TABLE session_articles");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0047-add-session-articles'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    db.$client.run("INSERT INTO projects (id, name, created_at) VALUES ('project', 'Project', 1)");
+    db.$client.run(
+      "INSERT INTO runs (id, workflow_name, status, started_at, definition_snapshot) VALUES ('run', 'workflow', 'ok', 1, '{}')",
+    );
+    db.$client.run(
+      "INSERT INTO articles (id, session_id, slug, name, content_md, created_at) VALUES ('standalone', 'old', 'notes', 'Notes', '# Notes', 1234)",
+    );
+    db.$client.run(
+      "INSERT INTO articles (id, project_id, slug, name, content_md, created_at) VALUES ('shared', 'project', 'notes', 'Notes', '# Shared', 2345)",
+    );
+    db.$client.run(
+      "INSERT INTO articles (id, run_id, slug, name, content_md, created_at) VALUES ('produced', 'run', 'notes', 'Notes', '# Run', 3456)",
+    );
+
+    migrate(db);
+
+    expect(db.$client.query("SELECT * FROM session_articles").all()).toEqual([
+      { session_id: "old", article_id: "standalone", last_touched_at: 1234 },
+    ]);
+    db.$client.run("UPDATE session_articles SET last_touched_at = 5000");
+    migrate(db);
+    expect(db.$client.query("SELECT last_touched_at FROM session_articles").get()).toEqual({
+      last_touched_at: 5000,
+    });
+  });
+
   it("gives existing articles their stored heading and leaves headless ones without", () => {
     migrate(db);
     // Recreate the immediately preceding schema with articles already written.

@@ -85,7 +85,7 @@ export function articleTools(
             `An article with slug "${slug}" already exists in this ${scope} — use edit_article for a targeted change or replace_article to rewrite it.`,
           );
         }
-        const article = createArticle(db, owner, { slug, name, contentMd: content_md });
+        const article = createArticle(db, owner, { slug, name, contentMd: content_md }, sessionId);
         written(slug);
 
         return { slug, name: article.name };
@@ -110,7 +110,7 @@ export function articleTools(
       }),
       execute: async ({ slug, name, content_md }) => {
         const row = requireArticle(slug);
-        const updated = updateArticle(db, row.id, { name, contentMd: content_md });
+        const updated = updateArticle(db, row.id, { name, contentMd: content_md }, sessionId);
         written(slug);
 
         // The diff is app-only: the transcript renders the rewrite as the
@@ -157,7 +157,12 @@ export function articleTools(
           );
         }
 
-        updateArticle(db, row.id, { contentMd: row.contentMd.replaceAll(old_string, new_string) });
+        updateArticle(
+          db,
+          row.id,
+          { contentMd: row.contentMd.replaceAll(old_string, new_string) },
+          sessionId,
+        );
         written(slug);
 
         return { slug, replacements: count };
