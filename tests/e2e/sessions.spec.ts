@@ -32,18 +32,16 @@ test("starting a session, sending a message, and streaming the reply", async ({ 
   await expect(row).toContainText(/kiri e2e session/i);
 });
 
-test("a settled turn reports the context fill in the rail", async ({ page }) => {
+test("a settled turn reports the context fill beside the composer", async ({ page }) => {
   await startSession(page);
   await useModel(page, "fake:echo");
   await sendMessage(page, "count my tokens");
   await expect(page.getByText("You said: count my tokens")).toBeVisible({ timeout: 10_000 });
 
-  // The right rail carries the session marginalia; scope to it (anchored on
-  // its delete action) so the figure is unambiguous.
-  const rail = page.getByRole("complementary").filter({ hasText: "delete session" });
+  const contextUsage = page.getByRole("region", { name: "Context usage" });
   await openModels(page);
   await expect(page.getByRole("combobox", { name: /^model/i })).toHaveValue("echo");
   await page.keyboard.press("Escape");
   // Context fill is the last settled turn's footprint — the stub reports 20.
-  await expect(rail.getByText(/20 tokens/i)).toBeVisible();
+  await expect(contextUsage.getByText(/20 tokens/i)).toBeVisible();
 });

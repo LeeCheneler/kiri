@@ -8,11 +8,13 @@ test("deleting a session removes it and returns to the activity feed", async ({ 
   await sendMessage(page, "a throwaway message");
   await expect(page.getByText("You said: a throwaway message")).toBeVisible({ timeout: 10_000 });
 
-  // The delete control lives in the right rail and confirms in-app before
-  // acting.
-  await page.getByRole("button", { name: /delete session/i }).click();
+  await page.getByRole("button", { name: /^details/i }).click();
   await page
-    .getByRole("dialog")
+    .getByRole("dialog", { name: "Session details" })
+    .getByRole("button", { name: /delete session/i })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Delete this session?" })
     .getByRole("button", { name: /^delete$/i })
     .click();
 
@@ -25,8 +27,10 @@ test("deleting a session removes it and returns to the activity feed", async ({ 
 test("cancelling the confirm leaves the session intact", async ({ page }) => {
   const id = await startSession(page);
 
-  await page.getByRole("button", { name: /delete session/i }).click();
-  const confirm = page.getByRole("dialog");
+  await page.getByRole("button", { name: /^details/i }).click();
+  const details = page.getByRole("dialog", { name: "Session details" });
+  await details.getByRole("button", { name: /delete session/i }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete this session?" });
   await confirm.getByRole("button", { name: /^cancel$/i }).click();
   await expect(confirm).not.toBeVisible();
 
@@ -43,5 +47,10 @@ test("delete is disabled while a turn is in flight", async ({ page }) => {
   // The server refuses to delete a running session, so the control disables
   // until the turn settles (it must be cancelled first).
   await expect(page.locator('[data-status="working"]')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole("button", { name: /delete session/i })).toBeDisabled();
+  await page.getByRole("button", { name: /^details/i }).click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Session details" })
+      .getByRole("button", { name: /delete session/i }),
+  ).toBeDisabled();
 });
