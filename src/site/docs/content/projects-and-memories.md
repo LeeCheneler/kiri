@@ -7,7 +7,8 @@ saved articles, instructions, memories, and a task list.
 
 Create a project from **Projects**. Open it, then click **+ New session** to
 start a conversation inside it. To add an existing standalone session, open
-its session page, click **move to project**, select a project, and click **move**.
+its session page, open **Details**, click **move to project**, select a project,
+and click **move**.
 Its articles and delegated sessions move with it; the articles become part of
 the shared corpus. Existing article links still work.
 

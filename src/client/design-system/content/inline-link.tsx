@@ -28,9 +28,9 @@ export function InlineLink({
   if (isExternalHref(href)) {
     return (
       <a href={href} target="_blank" rel="noreferrer noopener" className={LINK_CLASS}>
-        {children}{" "}
-        <span aria-hidden="true" className="font-mono">
-          ↗
+        {children}
+        <span aria-hidden="true" className="whitespace-nowrap font-mono">
+          {"\u00a0↗"}
         </span>
       </a>
     );

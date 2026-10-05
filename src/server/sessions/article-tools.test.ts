@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
+import { listSessionArticleActivity } from "../articles/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { articles, projects, runs } from "../db/schema.ts";
@@ -36,6 +37,7 @@ describe("articleTools", () => {
   });
 
   afterEach(() => {
+    setSystemTime();
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -59,6 +61,9 @@ describe("articleTools", () => {
         sessionId: "s1",
         slug: "pr-digest",
       });
+      const activity = listSessionArticleActivity(db, "s1");
+      expect(activity).toHaveLength(1);
+      expect(activity[0]?.lastTouchedAt).toEqual(activity[0]?.createdAt);
     });
 
     it("uses an explicit name over the humanised slug", async () => {
@@ -342,6 +347,63 @@ describe("articleTools", () => {
       expect(body).toMatchObject({ href: "/projects/p1/articles/corpus-doc" });
       const listed = (await run(sibling.list_articles, {})) as { slug: string }[];
       expect(listed.map((entry) => entry.slug)).toEqual(["corpus-doc"]);
+    });
+
+    it("attributes create, edit and replace to their exact sessions, not readers or parents", async () => {
+      const sibling = articleTools(db, "ps2", "p1", (event) => events.push(event));
+      createSession(db, MODEL, {
+        id: "worker",
+        projectId: "p1",
+        parentSessionId: "ps2",
+        parentToolCallId: "delegate",
+      });
+      const worker = articleTools(db, "worker", "p1", (event) => events.push(event));
+      setSystemTime(new Date(1000));
+      await run(corpus.create_article, { slug: "notes", content_md: "# Notes\n\nOld." });
+      setSystemTime(new Date(2000));
+      await run(sibling.read_article, { slug: "notes" });
+      await run(sibling.list_articles, {});
+      await expect(
+        run(sibling.create_article, { slug: "notes", content_md: "Duplicate" }),
+      ).rejects.toThrow();
+      await expect(
+        run(sibling.edit_article, { slug: "notes", old_string: "Missing", new_string: "New" }),
+      ).rejects.toThrow();
+      await expect(
+        run(sibling.replace_article, { slug: "missing", content_md: "Missing" }),
+      ).rejects.toThrow();
+      expect(listSessionArticleActivity(db, "ps2")).toEqual([]);
+      expect(events.filter((event) => event.type === "article.written")).toHaveLength(1);
+
+      setSystemTime(new Date(3000));
+      await run(sibling.edit_article, { slug: "notes", old_string: "Old.", new_string: "New." });
+      setSystemTime(new Date(4000));
+      await run(worker.replace_article, { slug: "notes", content_md: "# Worker" });
+      setSystemTime(new Date(5000));
+      await run(sibling.replace_article, { slug: "notes", content_md: "# Final" });
+
+      expect(listSessionArticleActivity(db, "ps1")[0]?.lastTouchedAt).toEqual(new Date(1000));
+      expect(listSessionArticleActivity(db, "ps2")).toEqual([
+        {
+          slug: "notes",
+          name: "Notes",
+          heading: "Final",
+          createdAt: new Date(1000),
+          lastTouchedAt: new Date(5000),
+        },
+      ]);
+      expect(listSessionArticleActivity(db, "worker")[0]?.lastTouchedAt).toEqual(new Date(4000));
+      setSystemTime(new Date(6000));
+      await expect(
+        run(sibling.edit_article, { slug: "notes", old_string: "Missing", new_string: "New" }),
+      ).rejects.toThrow();
+      await run(sibling.read_article, { slug: "notes" });
+      await run(sibling.list_articles, {});
+      expect(listSessionArticleActivity(db, "ps2")[0]?.lastTouchedAt).toEqual(new Date(5000));
+      await run(sibling.delete_article, { slug: "notes" });
+      expect(listSessionArticleActivity(db, "ps1")).toEqual([]);
+      expect(listSessionArticleActivity(db, "ps2")).toEqual([]);
+      expect(listSessionArticleActivity(db, "worker")).toEqual([]);
     });
 
     it("scopes slug uniqueness to the project and words errors for it", async () => {

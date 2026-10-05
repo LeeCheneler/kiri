@@ -83,11 +83,16 @@ describe("<DesignSystemPage>", () => {
     );
     await screen.findAllByRole("figure");
 
-    await user.click(screen.getByRole("button", { name: /open drawer/i }));
+    await user.click(screen.getByRole("button", { name: /open left drawer/i }));
     expect(screen.getByRole("dialog", { name: /navigation/i })).toBeDefined();
 
     // A backdrop click lands on the dialog element itself and dismisses it.
     await user.click(screen.getByRole("dialog"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /open right drawer/i }));
+    const rightDrawer = screen.getByRole("dialog", { name: /side panel/i });
+    await user.click(within(rightDrawer).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

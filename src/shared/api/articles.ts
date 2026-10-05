@@ -62,5 +62,13 @@ export interface SessionArticleDetail {
   heading: string | null;
 }
 
+/** An article successfully written by this session, with its latest write time. */
+export interface SessionArticleActivity extends ArticleSummary {
+  lastTouchedAt: string;
+}
+
+/** Session article activity response, ordered by most recent write first. */
+export type SessionArticleActivityResult = { articles: SessionArticleActivity[] };
+
 /** Articles response body. */
 export type ArticlesResult = { articles: ArticleSummary[] };

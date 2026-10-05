@@ -1,77 +1,63 @@
+import { useState } from "react";
+import type { SessionArticleActivity } from "../../api.ts";
+import { Button } from "../../design-system/actions/button.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
-import { useSessionArticles } from "../../state/articles.ts";
-import { useProject } from "../../state/projects.ts";
+import { Drawer } from "../../design-system/surfaces/drawer.tsx";
+import { useSessionArticleActivity } from "../../state/articles.ts";
 import { useSession } from "../../state/sessions.ts";
 
-/**
- * The articles surfaced beside a session's chat. A projectless session lists
- * the articles it has written itself; a project session lists its project's
- * shared corpus instead — the documents its article tools actually operate
- * on — under the owning project's name, which links through to the project
- * page. Sits in the session page's right rail and stays live: an article
- * written mid-turn pops in without a refresh.
- */
-export function SessionArticles({ id }: { id: string }) {
-  const projectId = useSession(id).data?.session.projectId ?? null;
-  if (projectId !== null) return <ProjectCorpus projectId={projectId} />;
-  return <OwnArticles id={id} />;
-}
+/** Lists articles this session created or edited, latest write first; hides an empty list. */
+export function SessionArticles({ id, compact = false }: { id: string; compact?: boolean }) {
+  const session = useSession(id);
+  const query = useSessionArticleActivity(id);
+  const [open, setOpen] = useState(false);
+  const articles = query.data ?? [];
+  if (!session.data || (articles.length === 0 && !open)) return null;
 
-// The projectless rail: what this session has written. Hidden entirely while
-// the session has written nothing. Label-to-content and item spacing mirror
-// the aside's field lockups, so the rail reads on the controls' rhythm.
-function OwnArticles({ id }: { id: string }) {
-  const articles = useSessionArticles(id).data ?? [];
-  if (articles.length === 0) return null;
+  const projectId = session.data.session.projectId;
+  const href = (slug: string) =>
+    projectId === null
+      ? `/sessions/${encodeURIComponent(id)}/articles/${encodeURIComponent(slug)}`
+      : `/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(slug)}`;
+
   return (
     <section>
-      <Eyebrow tone="muted">Articles</Eyebrow>
-      <ul className="mt-1.5 space-y-4 text-sm">
-        {articles.map((article) => (
-          <li key={article.slug}>
-            <HeadlineLink href={`/sessions/${id}/articles/${article.slug}`}>
-              {article.heading ?? article.name}
-            </HeadlineLink>
-          </li>
-        ))}
-      </ul>
+      {compact ? (
+        <Button variant="dismissive" onClick={() => setOpen(true)} aria-haspopup="dialog">
+          Articles ({articles.length})
+        </Button>
+      ) : (
+        <>
+          <Eyebrow tone="muted">Session articles</Eyebrow>
+          <div className="mt-1.5">
+            <ArticleList articles={articles} href={href} />
+          </div>
+        </>
+      )}
+      {open ? (
+        <Drawer title="Session articles" side="right" onClose={() => setOpen(false)}>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <ArticleList articles={articles} href={href} />
+            {articles.length === 0 ? <p>No session articles remain.</p> : null}
+          </div>
+        </Drawer>
+      ) : null}
     </section>
   );
 }
 
-// The project rail: the owning project's link under its own label, then the
-// shared corpus under an Articles label of its own — two sections, so the
-// project link never reads as one of the articles. The project link renders
-// even with an empty corpus — it is how the chat navigates home to its
-// container.
-function ProjectCorpus({ projectId }: { projectId: string }) {
-  const project = useProject(projectId).data;
-  if (project === undefined) return null;
+function ArticleList({
+  articles,
+  href,
+}: { articles: SessionArticleActivity[]; href: (slug: string) => string }) {
   return (
-    <section>
-      <Eyebrow tone="muted">Project</Eyebrow>
-      <div className="mt-1.5 text-sm">
-        <HeadlineLink href={`/projects/${encodeURIComponent(projectId)}`}>
-          {project.project.name}
-        </HeadlineLink>
-      </div>
-      {project.articles.length > 0 ? (
-        <div className="mt-8">
-          <Eyebrow tone="muted">Articles</Eyebrow>
-          <ul className="mt-1.5 space-y-4 text-sm">
-            {project.articles.map((article) => (
-              <li key={article.slug}>
-                <HeadlineLink
-                  href={`/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(article.slug)}`}
-                >
-                  {article.heading ?? article.name}
-                </HeadlineLink>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </section>
+    <ul className="space-y-4 text-sm">
+      {articles.map((article) => (
+        <li key={article.slug}>
+          <HeadlineLink href={href(article.slug)}>{article.heading ?? article.name}</HeadlineLink>
+        </li>
+      ))}
+    </ul>
   );
 }

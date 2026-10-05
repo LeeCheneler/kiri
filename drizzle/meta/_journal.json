@@ -274,6 +274,13 @@
       "when": 1789856909457,
       "tag": "0046_defer_search_index_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1791234941154,
+      "tag": "0047-add-session-articles",
+      "breakpoints": true
     }
   ]
 }

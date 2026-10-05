@@ -187,6 +187,25 @@ export const articles = sqliteTable(
   ],
 );
 
+/** The latest successful write to an article by each session, independent of ownership. */
+export const sessionArticles = sqliteTable(
+  "session_articles",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    articleId: text("article_id")
+      .notNull()
+      .references(() => articles.id, { onDelete: "cascade" }),
+    lastTouchedAt: integer("last_touched_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("session_articles_session_article_unique").on(t.sessionId, t.articleId),
+    index("session_articles_session_touch_idx").on(t.sessionId, t.lastTouchedAt, t.articleId),
+    index("session_articles_article_id_idx").on(t.articleId),
+  ],
+);
+
 /**
  * One proposed follow-up workflow invocation emitted by a run. Rows are
  * created at step-completion time from the step's recommendations file

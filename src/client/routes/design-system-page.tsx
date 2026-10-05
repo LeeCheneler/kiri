@@ -416,15 +416,21 @@ function ConfirmModalDemo() {
   );
 }
 
-// Interactive specimen for the Drawer — a button opens a left side panel
-// hosting navigation, the way the site rail does on small screens.
+// Both placements share native dialog dismissal and focus handling.
 function DrawerDemo() {
-  const [open, setOpen] = useState(false);
+  const [side, setSide] = useState<"left" | "right" | null>(null);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>open drawer</Button>
-      {open && (
-        <Drawer title="Navigation" onClose={() => setOpen(false)}>
+      <div className="flex gap-3">
+        <Button onClick={() => setSide("left")}>open left drawer</Button>
+        <Button onClick={() => setSide("right")}>open right drawer</Button>
+      </div>
+      {side && (
+        <Drawer
+          title={side === "left" ? "Navigation" : "Side panel"}
+          side={side}
+          onClose={() => setSide(null)}
+        >
           <NavList
             heading="Workflows"
             items={[
@@ -686,14 +692,15 @@ export function DesignSystemContent() {
             </p>
             <Prose>
               <p className="mt-3">
-                A left-anchored, full-height panel built on the native <Code>dialog</Code> element —
-                the same inert-background, focus-trap, Escape, and focus-restore machinery as the{" "}
+                A full-height panel, left-anchored by default or right-anchored with{" "}
+                <Code>side="right"</Code>, built on the native <Code>dialog</Code> element — the
+                same inert-background, focus-trap, Escape, and focus-restore machinery as the{" "}
                 <Code>Modal</Code>, but sliding in from the edge as an off-canvas surface. It is
                 open while mounted: render it to open it, and let <Code>onClose</Code> (fired by
-                Escape or a backdrop click) tell the parent to unmount. <Code>title</Code> labels
-                the panel; the body is the children, which fill the column and scroll when they
-                overflow. Reach for it for navigation or a side panel — the small-screen home for
-                chrome that sits in a rail on wider viewports.
+                Close, Escape or a backdrop click) tell the parent to unmount. <Code>title</Code>{" "}
+                labels the panel; the body is the children, which fill the column and scroll when
+                they overflow. Reach for it for navigation or a side panel — the small-screen home
+                for chrome that sits in a rail on wider viewports.
               </p>
             </Prose>
             <div className="mt-5">
@@ -811,8 +818,10 @@ export function DesignSystemContent() {
                 heading at rest; a trailing arrow tints accent and nudges along on hover. It
                 inherits its font-size from the surrounding element, so the caller picks the scale.
                 Internal routes trail a <Code>→</Code>; an <Code>href</Code> that points off-app
-                opens in a new tab and trails a ↗ instead. Reach for this for a run, an article, or
-                any entity you list and link — prose links are <Code>InlineLink</Code>.
+                opens in a new tab and trails a ↗ instead. The arrow stays attached to the final
+                word while the rest of the title wraps naturally. External prose links keep their
+                arrow attached too. Reach for this for a run, an article, or any entity you list and
+                link — prose links are <Code>InlineLink</Code>.
               </p>
             </Prose>
             <div className="mt-5">
@@ -825,6 +834,21 @@ export function DesignSystemContent() {
                     <HeadlineLink href="https://example.com">An external report</HeadlineLink>
                   </li>
                 </ul>
+                <div className="mt-6 max-w-48 space-y-3">
+                  <HeadlineLink href="/runs/demo">
+                    A longer article title that wraps across several lines
+                  </HeadlineLink>
+                  <p>
+                    <HeadlineLink href="https://example.com">
+                      An external report with a longer title
+                    </HeadlineLink>
+                  </p>
+                  <p>
+                    <InlineLink href="https://example.com">
+                      A prose reference with an emphasised <em>ending</em>
+                    </InlineLink>
+                  </p>
+                </div>
               </Card>
             </div>
           </article>

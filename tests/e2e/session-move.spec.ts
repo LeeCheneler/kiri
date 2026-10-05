@@ -22,15 +22,20 @@ test("moving a session rehomes its articles and subsequent edits use the project
   await expect(articleLink).toHaveAttribute("href", `/sessions/${sessionId}/articles/move-notes`);
   await page.getByLabel(/message/i).fill("Keep my draft");
 
-  await page.getByRole("button", { name: "move to project" }).click();
+  await page.getByRole("button", { name: /^details/i }).click();
+  const details = page.getByRole("dialog", { name: "Session details" });
+  await details.getByRole("button", { name: "move to project" }).click();
   const dialog = page.getByRole("dialog", { name: "Move session to project" });
   await expect(dialog.getByRole("button", { name: "move", exact: true })).toBeDisabled();
   await dialog.getByRole("combobox", { name: /Project/ }).selectOption({ label: projectName });
   await dialog.getByRole("button", { name: "move", exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  await expect(details).not.toBeVisible();
   await expect(page).toHaveURL(`/sessions/${sessionId}`);
   await expect(page.getByLabel(/message/i)).toHaveValue("Keep my draft");
-  await expect(rail.getByRole("link", { name: projectName })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: /breadcrumb/i }).getByRole("link", { name: projectName }),
+  ).toBeVisible();
   await expect(articleLink).toHaveAttribute("href", `/projects/${projectId}/articles/move-notes`);
 
   await sendMessage(

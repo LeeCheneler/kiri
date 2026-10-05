@@ -18,6 +18,18 @@ describe("<HeadlineLink>", () => {
     expect(link.textContent).not.toContain("↗");
   });
 
+  it("keeps formatted link text as its accessible name without the decorative suffix", () => {
+    render(
+      <HeadlineLink href="https://example.com">
+        An article with an <em>emphasised ending</em>
+      </HeadlineLink>,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "An article with an emphasised ending" }),
+    ).toBeDefined();
+  });
+
   it("opens external links in a new tab with a safe rel and a trailing mark", () => {
     render(<HeadlineLink href="https://example.com">an external report</HeadlineLink>);
     const link = screen.getByRole("link", { name: /an external report/i });

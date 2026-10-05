@@ -1,9 +1,12 @@
 import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Button } from "../actions/button.tsx";
 
 /**
  * Off-canvas drawer built on the native `<dialog>` element, anchored to the
- * left edge and full-height. Like `Modal`, it is open while mounted — render
+ * left edge by default (`side="right"` for a right panel) and full-height.
+ * Includes a visible Close action. Like `Modal`, it is open while mounted — render
  * it to open it, and let `onClose` tell the parent to unmount; the browser
  * supplies the inert background, focus trap, Escape handling, and focus-restore
  * to the trigger. `title` becomes the drawer heading and its accessible label;
@@ -16,7 +19,9 @@ export function Drawer({
   title,
   onClose,
   children,
+  side = "left",
 }: {
+  side?: "left" | "right";
   title: string;
   onClose: () => void;
   children: ReactNode;
@@ -30,7 +35,9 @@ export function Drawer({
     dialogRef.current?.showModal();
   }, []);
 
-  return (
+  // Responsive triggers can become hidden while the drawer is open. Keep the
+  // modal outside those ancestors so resizing cannot hide a focus-trapping panel.
+  return createPortal(
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard dismissal is the dialog's native `cancel` event (Escape), routed through onCancel below; the click handler only adds backdrop dismissal.
     <dialog
       ref={dialogRef}
@@ -53,18 +60,27 @@ export function Drawer({
           onClose();
         }
       }}
-      // `m-0` pins the panel to the top-left corner (Tailwind's preflight has
-      // already stripped the UA dialog's centering margins); `max-h-dvh`
-      // overrides the UA modal-dialog max-height cap so the panel runs the full
-      // viewport height rather than stopping short of the edges.
-      className="m-0 h-dvh max-h-dvh w-72 max-w-[85vw] animate-[drawer-in_220ms_ease-out] border-r border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80"
+      data-side={side}
+      className={`m-0 h-dvh max-h-dvh max-w-[85vw] border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80 ${side === "right" ? "left-auto right-0 w-96 animate-[drawer-right-in_220ms_ease-out] border-l" : "w-72 animate-[drawer-in_220ms_ease-out] border-r"}`}
     >
       <div className="flex h-full flex-col p-6">
-        <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">
-          {title}
-        </h2>
+        <div className="flex items-start justify-between gap-4">
+          <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">
+            {title}
+          </h2>
+          <Button
+            variant="dismissive"
+            onClick={() => {
+              dialogRef.current?.close();
+              onClose();
+            }}
+          >
+            Close
+          </Button>
+        </div>
         <div className="mt-6 flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }

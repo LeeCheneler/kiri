@@ -33,7 +33,21 @@ and diagrams. Ask for changes in the session and Kiri updates the page.
 The assistant can also save substantial conclusions when they'll be useful
 later. An ordinary conversation or code change needs no extra document.
 
+The sidebar lists articles this session has created or edited, with its latest
+write first. It stays hidden until there is an article to show; merely reading
+an article does not add it. On smaller screens, open **Articles** in the session
+header to see the same list. A project's complete shared collection remains on
+its project page. Older project articles appear in a session's list after that
+session next edits them.
+
 ![A Kiri session saving a forecast-model decision as an article and a memory](/screenshots/session.png)
+
+## Session details
+
+Open **Details** in the session header to rename the session, see its working
+directory and worker history, or move or delete it. Running workers and workers
+waiting for approval also appear in the sidebar; settled workers stay in Details.
+Context usage and model-provider notices appear beside the message composer.
 
 ## Finding prior work
 

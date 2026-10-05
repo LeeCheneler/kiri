@@ -16,6 +16,22 @@ describe("<Drawer>", () => {
     expect(heading.getAttribute("id")).toBe(dialog.getAttribute("aria-labelledby"));
   });
 
+  it("dismisses a right-side drawer using its visible Close action", async () => {
+    const onClose = mock(() => {});
+    render(
+      <Drawer title="Articles" side="right" onClose={onClose}>
+        <p>body</p>
+      </Drawer>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Articles" });
+    expect(dialog.hasAttribute("open")).toBe(true);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Close" }));
+
+    expect(dialog.hasAttribute("open")).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("renders its children as the body", () => {
     render(
       <Drawer title="Navigation" onClose={() => {}}>

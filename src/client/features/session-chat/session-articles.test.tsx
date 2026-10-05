@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -13,29 +14,40 @@ import { createQueryClient } from "../../state/query-client.ts";
 import { SessionArticles } from "./session-articles.tsx";
 
 const SESSION_ID = "abc12345-0000-0000-0000-000000000000";
-
-// The root-level article live bridge, as `<LiveSync>` mounts it in the app.
 const Live = () => {
   useLiveInvalidation();
   return null;
 };
-
-const summary = (slug: string, heading: string | null) => ({
+const summary = (slug: string, heading: string | null, day = 1) => ({
   slug,
   name: "Notes",
   heading,
-  createdAt: new Date().toISOString(),
+  createdAt: `2026-01-${String(day).padStart(2, "0")}T00:00:00.000Z`,
+  lastTouchedAt: `2026-02-${String(day).padStart(2, "0")}T00:00:00.000Z`,
 });
-
-const renderPanel = (id: string) => {
+const serveSession = (projectId: string | null = null) =>
+  server.use(
+    http.get("*/api/sessions/:id", ({ params }) =>
+      HttpResponse.json({
+        session: {
+          id: params.id,
+          status: "idle",
+          model: "anthropic:claude",
+          projectId,
+        },
+        messages: [],
+      }),
+    ),
+  );
+const renderPanel = (compact = false) => {
   const { factory, sources } = captureEventSources();
-  const { hook } = memoryLocation({ path: `/sessions/${id}` });
+  const { hook } = memoryLocation({ path: `/sessions/${SESSION_ID}` });
   const view = render(
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
         <Live />
         <Router hook={hook}>
-          <SessionArticles id={id} />
+          <SessionArticles id={SESSION_ID} compact={compact} />
         </Router>
       </LiveEventsProvider>
     </QueryClientProvider>,
@@ -44,132 +56,157 @@ const renderPanel = (id: string) => {
 };
 
 describe("<SessionArticles>", () => {
-  it("renders nothing while the session has written no articles", async () => {
-    server.use(http.get("*/api/sessions/:id/articles", () => HttpResponse.json({ articles: [] })));
+  it.each([null, "p1"])(
+    "hides a session with no article writes (project %s)",
+    async (projectId) => {
+      serveSession(projectId);
+      let loaded = false;
+      server.use(
+        http.get("*/api/sessions/:id/article-activity", () => {
+          loaded = true;
+          return HttpResponse.json({ articles: [] });
+        }),
+      );
+      const { container } = renderPanel();
+      await waitFor(() => expect(loaded).toBe(true));
+      await flushAsync();
+      expect(container.innerHTML).toBe("");
+    },
+  );
 
-    const { container } = renderPanel(SESSION_ID);
-    await flushAsync();
-
-    expect(container.innerHTML).toBe("");
-  });
-
-  it("lists the session's articles as links, read by heading with name fallback", async () => {
+  it("shows every session article without truncation, linking standalone ownership", async () => {
+    serveSession();
     server.use(
-      http.get("*/api/sessions/:id/articles", () =>
+      http.get("*/api/sessions/:id/article-activity", () =>
         HttpResponse.json({
-          articles: [summary("digest", "Morning Digest"), summary("scratch", null)],
+          articles: [
+            { ...summary("old", "Old research", 1), lastTouchedAt: "2026-03-01T00:00:00.000Z" },
+            summary("new", "Newest research", 4),
+            summary("middle", "Middle research", 3),
+            summary("scratch", null, 2),
+          ],
         }),
       ),
     );
-
-    renderPanel(SESSION_ID);
-
-    const headed = await screen.findByRole("link", { name: "Morning Digest" });
-    expect(headed.getAttribute("href")).toBe(`/sessions/${SESSION_ID}/articles/digest`);
-    // A heading-less article falls back to its name.
-    const fallback = screen.getByRole("link", { name: "Notes" });
-    expect(fallback.getAttribute("href")).toBe(`/sessions/${SESSION_ID}/articles/scratch`);
-  });
-
-  it("pops a newly written article into the list when the server announces it", async () => {
-    let written = false;
-    server.use(
-      http.get("*/api/sessions/:id/articles", () =>
-        HttpResponse.json({ articles: written ? [summary("digest", "Morning Digest")] : [] }),
-      ),
+    renderPanel();
+    await screen.findByRole("link", { name: "Newest research" });
+    expect(screen.getAllByRole("link")).toHaveLength(4);
+    expect(screen.getByRole("link", { name: "Old research" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Notes" }).getAttribute("href")).toBe(
+      `/sessions/${SESSION_ID}/articles/scratch`,
     );
-
-    const { sources, container } = renderPanel(SESSION_ID);
-    await flushAsync();
-    expect(container.innerHTML).toBe("");
-
-    written = true;
-    sources[0]?.emit({ type: "article.written", sessionId: SESSION_ID, slug: "digest" });
-
-    expect(await screen.findByRole("link", { name: "Morning Digest" })).toBeDefined();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("ignores writes announced for other sessions", async () => {
-    let fetches = 0;
+  it("links touched project articles without fetching the project library", async () => {
+    serveSession("p1");
+    let libraryFetches = 0;
     server.use(
-      http.get("*/api/sessions/:id/articles", () => {
-        fetches += 1;
-        return HttpResponse.json({ articles: [summary("digest", "Morning Digest")] });
+      http.get("*/api/sessions/:id/article-activity", () =>
+        HttpResponse.json({ articles: [summary("touched", "Session notes")] }),
+      ),
+      http.get("*/api/projects/:id/articles", () => {
+        libraryFetches++;
+        return HttpResponse.json({
+          articles: [summary("other", "Unrelated notes")],
+          nextCursor: null,
+        });
       }),
     );
+    renderPanel();
+    expect((await screen.findByRole("link", { name: "Session notes" })).getAttribute("href")).toBe(
+      "/projects/p1/articles/touched",
+    );
+    expect(screen.queryByRole("link", { name: "Unrelated notes" })).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(libraryFetches).toBe(0);
+  });
 
-    const { sources } = renderPanel(SESSION_ID);
-    await screen.findByRole("link", { name: "Morning Digest" });
+  it("opens the same list on mobile and supports Escape dismissal", async () => {
+    serveSession();
+    server.use(
+      http.get("*/api/sessions/:id/article-activity", () =>
+        HttpResponse.json({ articles: [summary("one", "One")] }),
+      ),
+    );
+    renderPanel(true);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Articles (1)" }));
+    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "One" })).toBeDefined();
+    fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
 
-    sources[0]?.emit({ type: "article.written", sessionId: "other-session", slug: "digest" });
+  it("keeps an open drawer dismissible when its last article is deleted live", async () => {
+    serveSession();
+    let deleted = false;
+    server.use(
+      http.get("*/api/sessions/:id/article-activity", () =>
+        HttpResponse.json({ articles: deleted ? [] : [summary("only", "Only article")] }),
+      ),
+    );
+    const { sources } = renderPanel(true);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Articles (1)" }));
+    deleted = true;
+    act(() => sources[0]?.emit({ type: "article.deleted", sessionId: SESSION_ID, slug: "only" }));
+    expect(
+      await within(screen.getByRole("dialog")).findByText("No session articles remain."),
+    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("appears after its first write, refreshes edits, and hides after deletion", async () => {
+    serveSession("p1");
+    let articles: ReturnType<typeof summary>[] = [];
+    let loaded = false;
+    server.use(
+      http.get("*/api/sessions/:id/article-activity", () => {
+        loaded = true;
+        return HttpResponse.json({ articles });
+      }),
+    );
+    const { sources, container } = renderPanel();
+    await waitFor(() => expect(loaded).toBe(true));
+    act(() =>
+      sources[0]?.emit({
+        type: "article.written",
+        sessionId: "worker",
+        projectId: "p1",
+        slug: "other",
+      }),
+    );
     await flushAsync();
+    expect(container.innerHTML).toBe("");
 
-    expect(fetches).toBe(1);
-  });
-
-  const serveProjectSession = (projectId: string | null) =>
-    server.use(
-      http.get("*/api/sessions/:id", ({ params }) =>
-        HttpResponse.json({
-          session: {
-            id: params.id,
-            status: "idle",
-            model: "anthropic:claude",
-            imageModel: null,
-            effort: "medium",
-            cwd: null,
-            title: null,
-            projectId,
-            parentSessionId: null,
-            parentToolCallId: null,
-            startedAt: new Date().toISOString(),
-            finishedAt: null,
-            error: null,
-          },
-          messages: [],
-        }),
-      ),
+    articles = [summary("notes", "Original notes")];
+    act(() =>
+      sources[0]?.emit({
+        type: "article.written",
+        sessionId: SESSION_ID,
+        projectId: "p1",
+        slug: "notes",
+      }),
     );
+    expect(await screen.findByRole("link", { name: "Original notes" })).toBeDefined();
 
-  it("shows the project's shared corpus instead for a project session", async () => {
-    serveProjectSession("p1");
-    server.use(
-      http.get("*/api/projects/:id", () =>
-        HttpResponse.json({
-          project: { id: "p1", name: "Research", createdAt: new Date().toISOString() },
-          articles: [summary("corpus-doc", "Field Notes"), summary("scratch", null)],
-          sessions: [],
-        }),
-      ),
+    articles = [summary("notes", "Edited notes")];
+    act(() =>
+      sources[0]?.emit({
+        type: "article.written",
+        sessionId: SESSION_ID,
+        projectId: "p1",
+        slug: "notes",
+      }),
     );
+    expect(await screen.findByRole("link", { name: "Edited notes" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Original notes" })).toBeNull();
 
-    renderPanel(SESSION_ID);
-
-    const projectLink = await screen.findByRole("link", { name: "Research" });
-    expect(projectLink.getAttribute("href")).toBe("/projects/p1");
-    const corpusLink = screen.getByRole("link", { name: "Field Notes" });
-    expect(corpusLink.getAttribute("href")).toBe("/projects/p1/articles/corpus-doc");
-    // A heading-less corpus article falls back to its name.
-    expect(screen.getByRole("link", { name: "Notes" }).getAttribute("href")).toBe(
-      "/projects/p1/articles/scratch",
-    );
-  });
-
-  it("keeps the project link even while the corpus is empty", async () => {
-    serveProjectSession("p1");
-    server.use(
-      http.get("*/api/projects/:id", () =>
-        HttpResponse.json({
-          project: { id: "p1", name: "Research", createdAt: new Date().toISOString() },
-          articles: [],
-          sessions: [],
-        }),
-      ),
-    );
-
-    renderPanel(SESSION_ID);
-
-    expect(await screen.findByRole("link", { name: "Research" })).toBeDefined();
-    expect(screen.queryByRole("list")).toBeNull();
+    articles = [];
+    act(() => sources[0]?.emit({ type: "article.deleted", projectId: "p1", slug: "notes" }));
+    await waitFor(() => expect(container.innerHTML).toBe(""));
   });
 });

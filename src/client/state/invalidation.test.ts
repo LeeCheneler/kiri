@@ -92,6 +92,7 @@ const EXPECTED: Record<KiriEventType, QueryKey[]> = {
     ["session", "s1"],
     ["session-children", "s1"],
     ["session-articles", "s1"],
+    ["session-article-activity", "s1"],
     ["session-article", "s1"],
     ["activity", "articles"],
     ...ownedSessionLists,
@@ -99,6 +100,7 @@ const EXPECTED: Record<KiriEventType, QueryKey[]> = {
   "article.written": [
     ["activity", "articles"],
     ["sessions", "feed"],
+    ["session-article-activity"],
     ["session-article", "s1", "notes"],
     ["session-articles", "s1"],
     ["project-article", "p1", "notes"],
@@ -108,6 +110,7 @@ const EXPECTED: Record<KiriEventType, QueryKey[]> = {
   "article.deleted": [
     ["activity", "articles"],
     ["sessions", "feed"],
+    ["session-article-activity"],
     ["session-article", "s1", "notes"],
     ["session-articles", "s1"],
     ["project-article", "p1", "notes"],
@@ -165,10 +168,11 @@ describe("queryKeysFor", () => {
     expect(queryKeysFor(WORKSPACE_MEMORY_SAVED)).toEqual([["memory", "fact"], ["memories"]]);
   });
 
-  it("touches only the feeds for an article event naming neither a session nor a project", () => {
+  it("refreshes feeds and session activity for an article event without an owner", () => {
     expect(queryKeysFor({ type: "article.deleted", slug: "notes" })).toEqual([
       ["activity", "articles"],
       ["sessions", "feed"],
+      ["session-article-activity"],
     ]);
   });
 });
@@ -189,6 +193,7 @@ const SAMPLE_ARGS: Record<string, unknown[]> = {
   sessionKey: ["s1"],
   sessionArticleKey: ["s1", "notes"],
   sessionArticlesKey: ["s1"],
+  sessionArticleActivityKey: ["s1"],
   sessionChildrenKey: ["parent"],
 };
 

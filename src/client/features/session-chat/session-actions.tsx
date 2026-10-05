@@ -8,7 +8,7 @@ import { MoveSessionModal } from "./move-session-modal.tsx";
 import { clearSessionDraft } from "./session-draft.ts";
 
 /**
- * The chat right rail's move and delete controls. Delete confirms, removes the session and its
+ * The session details panel's move and delete controls. Delete confirms, removes the session and its
  * messages, then returns to the session list — a 404 counts as already-deleted
  * (another tab, a stale view), so it still navigates. Disabled while a turn is
  * in flight, since the server refuses to remove a running session. Failures

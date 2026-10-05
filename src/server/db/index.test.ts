@@ -16,6 +16,7 @@ import {
   recommendations,
   runSteps,
   runs,
+  sessionArticles,
   sessionInbox,
   sessions,
   taskGroups,
@@ -34,6 +35,39 @@ describe("db", () => {
   afterEach(() => {
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("backfills only known session article owners from creation time, once", () => {
+    migrate(db);
+    db.$client.run("DROP TABLE session_articles");
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0047-add-session-articles'");
+    db.$client.run(
+      "INSERT INTO sessions (id, model, status, started_at) VALUES ('old', 'fake:echo', 'idle', 1)",
+    );
+    db.$client.run("INSERT INTO projects (id, name, created_at) VALUES ('project', 'Project', 1)");
+    db.$client.run(
+      "INSERT INTO runs (id, workflow_name, status, started_at, definition_snapshot) VALUES ('run', 'workflow', 'ok', 1, '{}')",
+    );
+    db.$client.run(
+      "INSERT INTO articles (id, session_id, slug, name, content_md, created_at) VALUES ('standalone', 'old', 'notes', 'Notes', '# Notes', 1234)",
+    );
+    db.$client.run(
+      "INSERT INTO articles (id, project_id, slug, name, content_md, created_at) VALUES ('shared', 'project', 'notes', 'Notes', '# Shared', 2345)",
+    );
+    db.$client.run(
+      "INSERT INTO articles (id, run_id, slug, name, content_md, created_at) VALUES ('produced', 'run', 'notes', 'Notes', '# Run', 3456)",
+    );
+
+    migrate(db);
+
+    expect(db.$client.query("SELECT * FROM session_articles").all()).toEqual([
+      { session_id: "old", article_id: "standalone", last_touched_at: 1234 },
+    ]);
+    db.$client.run("UPDATE session_articles SET last_touched_at = 5000");
+    migrate(db);
+    expect(db.$client.query("SELECT last_touched_at FROM session_articles").get()).toEqual({
+      last_touched_at: 5000,
+    });
   });
 
   it("gives existing articles their stored heading and leaves headless ones without", () => {
@@ -152,6 +186,28 @@ describe("db", () => {
     expect(node).toBeDefined();
     expect(node?.kind).toBe("script");
     expect(node?.output).toEqual({ foo: "bar" });
+  });
+
+  it("declares unique session/article attribution with cascading links and lookup indexes", () => {
+    const config = getTableConfig(sessionArticles);
+    expect(config.indexes.map((index) => index.config.name).sort()).toEqual([
+      "session_articles_article_id_idx",
+      "session_articles_session_article_unique",
+      "session_articles_session_touch_idx",
+    ]);
+    const unique = config.indexes.find(
+      (index) => index.config.name === "session_articles_session_article_unique",
+    );
+    expect(unique?.config.unique).toBe(true);
+    expect(config.foreignKeys).toHaveLength(2);
+    for (const fk of config.foreignKeys) {
+      expect(fk.onDelete).toBe("cascade");
+      const ref = fk.reference();
+      expect(ref.foreignColumns.map((column) => column.name)).toEqual(["id"]);
+      const source = ref.columns.map((column) => column.name);
+      expect(source).toEqual(ref.foreignTable === sessions ? ["session_id"] : ["article_id"]);
+      expect(ref.foreignTable === sessions || ref.foreignTable === articles).toBe(true);
+    }
   });
 
   it("declares run_steps.run_id → runs.id foreign key", () => {

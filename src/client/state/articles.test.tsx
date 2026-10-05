@@ -9,7 +9,12 @@ import {
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useArticle, useSessionArticle, useSessionArticles } from "./articles.ts";
+import {
+  useArticle,
+  useSessionArticle,
+  useSessionArticleActivity,
+  useSessionArticles,
+} from "./articles.ts";
 import { useLiveInvalidation } from "./live-sync.tsx";
 import { createQueryClient } from "./query-client.ts";
 
@@ -39,6 +44,11 @@ const DetailProbe = ({ sessionId, slug }: { sessionId: string; slug: string }) =
 const ListProbe = ({ sessionId }: { sessionId: string }) => {
   const { data } = useSessionArticles(sessionId);
   return <div>{data ? data.map((a) => a.slug).join(",") || "empty" : "loading"}</div>;
+};
+
+const ActivityProbe = ({ sessionId }: { sessionId: string }) => {
+  const { data } = useSessionArticleActivity(sessionId);
+  return <div>{data ? data.map((article) => article.name).join(",") || "empty" : "loading"}</div>;
 };
 
 // Render session probes under the live bridge, handing back the captured
@@ -126,6 +136,51 @@ const serveCountingList = () => {
 };
 
 describe("articles state", () => {
+  it("refreshes session activity after another writer edits, deletion, and reconnect", async () => {
+    let name = "Original heading";
+    let deleted = false;
+    server.use(
+      http.get("*/api/sessions/s1/article-activity", () =>
+        HttpResponse.json({
+          articles: deleted
+            ? []
+            : [
+                {
+                  slug: "notes",
+                  name,
+                  heading: null,
+                  createdAt: "2026-01-01T00:00:00Z",
+                  lastTouchedAt: "2026-02-01T00:00:00Z",
+                },
+              ],
+        }),
+      ),
+    );
+    const { source } = renderLive(<ActivityProbe sessionId="s1" />);
+    expect(await screen.findByText("Original heading")).toBeDefined();
+
+    name = "Edited elsewhere";
+    act(() =>
+      source().emit({
+        type: "article.written",
+        sessionId: "other",
+        projectId: "p1",
+        slug: "notes",
+      }),
+    );
+    expect(await screen.findByText("Edited elsewhere")).toBeDefined();
+
+    deleted = true;
+    act(() => source().emit({ type: "article.deleted", projectId: "p1", slug: "notes" }));
+    expect(await screen.findByText("empty")).toBeDefined();
+
+    deleted = false;
+    name = "Written while disconnected";
+    act(() => source().triggerOpen());
+    act(() => source().triggerOpen());
+    expect(await screen.findByText("Written while disconnected")).toBeDefined();
+  });
+
   it("fetches and exposes a single article by run id and slug", async () => {
     server.use(
       http.get("*/api/runs/:id/articles/:slug", ({ params }) =>

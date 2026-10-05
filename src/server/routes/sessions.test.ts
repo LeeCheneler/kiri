@@ -24,7 +24,7 @@ import {
 } from "../../shared/message-limits.ts";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
 import { type ConfigService, type ConfigSnapshot, createConfigService } from "../config/service.ts";
-import { articles, memories, projects } from "../db/schema.ts";
+import { articles, memories, projects, sessionArticles } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import { type AppLifetime, createAppLifetime } from "../lifetime.ts";
@@ -326,6 +326,12 @@ describe("sessions routes", () => {
         createdAt: new Date(1000),
       }));
       env.db.insert(articles).values(rows).run();
+      const links = rows.map((row) => ({
+        sessionId: row.sessionId,
+        articleId: row.id,
+        lastTouchedAt: new Date(2000),
+      }));
+      env.db.insert(sessionArticles).values(links).run();
       const bus = createEventBus();
       const seen: KiriEvent[] = [];
       bus.subscribe((event) => seen.push(event));
@@ -370,12 +376,29 @@ describe("sessions routes", () => {
         projectId: "p1",
         contentMd: rows[0]?.contentMd,
       });
+      expect(env.db.select().from(sessionArticles).all()).toEqual(links);
+      const activity = await (await app.request("/api/sessions/s1/article-activity")).json();
+      expect(activity.articles).toEqual([
+        {
+          slug: "notes-s1",
+          name: "Notes",
+          heading: "Research",
+          createdAt: new Date(1000).toISOString(),
+          lastTouchedAt: new Date(2000).toISOString(),
+        },
+      ]);
+      expect(await (await app.request("/api/sessions/s1/articles")).json()).toEqual({
+        articles: [],
+      });
       const project = await (await app.request("/api/projects/p1")).json();
       expect(project.articles).toHaveLength(2);
       expect(project.sessions.map((session: { id: string }) => session.id)).toEqual(["s1"]);
       await app.request("/api/sessions/s1", { method: "DELETE", headers: CLIENT_HEADERS });
       expect(env.db.select().from(articles).where(eq(articles.projectId, "p1")).all()).toHaveLength(
         2,
+      );
+      expect(env.db.select().from(sessionArticles).all()).toEqual(
+        links.filter((link) => link.sessionId === "other"),
       );
     });
 
@@ -1081,6 +1104,93 @@ describe("sessions routes", () => {
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions/ghost/children");
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("GET /api/sessions/:id/article-activity", () => {
+    it("returns only this session's write summaries, newest touch first, without broadening ownership reads", async () => {
+      env.db
+        .insert(projects)
+        .values({ id: "p1", name: "Research", createdAt: new Date(1000) })
+        .run();
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      createSession(env.db, MODEL, { id: "s2", projectId: "p1" });
+      env.db
+        .insert(articles)
+        .values([
+          {
+            id: "a1",
+            projectId: "p1",
+            slug: "older",
+            name: "Older",
+            contentMd: "# Edited\nBody",
+            heading: "Edited",
+            createdAt: new Date(1000),
+          },
+          {
+            id: "a2",
+            projectId: "p1",
+            slug: "newer",
+            name: "Newer",
+            contentMd: "No heading",
+            createdAt: new Date(2000),
+          },
+          {
+            id: "a3",
+            projectId: "p1",
+            slug: "library",
+            name: "Library",
+            contentMd: "Untouched",
+            createdAt: new Date(3000),
+          },
+        ])
+        .run();
+      env.db
+        .insert(sessionArticles)
+        .values([
+          { sessionId: "s1", articleId: "a1", lastTouchedAt: new Date(5000) },
+          { sessionId: "s1", articleId: "a2", lastTouchedAt: new Date(2000) },
+          { sessionId: "s2", articleId: "a3", lastTouchedAt: new Date(6000) },
+        ])
+        .run();
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions/s1/article-activity");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        articles: [
+          {
+            slug: "older",
+            name: "Older",
+            heading: "Edited",
+            createdAt: new Date(1000).toISOString(),
+            lastTouchedAt: new Date(5000).toISOString(),
+          },
+          {
+            slug: "newer",
+            name: "Newer",
+            heading: null,
+            createdAt: new Date(2000).toISOString(),
+            lastTouchedAt: new Date(2000).toISOString(),
+          },
+        ],
+      });
+      expect(await (await app.request("/api/sessions/s1/articles")).json()).toEqual({
+        articles: [],
+      });
+    });
+
+    it("returns an empty activity list for an existing session", async () => {
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await makeApp(fakeClients()).request("/api/sessions/s1/article-activity");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ articles: [] });
+    });
+
+    it("404s an unknown session", async () => {
+      const res = await makeApp(fakeClients()).request("/api/sessions/ghost/article-activity");
       expect(res.status).toBe(404);
     });
   });
