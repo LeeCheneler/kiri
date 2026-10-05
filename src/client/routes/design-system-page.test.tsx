@@ -89,6 +89,11 @@ describe("<DesignSystemPage>", () => {
     // A backdrop click lands on the dialog element itself and dismisses it.
     await user.click(screen.getByRole("dialog"));
     expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /open right drawer/i }));
+    const rightDrawer = screen.getByRole("dialog", { name: /side panel/i });
+    await user.click(within(rightDrawer).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("toggles a checkbox in the Checkbox demo", async () => {

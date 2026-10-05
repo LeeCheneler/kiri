@@ -16,6 +16,7 @@ import {
   recommendations,
   runSteps,
   runs,
+  sessionArticles,
   sessionInbox,
   sessions,
   taskGroups,
@@ -185,6 +186,28 @@ describe("db", () => {
     expect(node).toBeDefined();
     expect(node?.kind).toBe("script");
     expect(node?.output).toEqual({ foo: "bar" });
+  });
+
+  it("declares unique session/article attribution with cascading links and lookup indexes", () => {
+    const config = getTableConfig(sessionArticles);
+    expect(config.indexes.map((index) => index.config.name).sort()).toEqual([
+      "session_articles_article_id_idx",
+      "session_articles_session_article_unique",
+      "session_articles_session_touch_idx",
+    ]);
+    const unique = config.indexes.find(
+      (index) => index.config.name === "session_articles_session_article_unique",
+    );
+    expect(unique?.config.unique).toBe(true);
+    expect(config.foreignKeys).toHaveLength(2);
+    for (const fk of config.foreignKeys) {
+      expect(fk.onDelete).toBe("cascade");
+      const ref = fk.reference();
+      expect(ref.foreignColumns.map((column) => column.name)).toEqual(["id"]);
+      const source = ref.columns.map((column) => column.name);
+      expect(source).toEqual(ref.foreignTable === sessions ? ["session_id"] : ["article_id"]);
+      expect(ref.foreignTable === sessions || ref.foreignTable === articles).toBe(true);
+    }
   });
 
   it("declares run_steps.run_id → runs.id foreign key", () => {
