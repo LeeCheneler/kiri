@@ -27,7 +27,13 @@ import {
   patchProject,
   patchProjectMemory,
 } from "../api.ts";
-import { projectArticleKey, projectKey, projectMemoryKey, projectsKey } from "./query-keys.ts";
+import {
+  projectArticleKey,
+  projectKey,
+  projectMemoryKey,
+  projectsKey,
+  sessionArticleActivityKey,
+} from "./query-keys.ts";
 
 /** Page size for each project content column; mirrors the server default. */
 const PROJECT_PAGE_SIZE = 25;
@@ -164,6 +170,7 @@ export function useDeleteProjectArticle(): (projectId: string, slug: string) => 
     await deleteProjectArticle(projectId, slug);
     void queryClient.invalidateQueries({ queryKey: projectKey(projectId) });
     void queryClient.invalidateQueries({ queryKey: projectArticleKey(projectId, slug) });
+    void queryClient.invalidateQueries({ queryKey: sessionArticleActivityKey() });
     void queryClient.invalidateQueries({ queryKey: projectsKey });
   };
 }

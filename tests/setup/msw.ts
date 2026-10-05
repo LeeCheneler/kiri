@@ -15,6 +15,7 @@ const defaultHandlers = [
   // The chat and session reader resolve `[[slug]]` links against this; default
   // to "no articles" so the syntax stays literal unless a test serves some.
   http.get("*/api/sessions/:id/articles", () => HttpResponse.json({ articles: [] })),
+  http.get("*/api/sessions/:id/article-activity", () => HttpResponse.json({ articles: [] })),
   // The chat asks this for a settled turn; default to "no suggestions".
   http.get("*/api/sessions/:id/suggested-replies", () => HttpResponse.json({ replies: [] })),
   http.get("*/api/version", () => HttpResponse.json({ version: "dev" })),

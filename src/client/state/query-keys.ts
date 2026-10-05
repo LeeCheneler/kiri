@@ -82,6 +82,12 @@ export const sessionArticleKey = (sessionId: string, slug?: string) =>
 /** The list of articles a session wrote. */
 export const sessionArticlesKey = (sessionId: string) => ["session-articles", sessionId] as const;
 
+/** Articles touched by one session, or every session's activity without an id. */
+export const sessionArticleActivityKey = (sessionId?: string) =>
+  sessionId === undefined
+    ? (["session-article-activity"] as const)
+    : (["session-article-activity", sessionId] as const);
+
 /** A session's delegated workers, keyed by the parent. */
 export const sessionChildrenKey = (id: string) => ["session-children", id] as const;
 

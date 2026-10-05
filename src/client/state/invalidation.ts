@@ -18,6 +18,7 @@ import {
   runFeedKey,
   runKey,
   runWindowsKey,
+  sessionArticleActivityKey,
   sessionArticleKey,
   sessionArticlesKey,
   sessionChildrenKey,
@@ -94,17 +95,20 @@ export function queryKeysFor(event: KiriEvent): QueryKey[] {
         sessionKey(event.id),
         sessionChildrenKey(event.id),
         sessionArticlesKey(event.id),
+        sessionArticleActivityKey(event.id),
         sessionArticleKey(event.id),
         articleFeedKey,
         ...sessionLists(event),
       ];
 
-    // Session list entries name the articles their session wrote.
+    // Shared articles can appear in several sessions' activity. Refresh every
+    // activity list so another writer's edit or deletion updates those too.
     case "article.written":
     case "article.deleted":
       return [
         articleFeedKey,
         sessionsFeedKey,
+        sessionArticleActivityKey(),
         ...(event.sessionId !== undefined
           ? [sessionArticleKey(event.sessionId, event.slug), sessionArticlesKey(event.sessionId)]
           : []),

@@ -1235,6 +1235,56 @@ describe("<SessionChat>", () => {
     expect(await screen.findByRole("alert")).toBeDefined();
   });
 
+  it("preserves the message draft while session details open and close", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], { title: "Research", cwd: "/srv/research" })),
+      ),
+    );
+    renderChat();
+
+    const textbox = await screen.findByRole("textbox", { name: "Message" });
+    await user.type(textbox, "Keep this unsent draft");
+    await user.click(screen.getByRole("button", { name: "Details" }));
+    const dialog = await screen.findByRole("dialog", { name: "Session details" });
+    expect(within(dialog).getByText("/srv/research")).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: /close/i }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
+      "Keep this unsent draft",
+    );
+  });
+
+  it("does not cancel the running turn when Escape dismisses session details", async () => {
+    const user = userEvent.setup();
+    let cancelled = false;
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", () => parkedReply()),
+      http.post("*/api/sessions/:id/cancel", () => {
+        cancelled = true;
+        return HttpResponse.json({ error: "not in flight" }, { status: 409 });
+      }),
+    );
+    renderChat();
+
+    await user.type(await screen.findByRole("textbox", { name: "Message" }), "Hello{Enter}");
+    await screen.findByText(/escape to cancel/i);
+    await user.click(screen.getByRole("button", { name: "Details" }));
+    const dialog = await screen.findByRole("dialog", { name: "Session details" });
+    await user.keyboard("{Escape}");
+    // happy-dom does not implement the browser's Escape-to-cancel default action.
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(cancelled).toBe(false);
+    expect(screen.getByText(/escape to cancel/i)).toBeDefined();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(cancelled).toBe(true));
+  });
+
   it("cancels an in-flight turn on Escape", async () => {
     const user = userEvent.setup();
     let cancelled = false;

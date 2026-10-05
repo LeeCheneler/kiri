@@ -5,6 +5,7 @@ import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
+import { sessionKey } from "../../state/query-keys.ts";
 import { SessionVitals } from "./session-vitals.tsx";
 
 const sessionDetail = (messages: unknown[] = []) => ({
@@ -84,13 +85,16 @@ describe("<SessionVitals>", () => {
     expect(screen.queryByRole("meter")).toBeNull();
   });
 
-  it("shows only the start time until a turn has settled", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderVitals(<SessionVitals id="s1" now={new Date("2026-05-09T12:16:00.000Z")} />);
+  it("stays hidden until a model-call footprint is known", async () => {
+    const client = createQueryClient();
+    client.setQueryData(sessionKey("s1"), sessionDetail());
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <SessionVitals id="s1" />
+      </QueryClientProvider>,
+    );
 
-    expect(await screen.findByText("started 16 minutes ago")).toBeDefined();
-    expect(screen.queryByRole("meter")).toBeNull();
-    expect(screen.queryByText(/tokens/)).toBeNull();
+    expect(container.firstChild).toBeNull();
   });
 
   it("renders nothing until the session loads", () => {

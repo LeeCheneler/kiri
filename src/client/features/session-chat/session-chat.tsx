@@ -27,8 +27,12 @@ import { MessageComposer } from "./message-composer.tsx";
 import { modelLabel } from "./model-options.ts";
 import { PushToTalk } from "./push-to-talk.tsx";
 import { queueFailureText } from "./queue-submission.ts";
+import { SessionArticles } from "./session-articles.tsx";
+import { SessionDetails } from "./session-details.tsx";
 import { readSessionDraft, useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
+import { SessionProviderNotices } from "./session-provider-notices.tsx";
+import { SessionVitals } from "./session-vitals.tsx";
 import type { ToolPageLinks } from "./tool-invocation.tsx";
 import { usePushToTalk } from "./use-push-to-talk.ts";
 import { useSessionConversation } from "./use-session-conversation.ts";
@@ -424,7 +428,8 @@ function ChatView({
   useEffect(() => {
     if (!busy) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") cancel();
+      // Escape dismisses an open dialog; it must not also cancel the running turn.
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) cancel();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -436,7 +441,17 @@ function ChatView({
           inner padding) so it pins flush to the top with breathing room, mirroring
           the sticky composer at the foot. The transcript scrolls behind it. */}
       <div className="sticky top-0 z-10 -mt-6 border-b border-rule bg-canvas pt-6 pb-4 lg:-mt-8 lg:pt-8">
-        <ChatBreadcrumb session={session} />
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0 flex-1 break-words">
+            <ChatBreadcrumb session={session} />
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <div className="lg:hidden">
+              <SessionArticles key={session.id} id={session.id} compact />
+            </div>
+            <SessionDetails key={session.id} id={session.id} />
+          </div>
+        </div>
       </div>
 
       <div className="mt-8 space-y-8">
@@ -527,6 +542,7 @@ function ChatView({
       ) : null}
 
       <div className="sticky bottom-0 mt-8 border-t border-rule bg-canvas pt-4 pb-6">
+        <SessionProviderNotices />
         {/* Context-limit warning pinned above the input so it stays in view as
             the conversation approaches the model's window. */}
         {contextWarning ? (
@@ -589,7 +605,8 @@ function ChatView({
         {/* A quiet readout of what the next turn runs with, labelled the way
             the picker labels it — the shortcut's name when one points at the
             session's model. */}
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <SessionVitals id={session.id} />
           <Meta>
             <span>{modelLabel(modelsData?.shortcuts?.text, session.model)}</span>
             <span>{session.effort}</span>

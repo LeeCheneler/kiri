@@ -33,12 +33,12 @@ const child = (overrides: Partial<ChildSessionEntry> = {}): ChildSessionEntry =>
 const withChildren = (children: ChildSessionEntry[]) =>
   server.use(http.get("*/api/sessions/parent-1/children", () => HttpResponse.json({ children })));
 
-const renderWorkers = () => {
+const renderWorkers = (activeOnly = false) => {
   const { hook } = memoryLocation({ path: "/sessions/parent-1" });
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={hook}>
-        <SessionChildren id="parent-1" now={NOW} />
+        <SessionChildren id="parent-1" now={NOW} activeOnly={activeOnly} />
       </Router>
     </QueryClientProvider>,
   );
@@ -76,6 +76,28 @@ describe("<SessionChildren>", () => {
     expect(screen.getByText("5 minutes ago")).toBeDefined();
     expect(screen.getByText("2 minutes ago")).toBeDefined();
     expect(screen.getByRole("link", { name: "Heron census" })).toBeDefined();
+  });
+
+  it("keeps running and waiting workers visible but hides settled history in the rail", async () => {
+    withChildren([
+      child(),
+      child({ id: "waiting", title: "Approval needed", status: "waiting" }),
+      child({ id: "idle", title: "Earlier research", status: "idle" }),
+      child({ id: "failed", title: "Failed research", status: "failed" }),
+    ]);
+    renderWorkers(true);
+
+    expect(await screen.findByRole("link", { name: "Pelican census" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Approval needed" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Earlier research" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Failed research" })).toBeNull();
+  });
+
+  it("retains settled workers in the full history", async () => {
+    withChildren([child({ title: "Earlier research", status: "idle" })]);
+    renderWorkers();
+
+    expect(await screen.findByRole("link", { name: "Earlier research" })).toBeDefined();
   });
 
   it("stands the short id in for an untitled worker", async () => {

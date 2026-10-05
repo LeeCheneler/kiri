@@ -416,15 +416,21 @@ function ConfirmModalDemo() {
   );
 }
 
-// Interactive specimen for the Drawer — a button opens a left side panel
-// hosting navigation, the way the site rail does on small screens.
+// Both placements share native dialog dismissal and focus handling.
 function DrawerDemo() {
-  const [open, setOpen] = useState(false);
+  const [side, setSide] = useState<"left" | "right" | null>(null);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>open drawer</Button>
-      {open && (
-        <Drawer title="Navigation" onClose={() => setOpen(false)}>
+      <div className="flex gap-3">
+        <Button onClick={() => setSide("left")}>open left drawer</Button>
+        <Button onClick={() => setSide("right")}>open right drawer</Button>
+      </div>
+      {side && (
+        <Drawer
+          title={side === "left" ? "Navigation" : "Side panel"}
+          side={side}
+          onClose={() => setSide(null)}
+        >
           <NavList
             heading="Workflows"
             items={[
@@ -686,14 +692,15 @@ export function DesignSystemContent() {
             </p>
             <Prose>
               <p className="mt-3">
-                A left-anchored, full-height panel built on the native <Code>dialog</Code> element —
-                the same inert-background, focus-trap, Escape, and focus-restore machinery as the{" "}
+                A full-height panel, left-anchored by default or right-anchored with{" "}
+                <Code>side="right"</Code>, built on the native <Code>dialog</Code> element — the
+                same inert-background, focus-trap, Escape, and focus-restore machinery as the{" "}
                 <Code>Modal</Code>, but sliding in from the edge as an off-canvas surface. It is
                 open while mounted: render it to open it, and let <Code>onClose</Code> (fired by
-                Escape or a backdrop click) tell the parent to unmount. <Code>title</Code> labels
-                the panel; the body is the children, which fill the column and scroll when they
-                overflow. Reach for it for navigation or a side panel — the small-screen home for
-                chrome that sits in a rail on wider viewports.
+                Close, Escape or a backdrop click) tell the parent to unmount. <Code>title</Code>{" "}
+                labels the panel; the body is the children, which fill the column and scroll when
+                they overflow. Reach for it for navigation or a side panel — the small-screen home
+                for chrome that sits in a rail on wider viewports.
               </p>
             </Prose>
             <div className="mt-5">

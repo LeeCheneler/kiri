@@ -83,7 +83,7 @@ describe("<DesignSystemPage>", () => {
     );
     await screen.findAllByRole("figure");
 
-    await user.click(screen.getByRole("button", { name: /open drawer/i }));
+    await user.click(screen.getByRole("button", { name: /open left drawer/i }));
     expect(screen.getByRole("dialog", { name: /navigation/i })).toBeDefined();
 
     // A backdrop click lands on the dialog element itself and dismisses it.

@@ -1,6 +1,7 @@
 import type {
   ArticleDetail,
   ArticlesResult,
+  SessionArticleActivityResult,
   SessionArticleDetail,
 } from "../../shared/api/articles.ts";
 import { apiFetch, assertOk, json } from "./http.ts";
@@ -43,8 +44,16 @@ export const deleteSessionArticle = async (sessionId: string, slug: string): Pro
   );
 };
 
+/** Fetch articles this session created or edited, latest session write first. */
+export const fetchSessionArticleActivity = async (
+  sessionId: string,
+): Promise<SessionArticleActivityResult> =>
+  json<SessionArticleActivityResult>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/article-activity`),
+  );
+
 /**
- * Fetch the articles a session has written — summary metadata only, oldest
+ * Fetch the articles a session owns — summary metadata only, oldest
  * first; bodies live on the article detail route. Throws on non-2xx (404
  * when the session doesn't exist).
  */

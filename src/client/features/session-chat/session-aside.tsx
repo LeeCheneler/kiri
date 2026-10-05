@@ -3,9 +3,10 @@ import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
-import { Notice } from "../../design-system/feedback/notice.tsx";
+import { Meta } from "../../design-system/content/meta.tsx";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
-import { useModels, useSession, useUpdateSession } from "../../state/sessions.ts";
+import { formatRelativeTime } from "../../formatters/format-time.ts";
+import { useSession, useUpdateSession } from "../../state/sessions.ts";
 
 // The rename dialog: a single title field seeded from the stored title, saved
 // from the footer action or Enter (the form catches the submit). A saved
@@ -56,7 +57,7 @@ function RenameSessionModal({
   );
 }
 
-// The session's name at the top of the rail: the stored title read-only (the
+// The session's name in Details: the stored title read-only (the
 // short id stands in for an untitled session), with a quiet edit action under
 // it that opens the rename dialog.
 function SessionTitle({
@@ -77,8 +78,7 @@ function SessionTitle({
       ) : (
         <p className="font-mono text-ink-muted text-sm">{fallback}</p>
       )}
-      {/* The negative margin re-aligns the borderless label with the rail's
-          left edge, as the quiet foot actions do. */}
+      {/* Align the padded button label with the metadata above it. */}
       <div className="-mx-3 self-start">
         <Button variant="dismissive" onClick={() => setRenaming(true)}>
           edit title
@@ -91,21 +91,10 @@ function SessionTitle({
   );
 }
 
-/**
- * The session chat rail's metadata: the session's title (read-only, renamed
- * through its edit action's dialog — a saved blank restores the untitled
- * fallback)
- * and the working directory (display-only). The model group — conversation
- * model, effort, image model — lives in the message composer's models popover
- * (`SessionModelControls`): it answers "what handles the next message", so it
- * sits where the message is typed. The session's vitals (context fill, start
- * time) live in `SessionVitals` below it. Reads the same shared session query
- * the chat body uses (no second fetch) and renders nothing until it resolves.
- */
+/** Session details: editable title, parent navigation, read-only directory and start time. */
 export function SessionAside({ id }: { id: string }) {
   const detail = useSession(id).data;
   const { setTitle } = useUpdateSession(id);
-  const modelFailures = useModels().data?.failures ?? [];
   if (!detail) return null;
   const { session } = detail;
 
@@ -118,9 +107,7 @@ export function SessionAside({ id }: { id: string }) {
         fallback={session.id.slice(0, 8)}
         onCommit={(title) => void setTitle(title)}
       />
-      {/* A delegated worker names the session that spawned it — the way back
-          up to the conversation this one is working for. Mirrors the project
-          link's lockup: a container, not one of the session's own facts. */}
+      {/* A delegated worker keeps a route back to the conversation that spawned it. */}
       {detail.parent ? (
         <section>
           <Eyebrow tone="muted">Parent</Eyebrow>
@@ -143,23 +130,9 @@ export function SessionAside({ id }: { id: string }) {
             <p className="break-all font-mono text-xs text-ink">{session.cwd}</p>
           </div>
         ) : null}
-        {/* A provider whose listing failed leaves a gap in the composer's
-            pickers; the rail has the room to name it and why, so a missing
-            model reads as a config issue, not an absence. */}
-        {modelFailures.length > 0 ? (
-          <div className="space-y-3">
-            {modelFailures.map((failure) => (
-              <Notice
-                key={failure.provider}
-                tone="negative"
-                announce="polite"
-                title={`${failure.provider} models unavailable`}
-              >
-                {failure.reason}
-              </Notice>
-            ))}
-          </div>
-        ) : null}
+        <Meta>
+          <span>started {formatRelativeTime(session.startedAt)}</span>
+        </Meta>
       </section>
     </div>
   );

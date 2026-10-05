@@ -167,22 +167,6 @@ describe("<SessionAside>", () => {
     expect(screen.getByText("Postgres upgrade plan")).toBeDefined();
   });
 
-  it("surfaces a provider whose model listing failed", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
-          failures: [{ provider: "openai", reason: "401 Unauthorized" }],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    expect(await screen.findByText(/openai models unavailable/i)).toBeDefined();
-    expect(screen.getByText("401 Unauthorized")).toBeDefined();
-  });
-
   it("shows the session's working directory", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>

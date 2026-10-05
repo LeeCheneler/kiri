@@ -2,13 +2,20 @@ import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-q
 import {
   type ArticleDetail,
   type ArticleSummary,
+  type SessionArticleActivity,
   type SessionArticleDetail,
   deleteSessionArticle,
   fetchArticle,
   fetchSessionArticle,
+  fetchSessionArticleActivity,
   fetchSessionArticles,
 } from "../api.ts";
-import { runArticleKey, sessionArticleKey, sessionArticlesKey } from "./query-keys.ts";
+import {
+  runArticleKey,
+  sessionArticleActivityKey,
+  sessionArticleKey,
+  sessionArticlesKey,
+} from "./query-keys.ts";
 
 /**
  * Read a single article by run id and slug, fetching on first use and serving
@@ -41,7 +48,7 @@ export function useSessionArticle(
 }
 
 /**
- * Read the list of articles a session has written, oldest first. Kept current
+ * Read the list of articles a session owns, oldest first. Kept current
  * by `<LiveSync>`, so an article the model writes mid-turn pops
  * into a mounted list without a navigation.
  */
@@ -49,6 +56,16 @@ export function useSessionArticles(sessionId: string): UseQueryResult<ArticleSum
   return useQuery({
     queryKey: sessionArticlesKey(sessionId),
     queryFn: async () => (await fetchSessionArticles(sessionId)).articles,
+  });
+}
+
+/** Read this session's article writes, latest first; kept current by `<LiveSync>`. */
+export function useSessionArticleActivity(
+  sessionId: string,
+): UseQueryResult<SessionArticleActivity[]> {
+  return useQuery({
+    queryKey: sessionArticleActivityKey(sessionId),
+    queryFn: async () => (await fetchSessionArticleActivity(sessionId)).articles,
   });
 }
 
@@ -62,5 +79,6 @@ export function useDeleteSessionArticle(): (sessionId: string, slug: string) => 
     await deleteSessionArticle(sessionId, slug);
     void queryClient.invalidateQueries({ queryKey: sessionArticleKey(sessionId, slug) });
     void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(sessionId) });
+    void queryClient.invalidateQueries({ queryKey: sessionArticleActivityKey() });
   };
 }
