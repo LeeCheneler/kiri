@@ -76,5 +76,5 @@ export function connectMcpServer(
   createClient: CreateMcpClient,
   authProvider?: OAuthClientProvider,
 ): Promise<McpClient> {
-  return createClient({ transport: mcpTransport(server, env, authProvider) });
+  return createClient({ transport: mcpTransport(server, env, authProvider), maxRetries: 0 });
 }

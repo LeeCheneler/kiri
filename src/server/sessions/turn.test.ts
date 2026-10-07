@@ -20,6 +20,7 @@ import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { type LlmClients, type LlmModel, buildModelDescription } from "../llm/index.ts";
+import { boundMcpTool } from "../mcp/bound-tool.ts";
 import { savedContextCalibration } from "./context-calibration.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
@@ -3239,6 +3240,89 @@ describe("cancelled turns keep their progress", () => {
     (row?.parts as (ToolPart & { errorText?: string })[]).find(
       (p) => p.type === "tool-slow",
     ) as ToolPart & { errorText?: string };
+
+  it.each(["timeout", "cancel"] as const)(
+    "releases the turn and readers after a non-cooperative MCP tool's %s without losing progress",
+    async (ending) => {
+      const started = Promise.withResolvers<void>();
+      const late = Promise.withResolvers<{ content: { type: "text"; text: string }[] }>();
+      const canceller = turnCanceller();
+      const streamRegistry = createStreamRegistry();
+      const session = createSession(db, MODEL, { id: "s1" });
+      let step = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          step += 1;
+          const chunks: LanguageModelV3StreamPart[] =
+            step <= 2
+              ? [
+                  { type: "text-start", id: `t${step}` },
+                  { type: "text-delta", id: `t${step}`, delta: "Running it now." },
+                  { type: "text-end", id: `t${step}` },
+                  {
+                    type: "tool-call",
+                    toolCallId: `c${step}`,
+                    toolName: step === 1 ? "echo" : "slow",
+                    input: '{"value":"hi"}',
+                  },
+                  { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+                ]
+              : [
+                  { type: "text-start", id: "final" },
+                  { type: "text-delta", id: "final", delta: "The tool timed out." },
+                  { type: "text-end", id: "final" },
+                  { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
+                ];
+          return { stream: convertArrayToReadableStream(chunks) };
+        },
+      }) as unknown as LlmModel;
+      const tools = {
+        ...echoTools,
+        slow: boundMcpTool(
+          tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute: () => {
+              started.resolve();
+              return late.promise;
+            },
+          }),
+          { timeoutMs: ending === "timeout" ? 20 : 180_000 },
+        ),
+      };
+      const turn = await runTurn(
+        { db, llmClients: clientsFor(model), canceller, streamRegistry, tools },
+        { session, userMessage: USER_MESSAGE },
+      );
+      const readerFinished = turn.response.text();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const watchdog = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Turn did not settle within 500ms")), 500);
+      });
+      try {
+        await Promise.race([started.promise, watchdog]);
+        if (ending === "cancel") expect(canceller.cancel("s1")).toBe(true);
+        await Promise.race([Promise.all([turn.done, readerFinished]), watchdog]);
+        expect(getSession(db, "s1")?.status).toBe(ending === "cancel" ? "cancelled" : "idle");
+        expect(streamRegistry.turnOf("s1")).toBeNull();
+        expect(canceller.cancel("s1")).toBe(false);
+        const rows = getSessionMessages(db, "s1");
+        expect(JSON.stringify(rows[1]?.parts)).toContain('"echoed":"hi"');
+        const interrupted = slowPartOf(rows[1]);
+        expect(interrupted.state).toBe("output-error");
+        if (ending === "cancel") expect(interrupted.errorText).toBe(CANCELLED_ERROR_TEXT);
+        else expect(interrupted.errorText).toContain("time budget");
+        const settled = JSON.stringify(rows[1]?.parts);
+        late.resolve({ content: [{ type: "text", text: "too late" }] });
+        await Promise.resolve();
+        expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toBe(settled);
+      } finally {
+        clearTimeout(timer);
+        canceller.cancel("s1");
+        late.resolve({ content: [] });
+        await turn.done;
+      }
+    },
+  );
 
   it("persists a tool call cancelled mid-execution as a cancelled result", async () => {
     const canceller = turnCanceller();
