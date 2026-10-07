@@ -264,6 +264,40 @@ providers:
 
 **OpenAI-compatible generation waits.** Language-generation requests through an `openai-compatible` provider disable Bun's default five-minute socket inactivity timeout, allowing slow local prompt processing without an implicit transport deadline. The fetch adapter only adds `timeout: false`; it preserves the caller's abort signal and returns the original response without wrapping its stream. There is no replacement timer or configuration setting. A stalled session can be stopped by the user, and application shutdown cancels active work. Explicit caller deadlines and upstream server/proxy timeouts still apply. Model discovery, MCP and shell limits, image generation, and transcription are unchanged.
 
+### Session prompt caching
+
+Session requests apply provider-specific cache controls separately from reasoning
+settings. The persisted session ID is the affinity key: it stays stable across
+model steps, approval resumes, later turns and application restarts. Delegated
+workers use their own session IDs, not their parent's. The same controls apply
+to the final tool-free handoff. Workflow completions and internal utility calls
+do not receive these conversation controls.
+
+- **Codex subscription:** send the session ID as both `prompt_cache_key` and the
+  `session-id` HTTP header. The subscription backend derives cache affinity from
+  the header; this is not a public OpenAI API header. Keep `store: false` and
+  encrypted reasoning replay unchanged — stateless Responses storage does not
+  disable prompt caching.
+- **Public OpenAI:** send `prompt_cache_key` through the existing Chat Completions
+  adapter, without the Codex header. Leave retention and model-specific cache
+  options at provider defaults rather than sending unsupported overrides.
+- **Anthropic:** request automatic conversation caching with top-level
+  `cache_control: { type: "ephemeral" }`, using its default lifetime. No session
+  header or explicit content breakpoints are added.
+- **OpenRouter:** send `session_id` in the request body for sticky routing under
+  the configured provider's options namespace. Also request automatic ephemeral
+  caching for `anthropic/claude-` model IDs; other models retain their own cache
+  behaviour. Existing reasoning and document-parser options are preserved.
+- **Other OpenAI-compatible endpoints:** leave cache fields and session headers
+  unset; the shared request format does not establish support for these controls.
+
+There is no cache configuration knob. Affinity helps routing but does not
+promise a cache hit: unchanged prompt prefixes, tool definitions, model support,
+cache lifetime and provider routing still matter. Changes to instructions,
+project context or compacted history can legitimately invalidate reusable
+prefixes. Cached input does not eliminate generation or reasoning usage, and
+Kiri makes no guarantee about subscription allowance savings.
+
 ### LLM step execution
 
 An `llm:` step returns a single completion inside the kiri process — nothing is spawned. The Codex provider collects a streamed response into final text and usage; other providers use non-streaming generation. The runner renders the prompt template, calls the model through the provider registry, and maps the result onto the standard step envelope:
