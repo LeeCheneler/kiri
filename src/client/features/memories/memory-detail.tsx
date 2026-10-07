@@ -12,6 +12,7 @@ import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useDeleteMemory, useMemory, useUpdateMemory } from "../../state/memories.ts";
+import { usePageTitle } from "../page-shell/use-page-title.ts";
 
 const BREADCRUMB = [{ label: "Memories", href: "/memories" }];
 
@@ -41,6 +42,7 @@ export function MemoryDetailView({
   returnTo: string;
   now?: Date;
 }) {
+  usePageTitle(memory.isSuccess ? name : "Memory");
   const [, navigate] = useLocation();
   const [editing, setEditing] = useState(false);
   const [description, setDescription] = useState("");

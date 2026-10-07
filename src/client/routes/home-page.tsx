@@ -3,6 +3,7 @@ import { ActivityFeed } from "../features/activity-feed/activity-feed.tsx";
 import { ConfigHealthPanel } from "../features/config-health/config-health-panel.tsx";
 import { McpStatusPanel } from "../features/mcp/mcp-status-panel.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SearchTrigger } from "../features/search/search-trigger.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
@@ -10,6 +11,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  * Home route. Composes the Activity view into the page shell.
  */
 export function HomePage() {
+  usePageTitle("Activity");
   return (
     <PageShell left={<SiteNav />}>
       <HomeContent />

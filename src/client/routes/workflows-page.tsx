@@ -1,4 +1,5 @@
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { WorkflowCatalog } from "../features/workflow-catalog/workflow-catalog.tsx";
 
@@ -7,6 +8,7 @@ import { WorkflowCatalog } from "../features/workflow-catalog/workflow-catalog.t
  * launcher into the page shell.
  */
 export function WorkflowsPage() {
+  usePageTitle("Workflows");
   return (
     <PageShell left={<SiteNav />} wide>
       <WorkflowCatalog />
