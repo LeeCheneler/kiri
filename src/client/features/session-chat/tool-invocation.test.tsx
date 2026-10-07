@@ -226,6 +226,113 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText(/"note": "nothing came back"/)).toBeDefined();
   });
 
+  it("mounts typed MCP image previews only when expanded, without dumping their base64", async () => {
+    const user = userEvent.setup();
+    const data = btoa("screenshot".repeat(16_384));
+    const output = {
+      content: [{ type: "image", data, mimeType: "image/png" }],
+    };
+    const original = JSON.stringify(output);
+    render(
+      <ToolInvocation
+        part={part({
+          type: "dynamic-tool",
+          toolName: "capture__snapshot",
+          state: "output-available",
+          input: {},
+          output,
+        })}
+      />,
+    );
+
+    const disclosure = screen.getByRole("button", { name: /capture.*snapshot/i });
+    expect(screen.queryByRole("img")).toBeNull();
+
+    await user.click(disclosure);
+    const image = screen.getByRole("img", { name: "Tool image 1" }) as HTMLImageElement;
+    expect(image.src).toBe(`data:image/png;base64,${data}`);
+    expect(screen.getByText(/"mimeType": "image\/png"/)).toBeDefined();
+    expect(screen.queryByText(new RegExp(data.slice(0, 80)))).toBeNull();
+    expect(JSON.stringify(output)).toBe(original);
+
+    await user.click(screen.getByRole("button", { name: "Tool image 1" }));
+    expect(screen.getByRole("dialog", { name: "Tool image 1" })).toBeDefined();
+    expect(screen.getAllByRole("img", { name: "Tool image 1" })).toHaveLength(2);
+    await user.click(screen.getByRole("dialog"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(disclosure);
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it("previews every typed image while retaining text, structured metadata, and omissions", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-gallery__inspect",
+          state: "output-available",
+          input: {},
+          output: {
+            isError: true,
+            structuredContent: { title: "Captured page" },
+            content: [
+              { type: "text", text: "Page capture returned a warning." },
+              { type: "image", data: "AAAA", mimeType: "image/png", annotations: { priority: 1 } },
+              { type: "text", text: "[omitted — result limit]" },
+              { type: "image", data: "BBBB", mimeType: "image/jpeg" },
+              { type: "resource", resource: { uri: "capture://page", text: "Page details" } },
+            ],
+          },
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    expect((screen.getByRole("img", { name: "Tool image 1" }) as HTMLImageElement).src).toBe(
+      "data:image/png;base64,AAAA",
+    );
+    expect((screen.getByRole("img", { name: "Tool image 2" }) as HTMLImageElement).src).toBe(
+      "data:image/jpeg;base64,BBBB",
+    );
+    const metadata = screen.getByText(/"structuredContent"/).textContent;
+    expect(metadata).toContain('"isError": true');
+    expect(metadata).toContain("Captured page");
+    expect(metadata).toContain("Page capture returned a warning.");
+    expect(metadata).toContain("[omitted — result limit]");
+    expect(metadata).toContain('"priority": 1');
+    expect(metadata).toContain("Page details");
+    expect(metadata).not.toContain("AAAA");
+    expect(metadata).not.toContain("BBBB");
+  });
+
+  it("does not infer images from arbitrary strings, nested objects, or malformed content blocks", async () => {
+    const user = userEvent.setup();
+    const output = {
+      structuredContent: { type: "image", data: "AAAA", mimeType: "image/png" },
+      content: [
+        null,
+        "data:image/png;base64,AAAA",
+        { data: "AAAA", mimeType: "image/png" },
+        { type: "text", text: "data:image/png;base64,AAAA" },
+        { type: "image", data: null, mimeType: "image/png" },
+        { type: "image", data: "AAAA" },
+        { type: "image", data: "AAAA", mimeType: "text/html" },
+      ],
+    };
+    render(
+      <ToolInvocation
+        part={part({ type: "tool-media__inspect", state: "output-available", input: {}, output })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText(/"structuredContent"/).textContent).toBe(
+      JSON.stringify(output, null, 2),
+    );
+  });
+
   it("surfaces a tool error", async () => {
     const user = userEvent.setup();
     const { container } = render(

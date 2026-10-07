@@ -15,6 +15,7 @@ import {
   createLlmClients,
   createLlmProviderRegistry,
 } from "../../src/server/llm/index.ts";
+import { boundMcpTool } from "../../src/server/mcp/bound-tool.ts";
 import {
   articleTools,
   createInstructionContext,
@@ -29,6 +30,7 @@ import {
   updateSessionCwd,
   updateSessionImageModel,
 } from "../../src/server/sessions/index.ts";
+import { createStreamRegistry } from "../../src/server/sessions/stream-registry.ts";
 import { describedModel } from "../../tests/support/described-model.ts";
 import { FAKE_IMAGE_B64, type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
 import { resumeTurn, runTurn, turnCanceller } from "../support/turn-runner.ts";
@@ -222,6 +224,62 @@ describe("session turn streaming", () => {
     expect(getSession(db, session.id)?.status).toBe("idle");
   });
 
+  it.each([true, false, undefined])(
+    "compacts a screenshot using the selected model's imageInput=%s capability",
+    async (imageInput) => {
+      const start = fake.requests.length;
+      const session = createSession(db, "fake:tool");
+      const image = { type: "image", data: FAKE_IMAGE_B64, mimeType: "image/png" };
+      let captures = 0;
+      const turn = await runTurn(
+        {
+          db,
+          llmClients: {
+            ...llmClients,
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192, imageInput }),
+          },
+          tools: {
+            capture__screen: boundMcpTool(
+              tool({
+                inputSchema: z.object({}),
+                execute: () => {
+                  captures += 1;
+                  return { content: [{ type: "text", text: "x".repeat(20000) }, image] };
+                },
+              }),
+            ),
+          },
+        },
+        { session, userMessage: userMessage("call:capture__screen {}") },
+      );
+      await turn.response.text();
+      await turn.done;
+
+      const requests = fake.requests.slice(start);
+      expect(requests).toHaveLength(3);
+      expect(requests[1]?.stream).not.toBe(true);
+      const summaryInput = JSON.stringify(requests[1]?.messages);
+      expect(summaryInput).toContain("Tool image 1");
+      if (imageInput === true) {
+        expect(summaryInput).toContain("image_url");
+        expect(summaryInput).toContain(FAKE_IMAGE_B64);
+      } else {
+        expect(summaryInput).toContain("no confirmed image input support");
+        expect(summaryInput).not.toContain("image_url");
+        expect(summaryInput).not.toContain(FAKE_IMAGE_B64);
+      }
+      const saved = getSessionMessages(db, session.id)[1]?.parts;
+      expect(saved).toContainEqual(
+        expect.objectContaining({
+          output: { content: [{ type: "text", text: "x".repeat(20000) }, image] },
+        }),
+      );
+      expect(JSON.stringify(saved)).toContain("data-checkpoint");
+      expect(getSession(db, session.id)?.status).toBe("idle");
+      expect(captures).toBe(1);
+    },
+  );
+
   it("stops before replaying an action whose result fills the context", async () => {
     const start = fake.requests.length;
     const session = createSession(db, "fake:tool");
@@ -322,6 +380,7 @@ describe("session turn streaming", () => {
   });
 
   it("drives generate_image over the wire, keeping the image bytes out of the model's context", async () => {
+    const requestStart = fake.requests.length;
     const session = createSession(db, "fake:tool");
     updateSessionImageModel(db, session.id, "fake:paint");
     const tools = imageTools({ db, sessionId: session.id, llmClients });
@@ -358,9 +417,236 @@ describe("session turn streaming", () => {
       { session: getSession(db, session.id) ?? session, userMessage: userMessage("thanks") },
     );
     await second.done;
-    for (const request of fake.requests) {
+    for (const request of fake.requests.slice(requestStart)) {
       expect(JSON.stringify(request)).not.toContain(FAKE_IMAGE_B64);
     }
+  });
+
+  describe("bounded MCP media", () => {
+    const image = { type: "image", data: FAKE_IMAGE_B64, mimeType: "image/png" };
+    const outputOf = (sessionId: string) =>
+      (getSessionMessages(db, sessionId)[1]?.parts as UIMessage["parts"])
+        .filter((part) => "state" in part && part.state === "output-available")
+        .map((part) => ("output" in part ? part.output : undefined));
+
+    it("preserves a screenshot with a tiny text budget through checkpoints, reload and model replay", async () => {
+      const requestStart = fake.requests.length;
+      const session = createSession(db, "fake:tool-slow");
+      const streamRegistry = createStreamRegistry({
+        replayLimitBytes: 256,
+        readerLimitBytes: 4096,
+      });
+      let executions = 0;
+      const tools = {
+        capture__screenshot: boundMcpTool(
+          tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              executions += 1;
+              return {
+                content: [{ type: "text", text: "Screenshot details. ".repeat(100) }, image],
+                isError: false,
+              };
+            },
+          }),
+          { maxBytes: 128, maxImageBytes: 128, maxResultBytes: 1024 },
+        ),
+      };
+      const first = await runTurn(
+        { db, llmClients, tools, streamRegistry },
+        { session, userMessage: userMessage("call:capture__screenshot {}") },
+      );
+      const reader = first.response.body?.getReader();
+      if (!reader) throw new Error("expected a streamed turn response");
+      let initialFrames = "";
+      try {
+        while (!initialFrames.includes('"type":"finish-step"')) {
+          const next = await reader.read();
+          if (next.done) throw new Error("stream ended before its first checkpoint");
+          initialFrames += new TextDecoder().decode(next.value);
+        }
+      } finally {
+        await reader.cancel();
+      }
+
+      const saved = outputOf(session.id);
+      const revision = getSession(db, session.id)?.transcriptRevision;
+      if (revision === undefined) throw new Error("session vanished at checkpoint");
+      const resumed = streamRegistry.subscribe(session.id, revision);
+      if (!resumed) throw new Error("expected the follow-up model step to remain live");
+      const resumedFrames = await new Response(resumed.stream).text();
+      await first.done;
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toMatchObject({ content: expect.arrayContaining([image]), isError: false });
+      expect(Buffer.byteLength(JSON.stringify(saved[0]))).toBeLessThanOrEqual(1024);
+      expect(JSON.stringify(saved)).not.toContain("Screenshot details. ".repeat(100));
+      expect(initialFrames.split(FAKE_IMAGE_B64)).toHaveLength(2);
+      expect(resumedFrames).toContain('"type":"text-delta"');
+      expect(resumedFrames).not.toContain(FAKE_IMAGE_B64);
+      expect(resumedFrames).not.toContain('"type":"tool-output-available"');
+      expect(streamRegistry.subscribe(session.id, revision)).toBeNull();
+
+      db.$client.close();
+      db = bootstrap(createConfigStore(cwd));
+      expect(outputOf(session.id)).toEqual(saved);
+      const later = await runTurn(
+        { db, llmClients },
+        {
+          session: getSession(db, session.id) ?? session,
+          userMessage: userMessage("Inspect the saved screenshot"),
+        },
+      );
+      await later.response.text();
+      await later.done;
+      const requests = fake.requests.slice(requestStart);
+      expect(requests).toHaveLength(3);
+      for (const request of requests.slice(1)) {
+        const content = request.messages?.find((message) => message.role === "tool")?.content;
+        expect(typeof content).toBe("string");
+        expect(JSON.parse(content as string)).toContainEqual({
+          type: "image-data",
+          data: FAKE_IMAGE_B64,
+          mediaType: "image/png",
+        });
+        expect(JSON.stringify(request.messages).split(FAKE_IMAGE_B64)).toHaveLength(2);
+      }
+      expect(requests[2]?.tools ?? []).toEqual([]);
+      expect(executions).toBe(1);
+      expect(getSession(db, session.id)?.status).toBe("idle");
+    }, 15000);
+
+    it("retains structured data, unique text, image and error flag without duplicate text on live and later replay", async () => {
+      const requestStart = fake.requests.length;
+      const session = createSession(db, "fake:tool");
+      const structuredContent = { title: "Captured screen", width: 1 };
+      const uniqueText = "The capture has a warning.";
+      const tools = {
+        capture__screenshot: boundMcpTool(
+          tool({
+            inputSchema: z.object({}),
+            execute: () => ({
+              content: [
+                { type: "text", text: JSON.stringify(structuredContent) },
+                { type: "text", text: uniqueText },
+                image,
+              ],
+              structuredContent,
+              isError: true,
+            }),
+          }),
+        ),
+      };
+      const first = await runTurn(
+        { db, llmClients, tools },
+        { session, userMessage: userMessage("call:capture__screenshot {}") },
+      );
+      const frames = await first.response.text();
+      await first.done;
+      const expected = {
+        content: [{ type: "text", text: uniqueText }, image],
+        structuredContent,
+        isError: true,
+      };
+      expect(outputOf(session.id)).toEqual([expected]);
+      expect(frames).toContain(FAKE_IMAGE_B64);
+
+      db.$client.close();
+      db = bootstrap(createConfigStore(cwd));
+      expect(outputOf(session.id)).toEqual([expected]);
+      const later = await runTurn(
+        { db, llmClients },
+        {
+          session: getSession(db, session.id) ?? session,
+          userMessage: userMessage("Continue from the warning"),
+        },
+      );
+      await later.response.text();
+      await later.done;
+      const requests = fake.requests.slice(requestStart);
+      expect(requests).toHaveLength(3);
+      for (const request of requests.slice(1)) {
+        const serialized = JSON.stringify(request.messages);
+        expect(serialized).toContain("[MCP tool reported an error]");
+        expect(serialized.split("Captured screen")).toHaveLength(2);
+        expect(serialized.split(uniqueText)).toHaveLength(2);
+        expect(serialized.split(FAKE_IMAGE_B64)).toHaveLength(2);
+        const content = request.messages?.find((message) => message.role === "tool")?.content;
+        expect(typeof content).toBe("string");
+        expect(JSON.parse(content as string)).toContainEqual({
+          type: "text",
+          text: JSON.stringify(structuredContent),
+        });
+        expect(JSON.parse(content as string)).toContainEqual({
+          type: "image-data",
+          data: FAKE_IMAGE_B64,
+          mediaType: "image/png",
+        });
+      }
+      expect(requests[2]?.tools ?? []).toEqual([]);
+      expect(getSession(db, session.id)?.status).toBe("idle");
+    });
+
+    it.each([
+      { limit: "decoded image", maxImageBytes: 128, maxResultBytes: 1024 },
+      { limit: "encoded result", maxImageBytes: 1024, maxResultBytes: 256 },
+    ])(
+      "omits an image exceeding the $limit budget with a bounded notice that survives replay",
+      async ({ maxImageBytes, maxResultBytes }) => {
+        const requestStart = fake.requests.length;
+        const session = createSession(db, "fake:tool");
+        const oversizedData = Buffer.alloc(512, 1).toString("base64");
+        const tools = {
+          capture__screenshot: boundMcpTool(
+            tool({
+              inputSchema: z.object({}),
+              execute: () => ({
+                content: [{ type: "image", data: oversizedData, mimeType: "image/png" }],
+                isError: true,
+              }),
+            }),
+            { maxBytes: 64, maxImageBytes, maxResultBytes },
+          ),
+        };
+        const first = await runTurn(
+          { db, llmClients, tools },
+          { session, userMessage: userMessage("call:capture__screenshot {}") },
+        );
+        const frames = await first.response.text();
+        await first.done;
+        const saved = outputOf(session.id);
+        expect(saved).toHaveLength(1);
+        expect(saved[0]).toMatchObject({ isError: true });
+        const serialized = JSON.stringify(saved[0]);
+        expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(maxResultBytes);
+        expect(serialized).toMatch(/omitted/i);
+        expect(serialized).not.toContain(oversizedData);
+        expect(serialized).not.toContain('"type":"image"');
+        expect(frames).not.toContain(oversizedData);
+
+        db.$client.close();
+        db = bootstrap(createConfigStore(cwd));
+        expect(outputOf(session.id)).toEqual(saved);
+        const later = await runTurn(
+          { db, llmClients },
+          {
+            session: getSession(db, session.id) ?? session,
+            userMessage: userMessage("Describe the capture outcome"),
+          },
+        );
+        await later.response.text();
+        await later.done;
+        const requests = fake.requests.slice(requestStart);
+        expect(requests).toHaveLength(3);
+        for (const request of requests.slice(1)) {
+          const modelHistory = JSON.stringify(request.messages);
+          expect(modelHistory).toMatch(/omitted/i);
+          expect(modelHistory).not.toContain(oversizedData);
+          expect(modelHistory).not.toContain("image-data");
+          expect(modelHistory).toContain("[MCP tool reported an error]");
+        }
+        expect(getSession(db, session.id)?.status).toBe("idle");
+      },
+    );
   });
 
   it("streams a run_command's live console as transient data parts, persisting none of them", async () => {

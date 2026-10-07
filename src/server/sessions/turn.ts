@@ -749,6 +749,7 @@ async function streamCore(
                 checkpoint = await compactContext({
                   llmClients,
                   model: session.model,
+                  imageInput: description.model.imageInput === true,
                   messages: summaryMessages,
                   system,
                   inputBudget: limits.handoffInputTokens,

@@ -78,6 +78,45 @@ describe("toolModelOutput", () => {
     expect(JSON.stringify(output)).toBe(before);
   });
 
+  it("preserves structured data and independent content while marking a reported MCP error", () => {
+    const data = { detail: "incomplete" };
+    const output = {
+      content: [
+        { type: "text", text: JSON.stringify(data) },
+        { type: "text", text: "unique explanation" },
+        { type: "image", data: "AAAA", mimeType: "image/png" },
+      ],
+      structuredContent: data,
+      isError: true,
+    };
+    const before = JSON.stringify(output);
+    expect(toolModelOutput("third_party__capture", output)).toEqual({
+      type: "content",
+      value: [
+        { type: "text", text: "[MCP tool reported an error]" },
+        { type: "text", text: JSON.stringify(data) },
+        { type: "text", text: "unique explanation" },
+        { type: "image-data", data: "AAAA", mediaType: "image/png" },
+      ],
+    });
+    expect(JSON.stringify(output)).toBe(before);
+  });
+
+  it("does not promote image-looking fields or strings to visual input", () => {
+    const output = {
+      content: [{ type: "text", text: "data:image/png;base64,AAAA" }],
+      screenshot: "AAAA",
+    };
+    expect(toolModelOutput("arbitrary__result", output)).toEqual({
+      type: "content",
+      value: [{ type: "text", text: "data:image/png;base64,AAAA" }],
+    });
+    expect(toolModelOutput("arbitrary__result", { image: "AAAA", mimeType: "image/png" })).toEqual({
+      type: "json",
+      value: { image: "AAAA", mimeType: "image/png" },
+    });
+  });
+
   it("does not interpret a built-in's content field as MCP content", () => {
     const output = { content: [{ type: "text", text: "file content" }] };
     expect(toolModelOutput("read_file", output)).toEqual({ type: "json", value: output });

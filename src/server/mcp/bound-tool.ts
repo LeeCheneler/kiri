@@ -1,103 +1,44 @@
 import type { ToolSet } from "ai";
+import { boundMcpResult } from "./result-bounds.ts";
 
 // A tool offered to a session, in the registry's namespaced ToolSet.
 type RegistryTool = ToolSet[string];
 
-// Cap on a single tool result, in bytes. A tool's output is fed straight back
-// to the model, so an unbounded result — a directory tree over a huge folder,
-// say — can blow the model's context or exceed the provider's request-size
-// limit. Mirrors the run-context stream cap, a notch larger for richer results.
-const MAX_OUTPUT_BYTES = 128 * 1024;
+const MAX_TEXT_BYTES = 128 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// Leave room below the stream replay ceiling for the tool's frame and other step events.
+const MAX_RESULT_BYTES = 15 * 1024 * 1024;
 
 // Time budget for a single tool call. A tool that walks an enormous tree (or
 // hangs) would otherwise wedge the turn indefinitely; past the budget local
 // waiting ends and the SDK is signalled to abort. The external outcome is unknown.
 const TIMEOUT_MS = 180_000;
 
-const TRUNCATION_MARKER = "\n[truncated — result too large]";
-
-const encoder = new TextEncoder();
-// Non-fatal so a multi-byte character split at the cap is dropped rather than
-// decoded to a replacement char or left as an invalid fragment.
-const decoder = new TextDecoder("utf-8", { fatal: false });
-
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface BoundToolOptions {
+  /** Aggregate encoded data budget, excluding image base64 and generated omission notices. */
   maxBytes?: number;
+  /** Decoded bytes per protocol-typed image. */
+  maxImageBytes?: number;
+  /** Encoded JSON budget including media, metadata, and generated notices. */
+  maxResultBytes?: number;
   timeoutMs?: number;
 }
 
-// Whether a value is an MCP `CallToolResult` — the `{ content: [...] }` shape
-// the AI SDK's MCP tools resolve to, optionally carrying a parsed
-// `structuredContent` alongside the textual `content`.
-function isContentResult(
-  value: unknown,
-): value is { content: unknown[]; structuredContent?: unknown } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "content" in value &&
-    Array.isArray((value as { content: unknown }).content)
-  );
-}
-
-// One content part as plain text. Images are reduced to a placeholder rather
-// than inlining their base64 — that defeats the cap before truncation even runs.
-function partToText(part: unknown): string {
-  if (typeof part === "object" && part !== null) {
-    const { type, text } = part as { type?: unknown; text?: unknown };
-    if (type === "text" && typeof text === "string") return text;
-    if (type === "image") return "[image]";
-  }
-  return JSON.stringify(part);
-}
-
-// Cap a tool result at `maxBytes`. A result under the cap passes through
-// untouched (preserving its structure and any non-text parts); over the cap, it
-// collapses to a single truncated text part marked as such.
-function capResult(output: unknown, maxBytes: number): unknown {
-  if (!isContentResult(output)) return output;
-  const text = output.content.map(partToText).join("\n");
-  const bytes = encoder.encode(text);
-  if (bytes.length <= maxBytes) return output;
-  const head = decoder.decode(bytes.slice(0, maxBytes));
-  return { ...output, content: [{ type: "text", text: head + TRUNCATION_MARKER }] };
-}
-
-// Reduce an MCP result to a single bounded representation for the model. A result
-// that carries `structuredContent` holds the payload twice — as JSON text in
-// `content` and as that parsed object — and the model only ever needs one copy,
-// yet kiri persists the whole result and replays it to the model on every later
-// turn, re-paying the duplicate each time. Forward the structured object when it
-// fits the budget: it's the leaner, unescaped form and renders cleanly in the
-// transcript. Over budget it can't be truncated without corrupting it, so drop
-// the structured copy and fall back to the capped `content` text. A result with
-// no `structuredContent` is just capped, unchanged.
-function shapeResult(output: unknown, maxBytes: number): unknown {
-  if (!isContentResult(output) || output.structuredContent == null) {
-    return capResult(output, maxBytes);
-  }
-  const json = JSON.stringify(output.structuredContent);
-  if (encoder.encode(json).length <= maxBytes) return output.structuredContent;
-  const { structuredContent: _dropped, ...rest } = output;
-  return capResult(rest, maxBytes);
-}
-
 /**
- * Wrap an MCP tool so its execution is bounded and de-duplicated: when the result
- * carries a `structuredContent` object it is forwarded in place of the duplicate
- * `content` text (the model needs only one copy), and the result is capped at
- * `maxBytes` — the structured object when it fits, otherwise the `content` text
- * truncated with a marker. The call is given a `timeoutMs` budget; a call that
- * exceeds it rejects locally even if the SDK ignores abort, while the caller's
- * own cancellation reason passes through unchanged. Both signal the SDK to abort
- * but do not confirm the external action stopped. A tool with no `execute` is
- * returned as-is.
+ * Bound MCP output by independent text, image, and complete encoded-result budgets,
+ * preserving unique content and marking omissions. Timeout/cancellation settles
+ * locally and signals the SDK to abort, without confirming the external action stopped.
  */
 export function boundMcpTool(toolDef: RegistryTool, options: BoundToolOptions = {}): RegistryTool {
   const original = toolDef.execute;
   if (!original) return toolDef;
-  const { maxBytes = MAX_OUTPUT_BYTES, timeoutMs = TIMEOUT_MS } = options;
+  const {
+    maxBytes = MAX_TEXT_BYTES,
+    maxImageBytes = MAX_IMAGE_BYTES,
+    maxResultBytes = MAX_RESULT_BYTES,
+    timeoutMs = TIMEOUT_MS,
+  } = options;
 
   const execute = async (...args: Parameters<NonNullable<RegistryTool["execute"]>>) => {
     const [input, opts] = args;
@@ -126,7 +67,7 @@ export function boundMcpTool(toolDef: RegistryTool, options: BoundToolOptions = 
           return original(input, { ...opts, abortSignal: controller.signal });
         }),
       ]);
-      return shapeResult(output, maxBytes);
+      return boundMcpResult(output, { maxBytes, maxImageBytes, maxResultBytes });
     } finally {
       clearTimeout(timer);
       controller.signal.removeEventListener("abort", onAbort);
