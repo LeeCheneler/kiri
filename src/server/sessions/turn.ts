@@ -18,6 +18,7 @@ import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import { type LlmClients, type LlmModel, effortProviderOptions } from "../llm/index.ts";
+import { sessionRequestOptions } from "../llm/session-request-options.ts";
 import { compactContext } from "./compact-context.ts";
 import {
   type ContextCalibration,
@@ -514,11 +515,10 @@ async function streamCore(
   const description = await llmClients.describeModel(session.model, { signal });
   const contextWindow = description.model.contextWindow;
 
-  // The session's effort as this turn's provider reasoning parameters —
-  // undefined for a model without reasoning support, which leaves the call
-  // without provider options rather than sending parameters blind. Resolved
-  // per turn like the model, so a mid-session change applies next turn.
+  // Refresh provider controls per turn, but keep cache affinity tied to the
+  // persisted session identity across steps, approval resumes and restarts.
   const providerOptions = effortProviderOptions(description, session.effort);
+  const requestOptions = sessionRequestOptions(description, session.id, providerOptions);
   // Inbox items that arrive while the turn runs are delivered at the next
   // step boundary: `prepareStep` (inside `execute` below) injects them into
   // the step's model messages and mirrors each one into the UI stream as its
@@ -679,7 +679,7 @@ async function streamCore(
               calibration = { ...previousRequest, inputTokens: usage.inputTokens };
             }
           },
-          ...(providerOptions !== undefined ? { providerOptions } : {}),
+          ...requestOptions,
           ...(hasTools
             ? {
                 tools: turnTools,
@@ -940,7 +940,7 @@ async function streamCore(
           onStepFinish: ({ usage }) => {
             lastContextTokens = usage.totalTokens;
           },
-          ...(providerOptions !== undefined ? { providerOptions } : {}),
+          ...requestOptions,
           // A separate call has no executable tool catalogue, even if a
           // provider ignores the prompt and emits a tool call. No retry can
           // spend another call beyond this one reserved handoff.
