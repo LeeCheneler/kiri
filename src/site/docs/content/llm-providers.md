@@ -126,7 +126,7 @@ Everything that takes a `model:` — pipeline steps, articles, summarisers,
 sessions — accepts `openrouter:google/gemini-3.7-flash` or
 `local:<model-id>` the same as a hosted first-party provider.
 
-Document attachments are the one difference between the two: sessions on an
+Document attachment support differs between the two: sessions on an
 OpenRouter model take PDFs — parsed natively where the model reads files,
 otherwise through OpenRouter's free text parser — while sessions on a local
 server or another gateway take text files and images only.
@@ -138,6 +138,33 @@ shutting down Kiri also cancels active work. Explicit caller deadlines and
 upstream server or proxy timeouts can still apply. Model discovery and tool
 execution retain their own limits; image generation and transcription are
 unchanged.
+
+## Session prompt caching
+
+Kiri requests prompt caching or stable cache routing where the provider supports
+it, without extra configuration:
+
+- **Codex subscription:** a stable cache key and matching session header keep
+  requests associated with the same conversation.
+- **OpenAI API:** a stable prompt cache key identifies the conversation; Kiri
+  leaves model-specific retention settings at their defaults.
+- **Anthropic API:** automatic prompt caching uses the default ephemeral lifetime.
+- **OpenRouter:** a stable session ID requests sticky provider routing. Claude
+  models also receive automatic ephemeral caching; other models retain their
+  provider's caching behaviour.
+- **Other compatible endpoints:** Kiri does not send undocumented cache controls
+  or session headers. Local servers and other gateways manage their own caches.
+
+Conversation identity stays stable across tool steps, approval pauses, later
+messages and Kiri restarts. Delegated workers have their own identities. These
+controls apply to session conversations, not workflow `llm:` steps or internal
+utility calls.
+
+Cache hits are not guaranteed. Reuse depends on matching prompt prefixes, model
+support and provider cache lifetime; instruction changes or conversation
+compaction can invalidate cached context. Cached input still leaves output and
+reasoning usage, so prompt caching does not guarantee a particular subscription
+allowance or savings.
 
 ## Model shortcuts
 
