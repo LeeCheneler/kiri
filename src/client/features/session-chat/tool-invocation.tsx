@@ -11,7 +11,7 @@ import { Markdown } from "../../design-system/content/markdown.tsx";
 import { TerminalOutput } from "../../design-system/content/terminal-output.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { useSessionChildren } from "../../state/sessions.ts";
-import { FullWidthImage } from "./image-thumb.tsx";
+import { FullWidthImage, PreviewableImage } from "./image-thumb.tsx";
 import { type LiveConsoleStore, useLiveConsole } from "./live-console.ts";
 
 /** A tool-call part of an assistant message, static or dynamic. */
@@ -790,6 +790,48 @@ const sentMessage = (name: string, input: unknown, output: unknown): ReactNode |
   );
 };
 
+// Only protocol-typed image blocks become previews; arbitrary data stays verbatim.
+const mcpImageResult = (output: unknown): ReactNode => {
+  if (output === null || typeof output !== "object") return null;
+  const result = output as Record<string, unknown>;
+  if (!Array.isArray(result.content)) return null;
+
+  const images: FileUIPart[] = [];
+  const content = result.content.map((block: unknown) => {
+    if (block === null || typeof block !== "object") return block;
+    const image = block as Record<string, unknown>;
+    if (
+      image.type !== "image" ||
+      typeof image.data !== "string" ||
+      typeof image.mimeType !== "string" ||
+      !image.mimeType.startsWith("image/")
+    ) {
+      return block;
+    }
+
+    const filename = `Tool image ${images.length + 1}`;
+    images.push({
+      type: "file",
+      filename,
+      mediaType: image.mimeType,
+      url: `data:${image.mimeType};base64,${image.data}`,
+    });
+    return { ...image, data: `[${filename}; preview above]` };
+  });
+  if (images.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {images.map((image) => (
+          <PreviewableImage key={image.filename} part={image} />
+        ))}
+      </div>
+      <ToolInput input={{ ...result, content }} />
+    </div>
+  );
+};
+
 // The call's input rendered as formatted JSON — untrusted data, shown verbatim.
 function ToolInput({ input }: { input: unknown }) {
   return (
@@ -902,6 +944,8 @@ function ToolPanel({
       const { image: _image, ...rest } = part.output as Record<string, unknown>;
       return <ToolInput input={rest} />;
     }
+    const images = mcpImageResult(part.output);
+    if (images) return images;
     // Tool output is untrusted data, never markdown — render it as formatted
     // JSON rather than interpreting it.
     return <ToolInput input={part.output} />;
