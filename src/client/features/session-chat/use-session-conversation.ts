@@ -1,4 +1,4 @@
-import { useChat } from "@ai-sdk/react";
+import { Chat, useChat } from "@ai-sdk/react";
 import {
   type ChatStatus,
   DefaultChatTransport,
@@ -164,6 +164,10 @@ export function useSessionConversation(opts: {
     generation: number;
     protected: boolean;
     rejoins: number;
+    active: boolean;
+    controller: AbortController;
+    initialMessages: UIMessage[];
+    refresh: ((isAbort: boolean) => void) | null;
     /** The turn whose stream this view last attached to, or set out to. */
     turnId: string | null;
   } => ({
@@ -172,6 +176,10 @@ export function useSessionConversation(opts: {
     generation: 0,
     protected: false,
     rejoins: 0,
+    active: true,
+    controller: new AbortController(),
+    initialMessages,
+    refresh: null,
     turnId: null,
   });
   const sync = useRef(entered());
@@ -185,33 +193,56 @@ export function useSessionConversation(opts: {
 
   const transport = useMemo(() => {
     const { url, headers } = sessionTurnEndpoint(session.id);
-    return new DefaultChatTransport<UIMessage>({
-      api: url,
-      headers,
-      // Send only the new message; the server loads the prior turns. Approval
-      // resumes need only the verdict-bearing parts — retransmitting earlier
-      // tool outputs from the paused turn can exceed the API body limit.
-      prepareSendMessagesRequest: (request) => {
-        protectTranscript();
-        return prepareSessionTurnRequest(request);
+    const http = (viewSignal: AbortSignal) =>
+      new DefaultChatTransport<UIMessage>({
+        api: url,
+        headers,
+        // Send only the new message; the server loads the prior turns. Approval
+        // resumes need only the verdict-bearing parts — retransmitting earlier
+        // tool outputs from the paused turn can exceed the API body limit.
+        prepareSendMessagesRequest: (request) => {
+          protectTranscript();
+          return prepareSessionTurnRequest(request);
+        },
+        // Resume reconnects to the GET stream endpoint, not the POST turn `api`,
+        // naming the transcript this view holds: the server replays only what
+        // follows that revision, so a rejoin can never duplicate a saved step.
+        prepareReconnectToStreamRequest: () => ({
+          api: sessionStreamEndpoint(session.id, transcript.revision),
+        }),
+        // Every stream this view attaches through names its turn. A rejoin can
+        // land on a newer turn than the one it set out for, so the response,
+        // not the request, says which turn the view now holds.
+        fetch: (async (input, init) => {
+          const signal = init?.signal ? AbortSignal.any([init.signal, viewSignal]) : viewSignal;
+          signal.throwIfAborted();
+          const response = await fetch(input, { ...init, signal });
+          signal.throwIfAborted();
+          const attached = response.headers.get(TURN_ID_HEADER);
+          if (attached !== null && sync.current === transcript) transcript.turnId = attached;
+          return response;
+        }) as typeof fetch,
+      });
+    return {
+      // Capture ownership before SDK request preparation yields: cancellation
+      // must also prevent a request that has not reached fetch yet.
+      sendMessages: (...args: Parameters<DefaultChatTransport<UIMessage>["sendMessages"]>) =>
+        http(transcript.controller.signal).sendMessages(...args),
+      reconnectToStream: async (
+        ...args: Parameters<DefaultChatTransport<UIMessage>["reconnectToStream"]>
+      ) => {
+        const signal = transcript.controller.signal;
+        try {
+          return await http(signal).reconnectToStream(...args);
+        } catch (error) {
+          // A detached pending GET never became an active SDK response. Treat it
+          // as no stream, rather than publishing an error after the view left.
+          if (signal.aborted) return null;
+          throw error;
+        }
       },
-      // Resume reconnects to the GET stream endpoint, not the POST turn `api`,
-      // naming the transcript this view holds: the server replays only what
-      // follows that revision, so a rejoin can never duplicate a saved step.
-      prepareReconnectToStreamRequest: () => ({
-        api: sessionStreamEndpoint(session.id, sync.current.revision),
-      }),
-      // Every stream this view attaches through names its turn. A rejoin can
-      // land on a newer turn than the one it set out for, so the response,
-      // not the request, says which turn the view now holds.
-      fetch: (async (input, init) => {
-        const response = await fetch(input, init);
-        const attached = response.headers.get(TURN_ID_HEADER);
-        if (attached !== null && sync.current.id === session.id) sync.current.turnId = attached;
-        return response;
-      }) as typeof fetch,
-    });
-  }, [session.id, protectTranscript]);
+    };
+  }, [session.id, protectTranscript, transcript]);
 
   // Live tool consoles for the in-flight turn. One store per mounted engine,
   // cleared on session entry (below) and again when a turn settles, so a
@@ -219,6 +250,31 @@ export function useSessionConversation(opts: {
   const liveConsoles = useMemo(() => createLiveConsoleStore(), []);
   const [compacting, setCompacting] = useState(false);
 
+  // Own the Chat instance so a detached chat keeps its own callbacks. useChat's
+  // internally created chats otherwise forward to the latest session's callbacks.
+  const chat = useMemo(
+    () =>
+      new Chat<UIMessage>({
+        id: session.id,
+        messages: transcript.initialMessages,
+        transport,
+        onFinish: ({ isAbort }) => {
+          if (transcript.active && sync.current === transcript) transcript.refresh?.(isAbort);
+        },
+        onData: (dataPart) => {
+          if (!transcript.active || sync.current !== transcript) return;
+          const compaction = compactionStatusOf(dataPart);
+          if (compaction !== null) setCompacting(compaction);
+          const update = liveConsoleOf(dataPart);
+          if (update !== null) liveConsoles.set(update.toolCallId, update.snapshot);
+        },
+        sendAutomaticallyWhen: (options) =>
+          transcript.active &&
+          sync.current === transcript &&
+          lastAssistantMessageIsCompleteWithApprovalResponses(options),
+      }),
+    [session.id, transport, transcript, liveConsoles],
+  );
   const {
     messages,
     sendMessage: sendChatMessage,
@@ -228,32 +284,20 @@ export function useSessionConversation(opts: {
     setMessages,
     addToolApprovalResponse,
     resumeStream,
-  } = useChat<UIMessage>({
-    id: session.id,
-    messages: initialMessages,
-    transport,
-    // A stream this view did not stop may have ended short of the turn.
-    onFinish: ({ isAbort }) => {
-      void refreshTranscript({ rejoin: !isAbort });
-    },
-    // Render the growing transcript at most four times a second. Markdown parsing
-    // gets more expensive with every delta, while a quarter-second cadence still
-    // reads as live; status changes use their own unthrottled subscription.
-    experimental_throttle: 250,
-    // Live progress (an executing command's console) rides the stream as
-    // transient data parts: they never join the transcript, so they land in
-    // the side store the tool blocks read — only the block showing a console
-    // re-renders per snapshot.
-    onData: (dataPart) => {
-      const compaction = compactionStatusOf(dataPart);
-      if (compaction !== null) setCompacting(compaction);
-      const update = liveConsoleOf(dataPart);
-      if (update !== null) liveConsoles.set(update.toolCallId, update.snapshot);
-    },
-    // Once every pending tool approval on the latest turn has a verdict, send it
-    // straight back so the turn resumes without another user action.
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-  });
+  } = useChat<UIMessage>({ chat, experimental_throttle: 250 });
+
+  useEffect(() => {
+    transcript.active = true;
+    if (transcript.controller.signal.aborted) transcript.controller = new AbortController();
+    return () => {
+      transcript.active = false;
+      transcript.generation += 1;
+      transcript.turnId = null;
+      transcript.protected = false;
+      void chat.stop();
+      transcript.controller.abort();
+    };
+  }, [chat, transcript]);
 
   // A read begun after streaming ended can release local protection. A turn
   // streaming then is joined from the fresh transcript when it is not the one
@@ -263,6 +307,7 @@ export function useSessionConversation(opts: {
   // only `rejoin` resumes it.
   const refreshTranscript = useCallback(
     async ({ rejoin = false } = {}): Promise<void> => {
+      if (!transcript.active || sync.current !== transcript) return;
       const generation = transcript.generation;
       let detail: Awaited<ReturnType<typeof refreshDetail>>;
       try {
@@ -272,7 +317,8 @@ export function useSessionConversation(opts: {
         // until a later successful refresh rather than applying an older cache.
         return;
       }
-      if (sync.current !== transcript || generation !== transcript.generation) return;
+      if (!transcript.active || sync.current !== transcript || generation !== transcript.generation)
+        return;
       transcript.protected = false;
       if (detail.turnId !== null) {
         const attached = detail.turnId === transcript.turnId;
@@ -294,6 +340,10 @@ export function useSessionConversation(opts: {
     },
     [refreshDetail, resumeStream, setMessages, transcript],
   );
+
+  transcript.refresh = (isAbort) => {
+    void refreshTranscript({ rejoin: !isAbort });
+  };
 
   const sendMessage = useCallback<SessionConversation["sendMessage"]>(
     (...args) => {
@@ -396,7 +446,13 @@ export function useSessionConversation(opts: {
     if (transcriptRevision < transcript.revision) return;
     transcript.turnId = turnId;
     transcript.rejoins = 0;
-    void resumeStream();
+    const generation = transcript.generation;
+    // Let effect cleanup invalidate the join before opening a reader. This also
+    // avoids an abandoned reconnect during StrictMode's setup/cleanup replay.
+    queueMicrotask(() => {
+      if (transcript.active && sync.current === transcript && generation === transcript.generation)
+        void resumeStream();
+    });
   }, [
     streaming,
     transcript,
@@ -473,6 +529,8 @@ export function useSessionConversation(opts: {
   const cancel = useCallback(() => {
     protectTranscript();
     void stop();
+    transcript.controller.abort();
+    transcript.controller = new AbortController();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
     void cancelSession(session.id)
       .catch(() => {})
@@ -480,7 +538,7 @@ export function useSessionConversation(opts: {
     // Stopping mid-call leaves the tool part on "working"; mark it cancelled so
     // the transcript reflects the stop rather than spinning forever.
     setMessages(cancelInFlightTools);
-  }, [stop, session.id, setMessages, protectTranscript, refreshTranscript]);
+  }, [stop, session.id, setMessages, protectTranscript, refreshTranscript, transcript]);
 
   return {
     messages,
