@@ -22,6 +22,7 @@ import {
   getSessionMessages,
   getSessionPreviews,
   getSessionsWithWaitingChildren,
+  getWaitingSessions,
   moveSessionToProject,
   setSessionStatus,
   updateMessage,
@@ -447,6 +448,51 @@ describe("sessions store", () => {
     // Never left unnamed: the short id stands in when there is nothing else.
     expect(labels.get("silent-0000-0000")).toBe("silent-0");
     expect(labels.has("gone")).toBe(false);
+  });
+
+  it("lists only waiting sessions, including workers, with labels and current project names", () => {
+    expect(getWaitingSessions(db)).toEqual([]);
+    db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+    createSession(db, MODEL, {
+      id: "parent",
+      title: "Read the notes",
+      projectId: "p1",
+      startedAt: new Date(1000),
+    });
+    appendMessage(db, "parent", {
+      role: "user",
+      parts: [{ type: "text", text: "Ignored preview" }],
+    });
+    createSession(db, MODEL, {
+      id: "worker",
+      parentSessionId: "parent",
+      parentToolCallId: "call-1",
+      projectId: "p1",
+      startedAt: new Date(2000),
+    });
+    appendMessage(db, "worker", { role: "user", parts: [{ type: "text", text: "Check sources" }] });
+    createSession(db, MODEL, { id: "untitled-session", startedAt: new Date(2000) });
+    for (const id of ["parent", "worker", "untitled-session"]) setSessionStatus(db, id, "waiting");
+    for (const status of ["idle", "running", "failed", "cancelled"] as const) {
+      createSession(db, MODEL, { id: status, startedAt: new Date(3000) });
+      setSessionStatus(db, status, status);
+    }
+
+    expect(getWaitingSessions(db)).toEqual([
+      { id: "worker", label: "Check sources", projectName: "Research", parentSessionId: "parent" },
+      { id: "untitled-session", label: "untitled", projectName: null, parentSessionId: null },
+      { id: "parent", label: "Read the notes", projectName: "Research", parentSessionId: null },
+    ]);
+
+    setSessionStatus(db, "worker", "running");
+    setSessionStatus(db, "untitled-session", "cancelled");
+    db.update(projects).set({ name: "Sources" }).where(eq(projects.id, "p1")).run();
+    expect(getWaitingSessions(db)).toEqual([
+      { id: "parent", label: "Read the notes", projectName: "Sources", parentSessionId: null },
+    ]);
+    setSessionStatus(db, "worker", "idle");
+    deleteSession(db, "parent");
+    expect(getWaitingSessions(db)).toEqual([]);
   });
 
   it("reports each session's last activity as its newest message's timestamp", () => {

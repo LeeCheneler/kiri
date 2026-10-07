@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { and, asc, count, desc, eq, gte, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { SessionOwners } from "../../shared/api/events.ts";
+import type { WaitingSession } from "../../shared/api/sessions.ts";
 import { type ArticleSummary, articleSummariesByOwner } from "../articles/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
@@ -267,6 +268,29 @@ export function getSessionLabels(db: KiriDb, sessionIds: string[]): Map<string, 
     labels.set(id, title ?? previews.get(id) ?? id.slice(0, 8));
   }
   return labels;
+}
+
+/**
+ * List every permission-blocked session, workers included, newest-started first.
+ * Returns labels and project names without loading transcripts or article bodies.
+ */
+export function getWaitingSessions(db: KiriDb): WaitingSession[] {
+  const rows = db
+    .select({
+      id: sessions.id,
+      parentSessionId: sessions.parentSessionId,
+      projectName: projects.name,
+    })
+    .from(sessions)
+    .leftJoin(projects, eq(sessions.projectId, projects.id))
+    .where(eq(sessions.status, "waiting"))
+    .orderBy(desc(sessions.startedAt), desc(sessions.id))
+    .all();
+  const labels = getSessionLabels(
+    db,
+    rows.map((row) => row.id),
+  );
+  return rows.map((row) => ({ ...row, label: labels.get(row.id) ?? row.id.slice(0, 8) }));
 }
 
 /**
