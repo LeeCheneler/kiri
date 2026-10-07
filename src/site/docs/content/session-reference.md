@@ -218,6 +218,18 @@ mcp:
 
 Every field is listed in the [kiri.yaml reference](/docs/kiri-yaml).
 
+Each MCP tool call has a fixed **180-second (3-minute) timeout**. If a server
+stops responding, the timeout ends local waiting and reports a tool error;
+explicit turn cancellation ends waiting too. Neither depends on the server
+cooperating, and late replies cannot change the settled result. Completed
+progress is retained and unrelated calls keep their connection.
+
+A timeout or cancellation does **not** confirm that the external action stopped
+or failed. Kiri signals the SDK to abort but does not send a protocol cancellation
+notification or guarantee that an OAuth HTTP request is aborted individually.
+It does not automatically retry MCP tools; verify an uncertain outcome before
+repeating an action. The timeout is not configurable in `kiri.yaml`.
+
 ## Tool permissions
 
 Every tool has a standing permission — **Always allow**, **Ask** (default),
