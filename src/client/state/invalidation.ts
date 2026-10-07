@@ -24,6 +24,7 @@ import {
   sessionChildrenKey,
   sessionKey,
   sessionsFeedKey,
+  waitingSessionsKey,
   workflowsKey,
 } from "./query-keys.ts";
 
@@ -38,6 +39,7 @@ const projectViews = (projectId: string): QueryKey[] => [projectKey(projectId), 
 const sessionLists = ({ projectId, parentSessionId }: SessionOwners): QueryKey[] => [
   sessionsFeedKey,
   activityFeedKey,
+  waitingSessionsKey,
   ...(projectId !== null ? projectViews(projectId) : []),
   ...(parentSessionId !== null ? [sessionChildrenKey(parentSessionId)] : []),
 ];
@@ -128,6 +130,7 @@ export function queryKeysFor(event: KiriEvent): QueryKey[] {
         projectArticleKey(event.id),
         sessionsFeedKey,
         articleFeedKey,
+        waitingSessionsKey,
       ];
 
     // Its sessions announce their own deletion.

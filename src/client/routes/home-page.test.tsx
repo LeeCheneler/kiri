@@ -9,22 +9,31 @@ import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { SearchProvider } from "../features/search/search-provider.tsx";
 import { createQueryClient } from "../state/query-client.ts";
-import { HomeContent } from "./home-page.tsx";
+import { HomeContent, HomePage } from "./home-page.tsx";
 
-const renderHomePage = () => {
+const renderHomePage = (fullPage = false) => {
   const { hook } = memoryLocation({ path: "/" });
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={hook}>
-        <SearchProvider>
-          <HomeContent />
-        </SearchProvider>
+        <SearchProvider>{fullPage ? <HomePage /> : <HomeContent />}</SearchProvider>
       </Router>
     </QueryClientProvider>,
   );
 };
 
 describe("<HomePage>", () => {
+  it("includes the attention panel with links to blocked sessions", async () => {
+    server.use(
+      http.get("*/api/sessions/waiting", () =>
+        HttpResponse.json({
+          sessions: [{ id: "s1", label: "Read notes", projectName: null, parentSessionId: null }],
+        }),
+      ),
+    );
+    renderHomePage(true);
+    expect(await screen.findByRole("link", { name: "Read notes" })).toBeDefined();
+  });
   it("anchors the page on the Activity breadcrumb", async () => {
     server.use(
       http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),

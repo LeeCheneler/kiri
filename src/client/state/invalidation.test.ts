@@ -67,6 +67,7 @@ const runLists = [
 const ownedSessionLists = [
   ["sessions", "feed"],
   ["activity", "feed"],
+  ["sessions", "waiting"],
   ["project", "p1"],
   ["projects"],
   ["session-children", "parent"],
@@ -124,6 +125,7 @@ const EXPECTED: Record<KiriEventType, QueryKey[]> = {
     ["project-article", "p1"],
     ["sessions", "feed"],
     ["activity", "articles"],
+    ["sessions", "waiting"],
   ],
   "project.deleted": [
     ["project", "p1"],
@@ -160,6 +162,7 @@ describe("queryKeysFor", () => {
         ["session", "s1"],
         ["sessions", "feed"],
         ["activity", "feed"],
+        ["sessions", "waiting"],
       ],
     );
   });
