@@ -61,8 +61,10 @@ Ask it to look across the workspace when the answer is elsewhere.
 
 ## Continue later
 
-Sessions stay in your activity feed. Reopen one to continue; reloading the
-page during a reply rejoins it live. If a reply fails, saved progress remains.
+Sessions stay in your activity feed. Leaving or reloading the page during a
+reply releases its live connection, not the assistant's work. Reopen the
+session to rejoin saved and live progress. Keep Kiri running; use cancellation
+to stop a turn. If a reply fails, saved progress remains.
 See [Troubleshooting](/docs/troubleshooting#a-session-failed-after-doing-some-work)
 if you need to recover unfinished work.
 

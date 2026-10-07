@@ -11,8 +11,10 @@ MCP server you add. Most work can stay in a session. When you want automation,
 you can explicitly ask it to [create a workflow](#authoring-workflows).
 
 You can swap a session's model mid-conversation — it applies from the next
-turn — and a streaming turn survives a page reload: reopening the session
-rejoins it live.
+turn. Leaving or reloading the page, switching sessions, or collapsing a
+worker transcript releases that view's live connection without stopping the
+turn or other open views. Reopening rejoins saved and live progress; use
+explicit cancellation when you want to stop the turn.
 
 A message you send while a turn is running is queued and reaches the
 assistant at its next work step, as a course correction to the work in
