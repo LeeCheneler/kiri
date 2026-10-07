@@ -10,8 +10,8 @@ type RegistryTool = ToolSet[string];
 const MAX_OUTPUT_BYTES = 128 * 1024;
 
 // Time budget for a single tool call. A tool that walks an enormous tree (or
-// hangs) would otherwise wedge the turn indefinitely; past the budget the call
-// is aborted and surfaced as a tool error the model can react to.
+// hangs) would otherwise wedge the turn indefinitely; past the budget local
+// waiting ends and the SDK is signalled to abort. The external outcome is unknown.
 const TIMEOUT_MS = 180_000;
 
 const TRUNCATION_MARKER = "\n[truncated — result too large]";
@@ -89,9 +89,10 @@ function shapeResult(output: unknown, maxBytes: number): unknown {
  * `content` text (the model needs only one copy), and the result is capped at
  * `maxBytes` — the structured object when it fits, otherwise the `content` text
  * truncated with a marker. The call is given a `timeoutMs` budget; a call that
- * exceeds it is aborted and rejects with a tool error the model can recover from,
- * while the caller's own cancellation passes through unchanged. A tool with no
- * `execute` (never run by the model) is returned as-is.
+ * exceeds it rejects locally even if the SDK ignores abort, while the caller's
+ * own cancellation reason passes through unchanged. Both signal the SDK to abort
+ * but do not confirm the external action stopped. A tool with no `execute` is
+ * returned as-is.
  */
 export function boundMcpTool(toolDef: RegistryTool, options: BoundToolOptions = {}): RegistryTool {
   const original = toolDef.execute;
@@ -100,20 +101,36 @@ export function boundMcpTool(toolDef: RegistryTool, options: BoundToolOptions = 
 
   const execute = async (...args: Parameters<NonNullable<RegistryTool["execute"]>>) => {
     const [input, opts] = args;
-    // The budget rides the same abort signal the model uses to cancel, so a
-    // timeout actually aborts the underlying MCP request rather than orphaning it.
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const abortSignal = opts.abortSignal ? AbortSignal.any([opts.abortSignal, timeout]) : timeout;
+    opts.abortSignal?.throwIfAborted();
+    const controller = new AbortController();
+    const cancelled = Promise.withResolvers<never>();
+    const onAbort = () => cancelled.reject(controller.signal.reason);
+    const onCancel = () => controller.abort(opts.abortSignal?.reason);
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+    opts.abortSignal?.addEventListener("abort", onCancel, { once: true });
+    const timer = setTimeout(() => {
+      controller.abort(
+        new Error(
+          `Tool call exceeded the ${Math.round(timeoutMs / 1000)}s time budget. Its external outcome is unknown; verify before retrying.`,
+        ),
+      );
+    }, timeoutMs);
+
     try {
-      const output = await original(input, { ...opts, abortSignal });
+      // Local settlement must not depend on the SDK or server observing abort.
+      // The race also handles late rejection without reviving the settled call.
+      const output = await Promise.race([
+        cancelled.promise,
+        Promise.resolve().then(() => {
+          controller.signal.throwIfAborted();
+          return original(input, { ...opts, abortSignal: controller.signal });
+        }),
+      ]);
       return shapeResult(output, maxBytes);
-    } catch (cause) {
-      // The budget fired and the caller didn't cancel: report it as a tool error
-      // so the model can continue. A real cancellation rethrows untouched.
-      if (timeout.aborted && !opts.abortSignal?.aborted) {
-        throw new Error(`Tool call exceeded the ${Math.round(timeoutMs / 1000)}s time budget.`);
-      }
-      throw cause;
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", onAbort);
+      opts.abortSignal?.removeEventListener("abort", onCancel);
     }
   };
 

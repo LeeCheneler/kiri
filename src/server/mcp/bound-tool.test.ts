@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { type ToolExecutionOptions, type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { boundMcpTool } from "./bound-tool.ts";
@@ -19,6 +19,18 @@ const run = (t: ToolSet[string], opts: Partial<ToolExecutionOptions> = {}): Prom
     messages: [],
     ...opts,
   } as ToolExecutionOptions);
+
+async function within(pending: Promise<unknown>): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const watchdog = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("Tool did not settle within 500ms")), 500);
+  });
+  try {
+    return await Promise.race([pending, watchdog]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 describe("boundMcpTool", () => {
   it("returns a tool with no execute unchanged", () => {
@@ -96,6 +108,120 @@ describe("boundMcpTool", () => {
         }),
     );
     await expect(run(boundMcpTool(hangs, { timeoutMs: 20 }))).rejects.toThrow(/time budget/);
+  });
+
+  it("settles at its deadline even when execute ignores the abort signal", async () => {
+    const hangs = makeTool(() => new Promise(() => {}));
+    await expect(within(run(boundMcpTool(hangs, { timeoutMs: 20 })))).rejects.toThrow(
+      /time budget/,
+    );
+  });
+
+  it("settles on cancellation even when execute ignores the abort signal", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled by user");
+    const started = Promise.withResolvers<void>();
+    const pending = run(
+      boundMcpTool(
+        makeTool(() => {
+          started.resolve();
+          return new Promise(() => {});
+        }),
+      ),
+      { abortSignal: controller.signal },
+    );
+    await started.promise;
+    controller.abort(reason);
+    await expect(within(pending)).rejects.toBe(reason);
+  });
+
+  it("does not start an already-cancelled call", async () => {
+    const original = mock(async () => "not run");
+    const reason = new Error("already cancelled");
+    await expect(
+      run(boundMcpTool(makeTool(original)), {
+        abortSignal: AbortSignal.abort(reason),
+      }),
+    ).rejects.toBe(reason);
+    expect(original).not.toHaveBeenCalled();
+  });
+
+  it("cleans up after a successful call and preserves its result after later cancellation", async () => {
+    const controller = new AbortController();
+    const remove = mock(controller.signal.removeEventListener.bind(controller.signal));
+    controller.signal.removeEventListener = remove;
+    let requestSignal: AbortSignal | undefined;
+    const result = await run(
+      boundMcpTool(
+        makeTool(async (_input, opts) => {
+          requestSignal = opts.abortSignal;
+          return "completed";
+        }),
+        { timeoutMs: 20 },
+      ),
+      { abortSignal: controller.signal },
+    );
+    controller.abort();
+    expect(result).toBe("completed");
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    // Advance beyond the former deadline to prove the timer was cleared too.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(requestSignal?.aborted).toBe(false);
+  });
+
+  it("preserves ordinary synchronous and asynchronous tool failures", async () => {
+    const reason = new Error("tool failed");
+    for (const original of [
+      () => {
+        throw reason;
+      },
+      async () => {
+        throw reason;
+      },
+    ]) {
+      await expect(run(boundMcpTool(makeTool(original)))).rejects.toBe(reason);
+    }
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "ignores a late %s after cancellation",
+    async (ending) => {
+      const started = Promise.withResolvers<void>();
+      const result = Promise.withResolvers<unknown>();
+      const controller = new AbortController();
+      const reason = new Error("cancelled first");
+      const pending = run(
+        boundMcpTool(
+          makeTool(() => {
+            started.resolve();
+            return result.promise;
+          }),
+        ),
+        { abortSignal: controller.signal },
+      );
+      await started.promise;
+      controller.abort(reason);
+      await expect(within(pending)).rejects.toBe(reason);
+      if (ending === "resolve") result.resolve("too late");
+      else result.reject(new Error("late failure"));
+      await expect(pending).rejects.toBe(reason);
+    },
+  );
+
+  it("keeps a timeout outcome when the caller cancels afterwards", async () => {
+    const controller = new AbortController();
+    const pending = run(
+      boundMcpTool(
+        makeTool(() => new Promise(() => {})),
+        { timeoutMs: 20 },
+      ),
+      {
+        abortSignal: controller.signal,
+      },
+    );
+    await expect(within(pending)).rejects.toThrow(/time budget/);
+    controller.abort(new Error("cancelled later"));
+    await expect(pending).rejects.toThrow(/time budget/);
   });
 
   it("passes the caller's cancellation through", async () => {

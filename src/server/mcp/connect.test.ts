@@ -33,12 +33,14 @@ describe("connectMcpServer", () => {
     };
     await connectMcpServer(server, { FS_TOKEN: "secret" }, cap.create);
     expect(cap.config().transport).toBeInstanceOf(Experimental_StdioMCPTransport);
+    expect(cap.config().maxRetries).toBe(0);
   });
 
   it("builds a stdio transport for a server with no env", async () => {
     const cap = capturing();
     await connectMcpServer({ name: "x", type: "stdio", command: "server" }, {}, cap.create);
     expect(cap.config().transport).toBeInstanceOf(Experimental_StdioMCPTransport);
+    expect(cap.config().maxRetries).toBe(0);
   });
 
   it("builds an http transport, resolving header values from the environment", async () => {
