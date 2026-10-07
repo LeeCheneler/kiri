@@ -104,6 +104,17 @@ export function boundMcpResult(output: unknown, bounds: McpResultBounds): unknow
     resultBytes = jsonBytes(envelope);
   }
 
+  const imageFramingBytes = content.map((part) =>
+    isRecord(part) && part.type === "image" && imageFits(part, maxImageBytes)
+      ? jsonBytes({ type: "image", data: "", mimeType: part.mimeType })
+      : 0,
+  );
+  // Reserve required image framing so text truncation cannot consume its data allowance.
+  let reservedImageBytes = Math.min(
+    maxBytes - textBytes,
+    imageFramingBytes.reduce((sum, size) => sum + size, 0),
+  );
+
   const parts: unknown[] = [];
   const sizes: number[] = [];
   const add = (part: unknown, size: number): boolean => {
@@ -115,7 +126,7 @@ export function boundMcpResult(output: unknown, bounds: McpResultBounds): unknow
     return true;
   };
 
-  for (const part of content) {
+  for (const [index, part] of content.entries()) {
     if (
       envelope.structuredContent !== undefined &&
       isRecord(part) &&
@@ -125,12 +136,30 @@ export function boundMcpResult(output: unknown, bounds: McpResultBounds): unknow
       continue;
     }
     if (isRecord(part) && part.type === "image") {
-      if (!imageFits(part, maxImageBytes) || !add(part, jsonBytes(part))) omitted = true;
+      const framingBytes = imageFramingBytes[index] as number;
+      reservedImageBytes -= Math.min(reservedImageBytes, framingBytes);
+      if (framingBytes === 0) {
+        omitted = true;
+        continue;
+      }
+
+      const remainingDataBytes = maxBytes - textBytes - reservedImageBytes;
+      // Only base64 is exempt from the data budget, not annotations or arbitrary metadata.
+      const dataBytes = jsonBytes({ ...part, data: "" });
+      if (dataBytes <= remainingDataBytes && add(part, jsonBytes(part))) {
+        textBytes += dataBytes;
+      } else {
+        const image = { type: "image", data: part.data, mimeType: part.mimeType };
+        if (framingBytes <= remainingDataBytes && add(image, jsonBytes(image))) {
+          textBytes += framingBytes;
+        }
+        omitted = true;
+      }
       continue;
     }
     const size = jsonBytes(part);
     const remaining = Math.min(
-      maxBytes - textBytes,
+      maxBytes - textBytes - reservedImageBytes,
       maxResultBytes - resultBytes - (parts.length > 0 ? 1 : 0),
     );
     if (size <= remaining) {

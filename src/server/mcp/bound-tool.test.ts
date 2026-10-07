@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { type ToolExecutionOptions, type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { boundMcpTool } from "./bound-tool.ts";
@@ -188,6 +189,148 @@ describe("boundMcpTool", () => {
         expect(JSON.stringify(output)).toMatch(/omitted|truncated/);
         expect(JSON.stringify(output)).not.toContain("A".repeat(2048));
       }
+    });
+
+    it("omits SDK-valid oversized image metadata while preserving the image", async () => {
+      const screenshot = image(3);
+      const notes = "x".repeat(2 * 1024 * 1024);
+      const result = CallToolResultSchema.parse({
+        content: [{ ...screenshot, _meta: { notes } }],
+      });
+      expect(result.content[0]).toHaveProperty("_meta.notes", notes);
+      const before = JSON.stringify(result);
+
+      const output = await bounded(result);
+      expect(output).toEqual({
+        content: [
+          screenshot,
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringContaining("omitted"),
+          }),
+        ],
+      });
+      expect(JSON.stringify(output)).not.toContain(notes);
+      expect(jsonBytes(output)).toBeLessThanOrEqual(128 * 1024);
+      expect(JSON.stringify(result)).toBe(before);
+    });
+
+    it("counts encoded image metadata at the exact data boundary", async () => {
+      const screenshot = image(3);
+      const withMetadata = { ...screenshot, _meta: { notes: '"\\\\\n😀' } };
+      const dataBytes = jsonBytes({ ...withMetadata, data: "" });
+      expect(await bounded({ content: [withMetadata] }, { maxBytes: dataBytes })).toEqual({
+        content: [withMetadata],
+      });
+      const output = await bounded({ content: [withMetadata] }, { maxBytes: dataBytes - 1 });
+      expect(output).toEqual({
+        content: [
+          screenshot,
+          expect.objectContaining({
+            text: expect.stringContaining("omitted"),
+          }),
+        ],
+      });
+    });
+
+    it("counts required image framing and omits images when even that cannot fit", async () => {
+      const screenshot = image(3);
+      const dataBytes = jsonBytes({ ...screenshot, data: "" });
+      expect(await bounded({ content: [screenshot] }, { maxBytes: dataBytes })).toEqual({
+        content: [screenshot],
+      });
+      const output = await bounded({ content: [screenshot] }, { maxBytes: dataBytes - 1 });
+      expect(output).toEqual({
+        content: [
+          expect.objectContaining({
+            text: expect.stringContaining("omitted"),
+          }),
+        ],
+      });
+    });
+
+    it("reserves framing for later images instead of spending it on earlier metadata", async () => {
+      const first = image(3);
+      const second = image(6);
+      const dataBytes = jsonBytes({ ...first, data: "" }) + jsonBytes({ ...second, data: "" });
+      const output = await bounded(
+        { content: [{ ...first, _meta: { notes: "optional" } }, second] },
+        { maxBytes: dataBytes },
+      );
+      expect(output).toEqual({
+        content: [
+          first,
+          second,
+          expect.objectContaining({ text: expect.stringContaining("omitted") }),
+        ],
+      });
+    });
+
+    it("omits oversized required image fields without blocking a later fitting image", async () => {
+      const screenshot = image(3);
+      const output = await bounded(
+        {
+          content: [{ ...screenshot, mimeType: `image/${"x".repeat(1024)}` }, screenshot],
+        },
+        { maxBytes: 128 },
+      );
+      expect(output).toEqual({
+        content: [
+          screenshot,
+          expect.objectContaining({ text: expect.stringContaining("omitted") }),
+        ],
+      });
+    });
+
+    it("shares the data budget across image metadata, text, structured data and envelope metadata", async () => {
+      const first = { ...image(3), _meta: { notes: '"\\\\\n😀'.repeat(8) } };
+      const second = { ...image(6), annotations: { priority: 1 }, extra: "x".repeat(1024) };
+      const output = await bounded(
+        {
+          _meta: { trace: "ok" },
+          structuredContent: { title: "Capture" },
+          content: [
+            { type: "text", text: "Before" },
+            first,
+            second,
+            { type: "text", text: "tail".repeat(1000) },
+          ],
+        },
+        { maxBytes: 384 },
+      );
+      const result = output as {
+        _meta: unknown;
+        structuredContent: unknown;
+        content: Record<string, unknown>[];
+      };
+      const retained = result.content.filter((part) => !String(part.text).startsWith("[omitted"));
+      const bytes = retained.reduce(
+        (sum, part) => sum + jsonBytes(part.type === "image" ? { ...part, data: "" } : part),
+        jsonBytes({ _meta: result._meta }) - 2 + jsonBytes(result.structuredContent),
+      );
+      expect(bytes).toBeLessThanOrEqual(384);
+      expect(result.content).toContainEqual(first);
+      expect(result.content).toContainEqual(image(6));
+      expect(JSON.stringify(result)).toContain("omitted");
+      expect(JSON.stringify(result)).toContain("truncated");
+      expect(JSON.stringify(result)).not.toContain("x".repeat(1024));
+    });
+
+    it("preserves the image after dropping metadata that only exceeds the combined budget", async () => {
+      const screenshot = image(48);
+      const output = await bounded(
+        { content: [{ ...screenshot, _meta: { notes: "x".repeat(256) } }] },
+        { maxBytes: 1024, maxResultBytes: 256 },
+      );
+      expect(output).toEqual({
+        content: [
+          screenshot,
+          expect.objectContaining({
+            text: expect.stringContaining("omitted"),
+          }),
+        ],
+      });
+      expect(jsonBytes(output)).toBeLessThanOrEqual(256);
     });
 
     it("bounds aggregate encoded text including JSON escaping and metadata", async () => {
