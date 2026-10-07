@@ -938,6 +938,51 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("GET /api/sessions/waiting", () => {
+    it("returns all waiting sessions and workers even beyond the feed's first page", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(env.db, MODEL, {
+        id: "parent",
+        title: "Read notes",
+        projectId: "p1",
+        startedAt: new Date(1000),
+      });
+      createSession(env.db, MODEL, {
+        id: "worker",
+        title: "Check sources",
+        projectId: "p1",
+        parentSessionId: "parent",
+        parentToolCallId: "call-1",
+        startedAt: new Date(2000),
+      });
+      setSessionStatus(env.db, "parent", "waiting");
+      setSessionStatus(env.db, "worker", "waiting");
+      for (let i = 0; i < 26; i++) {
+        createSession(env.db, MODEL, { id: `recent-${i}`, startedAt: new Date(3000 + i) });
+      }
+      const app = makeApp(fakeClients());
+
+      const response = await app.request("/api/sessions/waiting");
+      expect(response.status).toBe(200);
+      const result: sessionsApi.WaitingSessionsResult = await response.json();
+      expect(result).toEqual({
+        sessions: [
+          {
+            id: "worker",
+            label: "Check sources",
+            projectName: "Research",
+            parentSessionId: "parent",
+          },
+          { id: "parent", label: "Read notes", projectName: "Research", parentSessionId: null },
+        ],
+      });
+
+      setSessionStatus(env.db, "parent", "running");
+      setSessionStatus(env.db, "worker", "idle");
+      expect(await (await app.request("/api/sessions/waiting")).json()).toEqual({ sessions: [] });
+    });
+  });
+
   describe("GET /api/sessions/:id", () => {
     it("returns the session and its messages", async () => {
       const model = streamingModel([

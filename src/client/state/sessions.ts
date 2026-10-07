@@ -15,17 +15,33 @@ import {
   type SessionEffort,
   type SessionInboxItem,
   type SessionListEntry,
+  type WaitingSession,
   fetchModels,
   fetchSession,
   fetchSessionChildren,
   fetchSessionsPage,
+  fetchWaitingSessions,
   moveSessionToProject,
   patchSessionEffort,
   patchSessionImageModel,
   patchSessionModel,
   patchSessionTitle,
 } from "../api.ts";
-import { modelsKey, sessionChildrenKey, sessionKey, sessionsFeedKey } from "./query-keys.ts";
+import {
+  modelsKey,
+  sessionChildrenKey,
+  sessionKey,
+  sessionsFeedKey,
+  waitingSessionsKey,
+} from "./query-keys.ts";
+
+/** Read every permission-blocked session; LiveSync refreshes on lifecycle events and reconnect. */
+export function useWaitingSessions(): UseQueryResult<WaitingSession[]> {
+  return useQuery({
+    queryKey: waitingSessionsKey,
+    queryFn: ({ signal }) => fetchWaitingSessions(signal),
+  });
+}
 
 /** Page size for the session feed; mirrors the server's default. */
 const FEED_PAGE_SIZE = 25;

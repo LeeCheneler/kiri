@@ -10,6 +10,7 @@ const defaultHandlers = [
   http.get("*/api/config/health", () => HttpResponse.json({ checks: [] })),
   http.get("*/api/mcp/servers", () => HttpResponse.json({ servers: [] })),
   http.get("*/api/sessions", () => HttpResponse.json({ sessions: [], nextCursor: null })),
+  http.get("*/api/sessions/waiting", () => HttpResponse.json({ sessions: [] })),
   // `useChat`'s resume polls this on mount; default to "no live turn to rejoin".
   http.get("*/api/sessions/:id/stream", () => new HttpResponse(null, { status: 204 })),
   // The chat and session reader resolve `[[slug]]` links against this; default

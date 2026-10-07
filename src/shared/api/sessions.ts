@@ -86,6 +86,21 @@ export interface SessionsPage {
   nextCursor: string | null;
 }
 
+/** A session blocked on a permission decision, including delegated workers. */
+export interface WaitingSession {
+  id: string;
+  /** Display title, else opening message, else short id. */
+  label: string;
+  projectName: string | null;
+  /** Non-null for a delegated worker; its own id opens the approval surface. */
+  parentSessionId: string | null;
+}
+
+/** All permission-blocked sessions, newest-started first, independent of feed pagination. */
+export interface WaitingSessionsResult {
+  sessions: WaitingSession[];
+}
+
 /** A message queued in a session's inbox, awaiting delivery at a turn boundary. */
 export interface SessionInboxItem {
   id: string;

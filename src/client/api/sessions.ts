@@ -11,6 +11,8 @@ import type {
   SuggestedRepliesResult,
   TranscriptMutationResult,
   TranscriptionResult,
+  WaitingSession,
+  WaitingSessionsResult,
 } from "../../shared/api/sessions.ts";
 import type * as requests from "../../shared/api/sessions.ts";
 
@@ -35,6 +37,10 @@ export const fetchSessionsPage = async (opts: PageQuery = {}): Promise<SessionsP
   const qs = params.toString();
   return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
 };
+
+/** Fetch all sessions waiting for permission, workers included. Throws on non-2xx. */
+export const fetchWaitingSessions = async (signal?: AbortSignal): Promise<WaitingSession[]> =>
+  (await json<WaitingSessionsResult>(await apiFetch("/api/sessions/waiting", { signal }))).sessions;
 
 /** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
 export const fetchSession = async (id: string, signal?: AbortSignal): Promise<SessionDetail> =>

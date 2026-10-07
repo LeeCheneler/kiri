@@ -94,6 +94,9 @@ export const sessionChildrenKey = (id: string) => ["session-children", id] as co
 /** The paged session list. */
 export const sessionsFeedKey = ["sessions", "feed"] as const;
 
+/** All sessions blocked on permission decisions, including workers. */
+export const waitingSessionsKey = ["sessions", "waiting"] as const;
+
 /** The workflow registry. */
 export const workflowsKey = ["workflows"] as const;
 

@@ -49,6 +49,18 @@ directory and worker history, or move or delete it. Running workers and workers
 waiting for approval also appear in the sidebar; settled workers stay in Details.
 Context usage and model-provider notices appear beside the message composer.
 
+## Permissions needing attention
+
+The Activity home page's **Needs attention** list shows sessions and delegated
+workers waiting for a permission decision. It sits on the right on desktop,
+and below the feed on smaller screens. Open an item to review the call and
+allow or deny it inside the session.
+
+The list updates live across open tabs: resolving a permission in one tab
+removes it from the others without reloading. Reconnecting catches changes
+missed while disconnected. If a refresh fails, the last list stays visible
+with a warning and **Retry**.
+
 ## Finding prior work
 
 Press **⌘K** to search your saved work, or ask the assistant:

@@ -2,6 +2,7 @@ import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ActivityFeed } from "../features/activity-feed/activity-feed.tsx";
 import { ConfigHealthPanel } from "../features/config-health/config-health-panel.tsx";
 import { McpStatusPanel } from "../features/mcp/mcp-status-panel.tsx";
+import { NeedsAttentionPanel } from "../features/needs-attention/needs-attention-panel.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SearchTrigger } from "../features/search/search-trigger.tsx";
@@ -13,7 +14,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
 export function HomePage() {
   usePageTitle("Activity");
   return (
-    <PageShell left={<SiteNav />}>
+    <PageShell left={<SiteNav />} right={<NeedsAttentionPanel />}>
       <HomeContent />
     </PageShell>
   );

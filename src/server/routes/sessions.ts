@@ -46,6 +46,7 @@ import {
   getSessionLabels,
   getSessionLastActivity,
   getSessionMessages,
+  getWaitingSessions,
   pendingInboxItems,
   transcribeDraft,
   updateSessionSettings,
@@ -347,6 +348,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         nextCursor,
       } satisfies sessionsApi.SessionsPage);
     },
+  );
+
+  app.get("/sessions/waiting", (c) =>
+    c.json({ sessions: getWaitingSessions(db) } satisfies sessionsApi.WaitingSessionsResult),
   );
 
   app.get(
