@@ -49,8 +49,8 @@ export function projectToolOutput(name: string, output: unknown): unknown {
 /**
  * Project a live or historical result identically, without needing its tool
  * to remain connected. Strips built-in app-only payloads and preserves MCP
- * text/image content; other results become text or JSON. Tool errors are
- * reported separately by the SDK.
+ * text/image content, structured data, and reported error status; other results
+ * become text or JSON. Execution failures are reported separately by the SDK.
  */
 export function toolModelOutput(name: string, output: unknown): ProjectedToolOutput {
   const projected = projectToolOutput(name, output);
@@ -63,26 +63,36 @@ export function toolModelOutput(name: string, output: unknown): ProjectedToolOut
   ) {
     // Match the MCP adapter's content representation on both sides of a turn
     // boundary; wrapping historical content in JSON changes the cached prefix.
-    return {
-      type: "content",
-      value: projected.content.map((part: unknown) => {
-        if (part !== null && typeof part === "object" && "type" in part) {
-          if (part.type === "text" && "text" in part && typeof part.text === "string") {
-            return { type: "text", text: part.text };
-          }
-          if (
-            part.type === "image" &&
-            "data" in part &&
-            typeof part.data === "string" &&
-            "mimeType" in part &&
-            typeof part.mimeType === "string"
-          ) {
-            return { type: "image-data", data: part.data, mediaType: part.mimeType };
-          }
+    const structured =
+      "structuredContent" in projected && projected.structuredContent != null
+        ? JSON.stringify(projected.structuredContent)
+        : undefined;
+    const value: Extract<ProjectedToolOutput, { type: "content" }>["value"] = [];
+    if ("isError" in projected && projected.isError === true) {
+      value.push({ type: "text", text: "[MCP tool reported an error]" });
+    }
+    if (structured !== undefined) value.push({ type: "text", text: structured });
+    for (const part of projected.content) {
+      if (part !== null && typeof part === "object" && "type" in part) {
+        if (part.type === "text" && "text" in part && typeof part.text === "string") {
+          // Old transcripts may still carry the duplicate alongside structured data.
+          if (part.text !== structured) value.push({ type: "text", text: part.text });
+          continue;
         }
-        return { type: "text", text: JSON.stringify(part) ?? "null" };
-      }),
-    };
+        if (
+          part.type === "image" &&
+          "data" in part &&
+          typeof part.data === "string" &&
+          "mimeType" in part &&
+          typeof part.mimeType === "string"
+        ) {
+          value.push({ type: "image-data", data: part.data, mediaType: part.mimeType });
+          continue;
+        }
+      }
+      value.push({ type: "text", text: JSON.stringify(part) ?? "null" });
+    }
+    return { type: "content", value };
   }
   if (typeof projected === "string") return { type: "text", value: projected };
   return { type: "json", value: (projected ?? null) as JSONValue };

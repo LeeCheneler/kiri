@@ -175,15 +175,16 @@ describe("MCP output in live OpenAI-compatible requests and persisted replay", (
     );
   });
 
-  it("replays the lean structured object shaped by boundMcpTool", async () => {
+  it("replays structured data exactly once while retaining its saved envelope", async () => {
     const data = { results: [{ id: 1, label: "hello" }] };
     const result = await captureReplay({
       content: [{ type: "text", text: JSON.stringify(data) }],
       structuredContent: data,
     });
     expect(result.liveMessages.find((message) => message.role === "tool")?.content).toBe(
-      JSON.stringify(data),
+      JSON.stringify([{ type: "text", text: JSON.stringify(data) }]),
     );
+    expect(JSON.stringify(result.saved)).toContain('"structuredContent"');
   });
 
   it("replays capped MCP content when the structured object exceeds its bound", async () => {
@@ -192,11 +193,14 @@ describe("MCP output in live OpenAI-compatible requests and persisted replay", (
         content: [{ type: "text", text: "x".repeat(100) }],
         structuredContent: { blob: "y".repeat(100) },
       },
-      12,
+      80,
     );
-    expect(result.liveMessages.find((message) => message.role === "tool")?.content).toBe(
-      JSON.stringify([{ type: "text", text: `${"x".repeat(12)}\n[truncated — result too large]` }]),
-    );
+    const content = JSON.parse(
+      String(result.liveMessages.find((message) => message.role === "tool")?.content),
+    ) as { type: string; text: string }[];
+    expect(content[0]?.text).toMatch(/^x+\n\[truncated — result too large\]$/);
+    expect(Buffer.byteLength(JSON.stringify(content[0]))).toBeLessThanOrEqual(80);
+    expect(JSON.stringify(content)).not.toContain("y".repeat(100));
   });
 
   it("preserves image bytes and media type after serializing UI parts and replaying without the tool", async () => {
