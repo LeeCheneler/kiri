@@ -266,6 +266,42 @@ describe("boundMcpTool", () => {
       });
     });
 
+    it("preserves later image framing after a combined-budget rejection before text", async () => {
+      const structuredContent = {
+        notes: "x".repeat(128 * 1024 - 180 - jsonBytes({ notes: "" })),
+      };
+      const retained = image(10 * 1024 * 1024);
+      const rejected = image(3 * 1024 * 1024);
+      const smallImages = [image(3), image(6)];
+      const explanation = { type: "text", text: "explanation here" };
+
+      for (const tail of [
+        [explanation, ...smallImages],
+        [...smallImages, explanation],
+      ]) {
+        const output = (await bounded({
+          structuredContent,
+          content: [retained, rejected, ...tail],
+        })) as { structuredContent: unknown; content: Record<string, unknown>[] };
+        const images = output.content.filter((part) => part.type === "image");
+        expect(images).toHaveLength(3);
+        expect(images[0]).toBe(retained);
+        for (const small of smallImages) expect(images).toContainEqual(small);
+        expect(images.some((part) => part.data === rejected.data)).toBe(false);
+        expect(output.structuredContent).toEqual(structuredContent);
+        expect(JSON.stringify(output)).toContain("omitted");
+        expect(jsonBytes(output)).toBeLessThanOrEqual(15 * 1024 * 1024);
+        const dataBytes = output.content.reduce(
+          (sum, part) =>
+            String(part.text).startsWith("[omitted")
+              ? sum
+              : sum + jsonBytes(part.type === "image" ? { ...part, data: "" } : part),
+          jsonBytes(structuredContent),
+        );
+        expect(dataBytes).toBeLessThanOrEqual(128 * 1024);
+      }
+    });
+
     it("omits oversized required image fields without blocking a later fitting image", async () => {
       const screenshot = image(3);
       const output = await bounded(

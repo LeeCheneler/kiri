@@ -109,11 +109,8 @@ export function boundMcpResult(output: unknown, bounds: McpResultBounds): unknow
       ? jsonBytes({ type: "image", data: "", mimeType: part.mimeType })
       : 0,
   );
-  // Reserve required image framing so text truncation cannot consume its data allowance.
-  let reservedImageBytes = Math.min(
-    maxBytes - textBytes,
-    imageFramingBytes.reduce((sum, size) => sum + size, 0),
-  );
+  // Keep the total uncapped so a rejected image cannot release later images' allowance.
+  let remainingImageFramingBytes = imageFramingBytes.reduce((sum, size) => sum + size, 0);
 
   const parts: unknown[] = [];
   const sizes: number[] = [];
@@ -127,6 +124,12 @@ export function boundMcpResult(output: unknown, bounds: McpResultBounds): unknow
   };
 
   for (const [index, part] of content.entries()) {
+    const framingBytes = imageFramingBytes[index] as number;
+    const reservedImageBytes = Math.max(
+      0,
+      Math.min(maxBytes - textBytes, remainingImageFramingBytes) - framingBytes,
+    );
+    remainingImageFramingBytes -= framingBytes;
     if (
       envelope.structuredContent !== undefined &&
       isRecord(part) &&
@@ -136,8 +139,6 @@ export function boundMcpResult(output: unknown, bounds: McpResultBounds): unknow
       continue;
     }
     if (isRecord(part) && part.type === "image") {
-      const framingBytes = imageFramingBytes[index] as number;
-      reservedImageBytes -= Math.min(reservedImageBytes, framingBytes);
       if (framingBytes === 0) {
         omitted = true;
         continue;
