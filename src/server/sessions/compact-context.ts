@@ -44,6 +44,23 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
       ...message,
       content: message.content.map((contentPart) => {
         const part = { ...contentPart, providerOptions: undefined };
+        if (part.type === "tool-result" && part.output.type === "content") {
+          return {
+            ...part,
+            output: {
+              ...part.output,
+              value: part.output.value.map((contentPart) => {
+                const content = { ...contentPart, providerOptions: undefined };
+                if (content.type !== "image-data") return content;
+                images.push({ type: "image", image: content.data, mediaType: content.mediaType });
+                return {
+                  type: "text" as const,
+                  text: `[Tool image ${images.length}; supplied after the transcript in numbered order]`,
+                };
+              }),
+            },
+          };
+        }
         if (
           message.role !== "tool" &&
           (part.type === "image" || (part.type === "file" && part.mediaType.startsWith("image/")))
