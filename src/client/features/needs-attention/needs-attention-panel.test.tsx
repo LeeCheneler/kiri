@@ -12,6 +12,7 @@ import type { WaitingSession } from "../../../shared/api/sessions.ts";
 import { LiveEventsProvider } from "../../events/live.tsx";
 import { LiveSync } from "../../state/live-sync.tsx";
 import { createQueryClient } from "../../state/query-client.ts";
+import { waitingSessionsKey } from "../../state/query-keys.ts";
 import { NeedsAttentionPanel } from "./needs-attention-panel.tsx";
 
 const session: WaitingSession = {
@@ -25,8 +26,9 @@ const owners = { projectId: "p1", parentSessionId: "parent" };
 function renderPanel() {
   const events = captureEventSources();
   const location = memoryLocation({ path: "/", record: true });
+  const queryClient = createQueryClient();
   const view = render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <LiveEventsProvider factory={events.factory}>
         <LiveSync />
         <Router hook={location.hook}>
@@ -35,7 +37,7 @@ function renderPanel() {
       </LiveEventsProvider>
     </QueryClientProvider>,
   );
-  return { ...view, ...events, location };
+  return { ...view, ...events, location, queryClient };
 }
 
 describe("NeedsAttentionPanel", () => {
@@ -86,13 +88,25 @@ describe("NeedsAttentionPanel", () => {
     const first = renderPanel();
     const second = renderPanel();
     const tabs = [first, second];
-    await waitFor(() => {
-      for (const tab of tabs)
-        expect(within(tab.container).getByText("Nothing needs your attention.")).toBeDefined();
+    // Keep both roots' asynchronous updates inside the same act boundary,
+    // then assert the UI after React has flushed them.
+    const waitForTabReads = () =>
+      waitFor(() => {
+        for (const tab of tabs) {
+          expect(tab.queryClient.getQueryData<WaitingSession[]>(waitingSessionsKey)).toEqual(
+            sessions,
+          );
+          expect(tab.queryClient.getQueryState(waitingSessionsKey)?.fetchStatus).toBe("idle");
+        }
+      });
+    await act(async () => {
+      await waitForTabReads();
     });
+    for (const tab of tabs)
+      expect(within(tab.container).getByText("Nothing needs your attention.")).toBeDefined();
 
     sessions = [session];
-    act(() => {
+    await act(async () => {
       for (const tab of tabs)
         tab.sources[0]?.emit({
           type: "session.updated",
@@ -100,14 +114,13 @@ describe("NeedsAttentionPanel", () => {
           status: "waiting",
           ...owners,
         });
+      await waitForTabReads();
     });
-    await waitFor(() => {
-      for (const tab of tabs)
-        expect(within(tab.container).getByRole("link", { name: "Check sources" })).toBeDefined();
-    });
+    for (const tab of tabs)
+      expect(within(tab.container).getByRole("link", { name: "Check sources" })).toBeDefined();
 
     sessions = [];
-    act(() => {
+    await act(async () => {
       for (const tab of tabs)
         tab.sources[0]?.emit({
           type: "session.updated",
@@ -115,13 +128,12 @@ describe("NeedsAttentionPanel", () => {
           status: "running",
           ...owners,
         });
+      await waitForTabReads();
     });
-    await waitFor(() => {
-      for (const tab of tabs) {
-        expect(within(tab.container).queryByRole("link", { name: "Check sources" })).toBeNull();
-        expect(within(tab.container).getByText("Nothing needs your attention.")).toBeDefined();
-      }
-    });
+    for (const tab of tabs) {
+      expect(within(tab.container).queryByRole("link", { name: "Check sources" })).toBeNull();
+      expect(within(tab.container).getByText("Nothing needs your attention.")).toBeDefined();
+    }
   });
 
   for (const event of [
