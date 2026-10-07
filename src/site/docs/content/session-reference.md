@@ -230,6 +230,45 @@ notification or guarantee that an OAuth HTTP request is aborted individually.
 It does not automatically retry MCP tools; verify an uncertain outcome before
 repeating an action. The timeout is not configurable in `kiri.yaml`.
 
+### Result sizes and screenshots
+
+Each MCP result has three fixed limits:
+
+- **128 KiB of aggregate encoded text/non-image data**, including structured
+  data and envelope metadata. JSON escaping counts toward this budget.
+- **10 MiB decoded per typed image**, separate from the text budget.
+- **15 MiB for the complete encoded JSON result**, including all media,
+  metadata, and truncation or omission notices.
+
+Kiri recognizes images through MCP's standard `content` blocks:
+`type: "image"`, base64 `data`, and an image `mimeType`. This works for any
+server; tool names, base64-looking strings in JSON, and resource links do not
+trigger image detection or automatic fetching.
+
+Fitting images stay intact. Invalid or oversized images are omitted whole,
+with an explicit notice — their base64 is never truncated. Text may be
+truncated with a marker; structured data or metadata that cannot fit is
+omitted. Generated omission notices are outside the text budget but still
+count toward the complete-result ceiling. Audio, embedded resources, unknown
+fields, and non-content results also count toward that ceiling.
+
+Structured data does not replace the rest of the result: only an exact
+serialized-JSON duplicate text block is removed. Independent text, images,
+and error status are retained when they fit, both during the call and when
+replayed on later turns, even if the tool is no longer connected. Native
+visual handling of tool-result images depends on the selected provider's
+adapter.
+
+Expand a result to see image thumbnails alongside readable metadata, without
+a base64 dump. Click a thumbnail for the full-size preview. Collapsed results
+do not mount the images.
+
+These limits apply to each result, not the accumulated conversation. Images
+remain inline — Kiri does not resize them or move them to separate storage —
+and older saved results are not rewritten. The limits are not configurable
+in `kiri.yaml` and do not guarantee that a provider's request or context limit
+will be met.
+
 ## Tool permissions
 
 Every tool has a standing permission — **Always allow**, **Ask** (default),
@@ -462,9 +501,10 @@ instructions. This also works between tool calls in one long turn.
 Before a new turn, the incoming message and queued reports stay outside the
 summary and follow the checkpoint unchanged. During a turn, the summary records
 the active request and completed tool work so the model can continue unfinished
-work. Images are supplied to the summarizer as visual input, with references in
-the transcript, rather than encoded text. The model is instructed to resume
-directly without acknowledging compaction.
+work. Attached images and typed MCP tool images are supplied to the summarizer
+as visual input, with numbered references in the transcript rather than
+base64 text. Arbitrary strings or JSON are not treated as images. The model is
+instructed to resume directly without acknowledging compaction.
 
 The summary preserves the objective, constraints, decisions, findings, completed
 actions, uncertain outcomes, and next steps. Older messages and tool outputs
