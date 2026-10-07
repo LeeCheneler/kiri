@@ -19,7 +19,7 @@ import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
-import type { LlmClients, LlmModel } from "../llm/index.ts";
+import { type LlmClients, type LlmModel, buildModelDescription } from "../llm/index.ts";
 import { savedContextCalibration } from "./context-calibration.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
@@ -633,6 +633,88 @@ describe("runTurn", () => {
           expect.objectContaining({ toolCallId: "c128", state: "approval-requested" }),
         );
       }
+    },
+  );
+
+  it.each([false, true])(
+    "keeps Codex cache affinity across steps and turns (approval: %s)",
+    async (approval) => {
+      const requests: { headers: unknown; providerOptions: unknown }[] = [];
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          requests.push({ headers: options.headers, providerOptions: options.providerOptions });
+          const chunks: LanguageModelV3StreamPart[] =
+            requests.length === 1
+              ? [
+                  {
+                    type: "tool-call",
+                    toolCallId: "c1",
+                    toolName: "echo",
+                    input: '{"value":"hi"}',
+                  },
+                  { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(2, 1) },
+                ]
+              : [
+                  { type: "text-start", id: "t1" },
+                  { type: "text-delta", id: "t1", delta: "ok" },
+                  { type: "text-end", id: "t1" },
+                  { type: "finish", finishReason: finishReason("stop"), usage: usage(2, 1) },
+                ];
+          return { stream: convertArrayToReadableStream(chunks) };
+        },
+      }) as unknown as LlmModel;
+      const modelId = "chatgpt:gpt-5.2";
+      const deps = {
+        db,
+        tools: { echo: { ...gatedEchoTools.echo, needsApproval: approval } },
+        llmClients: {
+          ...clientsFor(model),
+          describeModel: async () =>
+            buildModelDescription({ name: "chatgpt", type: "openai-codex" }, "gpt-5.2", {
+              id: modelId,
+              provider: "chatgpt",
+              output: "text",
+              reasoning: true,
+              reasoningLevels: ["medium"],
+            }),
+        },
+      };
+      const session = createSession(db, modelId, { id: "s1" });
+      const first = await runTurn(deps, { session, userMessage: USER_MESSAGE });
+      await first.response.text();
+      await first.done;
+      expect(getSession(db, "s1")?.status).toBe(approval ? "waiting" : "idle");
+
+      if (approval) {
+        const resumed = await resumeTurn(deps, {
+          session,
+          approvals: [{ toolCallId: "c1", approved: true }],
+        });
+        await resumed.response.text();
+        await resumed.done;
+      }
+      const next = await runTurn(deps, {
+        session,
+        userMessage: { ...USER_MESSAGE, id: "u2" },
+      });
+      await next.response.text();
+      await next.done;
+      const other = createSession(db, modelId, { id: "s2", parentSessionId: "s1" });
+      const child = await runTurn(deps, {
+        session: other,
+        userMessage: { ...USER_MESSAGE, id: "u3" },
+      });
+      await child.response.text();
+      await child.done;
+
+      expect(requests).toEqual(
+        ["s1", "s1", "s1", "s2"].map((id) => ({
+          headers: { "session-id": id },
+          providerOptions: {
+            openai: { promptCacheKey: id, reasoningEffort: "medium", forceReasoning: true },
+          },
+        })),
+      );
     },
   );
 
