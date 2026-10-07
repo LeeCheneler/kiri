@@ -16,7 +16,7 @@ const TIMEOUT_MS = 180_000;
 
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface BoundToolOptions {
-  /** Aggregate encoded text/structured data budget, excluding generated omission notices. */
+  /** Aggregate encoded data budget, excluding image base64 and generated omission notices. */
   maxBytes?: number;
   /** Decoded bytes per protocol-typed image. */
   maxImageBytes?: number;
