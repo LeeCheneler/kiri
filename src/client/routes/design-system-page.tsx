@@ -45,6 +45,7 @@ import { Drawer } from "../design-system/surfaces/drawer.tsx";
 import { Modal } from "../design-system/surfaces/modal.tsx";
 import { Popover } from "../design-system/surfaces/popover.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
 // Display sizes climb with the reading voice; the small steps are the
@@ -497,6 +498,7 @@ export function DesignSystemAside() {
  * marginalia.
  */
 export function DesignSystemPage() {
+  usePageTitle("Design system");
   return (
     <PageShell left={<SiteNav />} right={<DesignSystemAside />}>
       <DesignSystemContent />

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Redirect } from "wouter";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { articleWikiLinkResolver } from "../design-system/content/wiki-links.ts";
@@ -8,6 +9,7 @@ import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
 import { DeleteArticleButton } from "../features/article/delete-article-button.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import {
   useDeleteSessionArticle,
@@ -83,6 +85,11 @@ export function SessionArticleContent({
   now?: Date;
 }) {
   const article = useSessionArticle(params.id, params.slug);
+  usePageTitle(
+    article.isSuccess
+      ? (extractFirstHeading(article.data.contentMd) ?? article.data.name)
+      : "Article",
+  );
   // `[[slug]]` references resolve against the session's own article list.
   // Memoised so the Markdown memo holds between renders; unresolved slugs
   // (and everything until the list loads) stay literal.

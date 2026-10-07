@@ -25,6 +25,7 @@ import {
   useSaveProjectInstructions,
 } from "../../state/projects.ts";
 import { ArticleRow } from "../activity-feed/article-row.tsx";
+import { usePageTitle } from "../page-shell/use-page-title.ts";
 import { SessionRow } from "../session-chat/session-row.tsx";
 import { ProjectTasks } from "./project-tasks.tsx";
 
@@ -305,6 +306,7 @@ function ProjectIndexes({ id, projectName, now }: { id: string; projectName: str
 export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
   const [, navigate] = useLocation();
   const project = useProjectOverview(id);
+  usePageTitle(project.isSuccess ? project.data.project.name : "Project");
   const remove = useDeleteProject();
   const [pending, setPending] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);

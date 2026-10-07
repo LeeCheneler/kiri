@@ -1,5 +1,6 @@
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
 /**
@@ -7,6 +8,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  * the nav stays available to recover from a bad link.
  */
 export function NotFoundPage() {
+  usePageTitle("Page not found");
   return (
     <PageShell left={<SiteNav />}>
       <section>

@@ -2,6 +2,7 @@ import { Eyebrow } from "../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { RunWorkflow } from "../features/run-workflow/run-workflow.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { WorkflowDetails } from "../features/workflow-details/workflow-details.tsx";
@@ -44,6 +45,8 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
   // so a name with `/` arrives still encoded. Decode here once to match the
   // raw name returned by the API.
   const workflowName = decodeName(params.name);
+  const workflow = workflows.data?.find((w) => w.name === workflowName);
+  usePageTitle(workflows.isSuccess && workflow ? workflow.name : "Workflow");
 
   if (workflows.isPending) {
     return <LoadingState>Loading workflow…</LoadingState>;
@@ -56,7 +59,6 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
     );
   }
 
-  const workflow = workflows.data.find((w) => w.name === workflowName);
   if (!workflow) {
     return (
       <section>

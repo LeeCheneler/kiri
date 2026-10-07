@@ -17,6 +17,7 @@ import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useSessionArticles } from "../../state/articles.ts";
 import { useProject } from "../../state/projects.ts";
 import { useModels, useSession } from "../../state/sessions.ts";
+import { usePageTitle } from "../page-shell/use-page-title.ts";
 import { ChatMessage, InboxInterjection, QueuedMessage } from "./chat-message.tsx";
 import {
   CONTEXT_WARNING_RATIO,
@@ -65,6 +66,11 @@ function messageHasImage(message: UIMessage): boolean {
  */
 export function SessionChat({ id }: { id: string }) {
   const session = useSession(id);
+  usePageTitle(
+    session.isSuccess
+      ? (session.data.session.title ?? session.data.session.id.slice(0, 8))
+      : "Session",
+  );
 
   if (session.isPending) return <LoadingState>Loading session…</LoadingState>;
   if (session.isError) {

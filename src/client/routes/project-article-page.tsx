@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { articleWikiLinkResolver } from "../design-system/content/wiki-links.ts";
@@ -7,6 +8,7 @@ import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
 import { DeleteArticleButton } from "../features/article/delete-article-button.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useDeleteProjectArticle, useProject, useProjectArticle } from "../state/projects.ts";
 
@@ -76,6 +78,11 @@ export function ProjectArticleContent({
   now?: Date;
 }) {
   const article = useProjectArticle(params.id, params.slug);
+  usePageTitle(
+    article.isSuccess
+      ? (extractFirstHeading(article.data.contentMd) ?? article.data.name)
+      : "Article",
+  );
   // The owning project's name situates the article; fall back to the short
   // id while it loads (or if the project query errors independently).
   const projectDetail = useProject(params.id).data;

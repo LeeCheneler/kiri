@@ -1,4 +1,5 @@
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { ProjectsList } from "../features/projects/projects-list.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
@@ -7,6 +8,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  * page shell.
  */
 export function ProjectsPage() {
+  usePageTitle("Projects");
   return (
     <PageShell left={<SiteNav />} wide>
       <ProjectsList />

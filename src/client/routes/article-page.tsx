@@ -1,9 +1,11 @@
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { formatAbsoluteTime } from "../formatters/format-time.ts";
 import { useArticle } from "../state/articles.ts";
@@ -52,6 +54,11 @@ export function ArticleContent({
   now?: Date;
 }) {
   const article = useArticle(params.id, params.slug);
+  usePageTitle(
+    article.isSuccess
+      ? (extractFirstHeading(article.data.contentMd) ?? article.data.name)
+      : "Article",
+  );
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;

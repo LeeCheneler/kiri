@@ -3,6 +3,7 @@ import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { RunActions } from "../features/run-detail/run-actions.tsx";
 import { RunArticles } from "../features/run-detail/run-articles.tsx";
 import { RunAside } from "../features/run-detail/run-aside.tsx";
@@ -37,6 +38,9 @@ export function RunPage({ params }: { params: { id: string } }) {
  */
 export function RunContent({ params, now }: { params: { id: string }; now?: Date }) {
   const run = useRun(params.id);
+  usePageTitle(
+    run.isSuccess ? `${run.data.run.workflowName} · ${run.data.run.id.slice(0, 8)}` : "Run",
+  );
   // The re-run path reads the workflow's *current* declared inputs from the
   // registry to decide whether to open the pre-filled invoke modal.
   const { data: workflows } = useWorkflows();

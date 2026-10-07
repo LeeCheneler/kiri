@@ -1,6 +1,7 @@
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { McpTools } from "../features/mcp/mcp-tools.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { usePageTitle } from "../features/page-shell/use-page-title.ts";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
 /**
@@ -9,6 +10,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  * Ask / Off permission control, composed into the page shell.
  */
 export function McpPage() {
+  usePageTitle("Tools & MCP");
   return (
     <PageShell left={<SiteNav />} wide>
       <section>
