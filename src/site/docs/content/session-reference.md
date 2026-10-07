@@ -366,8 +366,16 @@ Commands support foreground-only work: use non-interactive, one-shot modes
 that finish within the timeout (120 seconds by default, at most 600). Servers,
 watchers, daemons, detached/background jobs, and leaving processes running
 after the call are unsupported. Approval does not add background process
-management. Timeout or cancellation kills the command process; cleanup of
-its child processes is not guaranteed. While a command runs, expanding its block in the chat shows the
+management. Timeout or cancellation kills the command's isolated process
+group, including ordinary child processes. Kiri allows up to one additional
+second for output draining and exit waiting, then closes any remaining output
+readers while keeping output already captured. Output arriving after that
+cleanup is discarded. A command whose turn is already cancelled never starts.
+Processes deliberately moving into a new session or process group can escape
+termination; this is not a security sandbox or background-process manager.
+These guarantees apply to session commands, not workflow steps.
+
+While a command runs, expanding its block in the chat shows the
 output streaming live — stdout and stderr merged, as a terminal would show
 it — so a long build or test run shows progress instead of an opaque
 "Running…" until it exits.

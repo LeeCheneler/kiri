@@ -103,10 +103,12 @@ const tailCap = (value: string, max: number): { text: string; truncated: boolean
  * `getAllowedDirectories()`, which a session turn fixes when it starts): what the command itself
  * touches is not, which is why the tool's standing permission defaults to
  * asking per call. The command runs non-interactively (stdin closed) with the
- * kiri process's environment, must finish within its timeout (killed
- * otherwise), and dies with the turn when a cancel aborts it. A non-zero exit
- * is a *result* — exit code, stdout, and stderr, each stream tail-capped —
- * not a tool error; only a call that can't start (bad cwd, no configured
+ * kiri process's environment. Timeout or turn cancellation kills its isolated
+ * POSIX process group and bounds output draining and exit waiting to one more
+ * second, retaining captured output. Descendants that create another process
+ * group can escape termination. Already-aborted calls throw without spawning.
+ * A non-zero exit is a *result* — exit code, stdout, and stderr, each stream
+ * tail-capped — not a tool error. A call that can't start (bad cwd, no configured
  * directories) throws, with a message naming what recovers. While a command
  * runs, its merged output streams through the `liveConsole` feed when one is
  * wired; the settled result is unaffected either way.
@@ -210,7 +212,7 @@ export function shellTools(
           .max(600)
           .optional()
           .describe(
-            "Seconds the command may run before it is killed. Defaults to 120; raise it only for genuinely long work like a full build.",
+            "Seconds the command may run before its process group is killed, followed by at most one second of output-draining and exit-wait cleanup. Defaults to 120; raise it only for genuinely long work like a full build.",
           ),
       }),
       execute: async ({ command, cwd, timeout_seconds }, { toolCallId, abortSignal }) => {
