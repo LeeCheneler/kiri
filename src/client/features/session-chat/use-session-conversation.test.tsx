@@ -37,10 +37,11 @@ const detail = (value: ReturnType<typeof snapshot>) => ({
   inbox: [],
 });
 
-const mount = (initialProps: ReturnType<typeof snapshot>) => {
+const mount = (initialProps: ReturnType<typeof snapshot>, strict = false) => {
   const client = createQueryClient();
   return renderHook((props) => useSessionConversation(props), {
     initialProps,
+    reactStrictMode: strict,
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     ),
@@ -68,6 +69,18 @@ const reply = (text: string, finish = Promise.resolve(), turnId = "t1") =>
     }),
   });
 
+// MSW observes fetch signals but does not end a mocked response body on abort.
+// Model that browser behaviour without settling the independent server work.
+const readerReply = (text: string, finish: Promise<void>, signal: AbortSignal) => {
+  const aborted = deferred();
+  signal.addEventListener("abort", aborted.resolve, { once: true });
+  if (signal.aborted) aborted.resolve();
+  const ended = Promise.race([finish, aborted.promise]).finally(() =>
+    signal.removeEventListener("abort", aborted.resolve),
+  );
+  return reply(text, ended);
+};
+
 // What the server sends a view whose transcript the live stream does not continue from.
 const endedStream = () =>
   new HttpResponse(
@@ -78,6 +91,281 @@ const endedStream = () =>
     }),
     { headers: { "content-type": "text/event-stream", [TURN_ID_HEADER]: "t1" } },
   );
+
+describe("view stream ownership", () => {
+  it("keeps only open readers through repeated closes and rejoins without duplicate replay", async () => {
+    const finish = deferred();
+    const signals: AbortSignal[] = [];
+    server.use(
+      http.get("*/api/sessions/:id/stream", ({ request }) => {
+        expect(new URL(request.url).searchParams.get("revision")).toBe("5");
+        signals.push(request.signal);
+        return reply(" live", finish.promise);
+      }),
+    );
+    const otherTab = mount(snapshot(5, [message("saved")], "running"));
+    try {
+      await waitFor(() => expect(otherTab.result.current.status).toBe("streaming"));
+      for (let visit = 0; visit < 3; visit += 1) {
+        const view = mount(snapshot(5, [message("saved")], "running"));
+        try {
+          await waitFor(() => expect(view.result.current.status).toBe("streaming"));
+          expect(view.result.current.messages).toHaveLength(1);
+          await waitFor(() =>
+            expect(
+              view.result.current.messages[0]?.parts
+                .filter((part) => part.type === "text")
+                .map((part) => part.text)
+                .join(""),
+            ).toBe("saved live"),
+          );
+          expect(signals.filter((signal) => !signal.aborted)).toHaveLength(2);
+        } finally {
+          view.unmount();
+        }
+        expect(signals.filter((signal) => !signal.aborted)).toHaveLength(1);
+        expect(signals[0]?.aborted).toBe(false);
+      }
+    } finally {
+      otherTab.unmount();
+      finish.resolve();
+    }
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("joins once under StrictMode and releases the reader when it closes", async () => {
+    const finish = deferred();
+    const signals: AbortSignal[] = [];
+    server.use(
+      http.get("*/api/sessions/:id/stream", ({ request }) => {
+        signals.push(request.signal);
+        return reply("live", finish.promise);
+      }),
+    );
+    const view = mount(snapshot(0, [], "running"), true);
+    try {
+      await waitFor(() => expect(view.result.current.status).toBe("streaming"));
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.aborted).toBe(false);
+    } finally {
+      view.unmount();
+      finish.resolve();
+    }
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("detaches the old session and ignores its delayed response after switching sessions", async () => {
+    const response = deferred();
+    let oldSignal: AbortSignal | undefined;
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/s1/stream", async ({ request }) => {
+        oldSignal = request.signal;
+        await response.promise;
+        return reply("stale response");
+      }),
+      http.get("*/api/sessions/:id", () => {
+        reads += 1;
+        return HttpResponse.json(detail(snapshot(10, [message("stale snapshot")])));
+      }),
+    );
+    const view = mount(snapshot(0, [], "running"));
+    try {
+      await waitFor(() => expect(oldSignal).toBeDefined());
+      view.rerender(snapshot(2, [message("replacement")], "idle", "s2"));
+      expect(oldSignal?.aborted).toBe(true);
+      await act(async () => response.resolve());
+      expect(view.result.current.messages).toEqual([message("replacement")]);
+      expect(view.result.current.status).toBe("ready");
+      expect(reads).toBe(0);
+    } finally {
+      view.unmount();
+      response.resolve();
+    }
+  });
+
+  it("ignores late progress and completion from a streaming session after switching", async () => {
+    const finish = deferred();
+    let signal: AbortSignal | undefined;
+    let reads = 0;
+    server.use(
+      http.get("*/api/sessions/s1/stream", ({ request }) => {
+        signal = request.signal;
+        return createUIMessageStreamResponse({
+          stream: createUIMessageStream({
+            execute: async ({ writer }) => {
+              writer.write({ type: "text-start", id: "text1" });
+              writer.write({ type: "text-delta", id: "text1", delta: "old live text" });
+              await finish.promise;
+              writer.write({
+                type: "data-compaction",
+                data: { status: "started" },
+                transient: true,
+              });
+              writer.write({ type: "text-end", id: "text1" });
+            },
+          }),
+        });
+      }),
+      http.get("*/api/sessions/:id", () => {
+        reads += 1;
+        return HttpResponse.json(detail(snapshot(10, [message("stale snapshot")])));
+      }),
+    );
+    const view = mount(snapshot(0, [], "running"));
+    try {
+      await waitFor(() => expect(view.result.current.status).toBe("streaming"));
+      view.rerender(snapshot(2, [message("replacement")], "idle", "s2"));
+      expect(signal?.aborted).toBe(true);
+      await act(async () => finish.resolve());
+      expect(view.result.current.messages).toEqual([message("replacement")]);
+      expect(view.result.current.compacting).toBe(false);
+      expect(reads).toBe(0);
+    } finally {
+      view.unmount();
+      finish.resolve();
+    }
+  });
+
+  it("does not rejoin after a transcript refresh finishes on a closed view", async () => {
+    const read = deferred();
+    let reads = 0;
+    let joins = 0;
+    server.use(
+      http.get("*/api/sessions/:id/stream", () => {
+        joins += 1;
+        return endedStream();
+      }),
+      http.get("*/api/sessions/:id", async () => {
+        reads += 1;
+        await read.promise;
+        return HttpResponse.json(detail(snapshot(5, [message("saved")], "running")));
+      }),
+    );
+    const view = mount(snapshot(0, [], "running"));
+    try {
+      await waitFor(() => expect(reads).toBe(1));
+      view.unmount();
+      await act(async () => read.resolve());
+      expect(joins).toBe(1);
+    } finally {
+      view.unmount();
+      read.resolve();
+    }
+  });
+
+  for (const pending of [false, true]) {
+    it(`explicit cancellation aborts a ${pending ? "pending" : "streaming"} GET and cancels the server turn`, async () => {
+      const response = deferred();
+      const finish = deferred();
+      let signal: AbortSignal | undefined;
+      let cancellations = 0;
+      server.use(
+        http.get("*/api/sessions/:id/stream", async ({ request }) => {
+          signal = request.signal;
+          if (pending) await response.promise;
+          return readerReply("live", finish.promise, request.signal);
+        }),
+        http.post("*/api/sessions/:id/cancel", () => {
+          cancellations += 1;
+          return HttpResponse.json({ sessionId: "s1" });
+        }),
+        http.get("*/api/sessions/:id", () => HttpResponse.json(detail(snapshot(1, [])))),
+      );
+      const view = mount(snapshot(0, [], "running"));
+      try {
+        await waitFor(() => expect(signal).toBeDefined());
+        if (!pending) await waitFor(() => expect(view.result.current.status).toBe("streaming"));
+        act(() => view.result.current.cancel());
+        expect(signal?.aborted).toBe(true);
+        await waitFor(() => expect(cancellations).toBe(1));
+        await waitFor(() => expect(view.result.current.status).toBe("ready"));
+        expect(view.result.current.error).toBeUndefined();
+      } finally {
+        view.unmount();
+        response.resolve();
+        finish.resolve();
+      }
+    });
+  }
+
+  for (const method of ["POST", "GET"] as const) {
+    it(`does not open a ${method} reader after immediate unmount`, async () => {
+      let requests = 0;
+      const handler = () => {
+        requests += 1;
+        return reply("too late");
+      };
+      server.use(
+        method === "POST"
+          ? http.post("*/api/sessions/:id/messages", handler)
+          : http.get("*/api/sessions/:id/stream", handler),
+      );
+      const view = mount(snapshot(0, [], method === "GET" ? "running" : "idle"));
+      let sent: Promise<void> | undefined;
+      if (method === "POST")
+        act(() => {
+          sent = view.result.current.sendMessage({ text: "hello" });
+        });
+      await act(async () => {
+        view.unmount();
+        await sent;
+      });
+      expect(requests).toBe(0);
+    });
+
+    it(`aborts a ${method} reader on unmount without cancelling the server turn`, async () => {
+      const finish = deferred();
+      let signal: AbortSignal | undefined;
+      let cancellations = 0;
+      const handler = ({ request }: { request: Request }) => {
+        signal = request.signal;
+        return reply("live", finish.promise);
+      };
+      server.use(
+        method === "POST"
+          ? http.post("*/api/sessions/:id/messages", handler)
+          : http.get("*/api/sessions/:id/stream", handler),
+        http.post("*/api/sessions/:id/cancel", () => {
+          cancellations += 1;
+          return HttpResponse.json({ sessionId: "s1" });
+        }),
+      );
+      const view = mount(snapshot(0, [], method === "GET" ? "running" : "idle"));
+      if (method === "POST") act(() => void view.result.current.sendMessage({ text: "hello" }));
+      try {
+        await waitFor(() => expect(view.result.current.status).toBe("streaming"));
+        view.unmount();
+        expect(signal?.aborted).toBe(true);
+        expect(cancellations).toBe(0);
+      } finally {
+        view.unmount();
+        finish.resolve();
+      }
+    });
+  }
+
+  it("aborts a resumed GET while its response is still pending", async () => {
+    const response = deferred();
+    let signal: AbortSignal | undefined;
+    server.use(
+      http.get("*/api/sessions/:id/stream", async ({ request }) => {
+        signal = request.signal;
+        await response.promise;
+        return reply("too late");
+      }),
+    );
+    const view = mount(snapshot(0, [], "running"));
+    try {
+      await waitFor(() => expect(signal).toBeDefined());
+      view.unmount();
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      view.unmount();
+      response.resolve();
+    }
+  });
+});
 
 describe("transcript reconciliation", () => {
   it("ignores a delayed deletion response overtaken by a newer snapshot", async () => {
@@ -456,12 +744,13 @@ describe("joining a turn the server started", () => {
     const finish = deferred();
     // The read named t1; by the time the rejoin landed, t2 was streaming.
     const joins = liveTurn("newer turn", finish.promise, "t2");
-    const { result, rerender } = mount(snapshot(2, [], "running"));
+    const { result, rerender, unmount } = mount(snapshot(2, [], "running"));
     await waitFor(() => expect(texts(result.current.messages)).toEqual([["newer turn"]]));
     rerender(snapshot(2, [], "running", "s1", "t2"));
     await new Promise((settle) => setTimeout(settle, 20));
     expect(joins).toEqual(["2"]);
-    finish.resolve();
+    unmount();
+    await act(async () => finish.resolve());
   });
 
   it("joins nothing from a read older than the transcript it holds", async () => {
