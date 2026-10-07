@@ -3,10 +3,11 @@ import type { CheckpointUIPart } from "../../shared/checkpoint-part.ts";
 import type { LlmClients } from "../llm/index.ts";
 import { calibratedContextTokens, estimateContextTokens } from "./session-context.ts";
 
-/** Generate a continuation summary without tools; return null if the input cannot fit or the summary is empty. */
+/** Summarize without tools, supplying images only with confirmed support; return null for oversized input or empty output. */
 export async function compactContext({
   llmClients,
   model,
+  imageInput,
   messages,
   system,
   inputBudget,
@@ -16,6 +17,7 @@ export async function compactContext({
 }: {
   llmClients: Pick<LlmClients, "generateText">;
   model: string;
+  imageInput: boolean;
   messages: ModelMessage[];
   system: string | undefined;
   inputBudget: number;
@@ -37,6 +39,16 @@ Use these sections: Objective and constraints; Completed work and findings; Pend
 Omit repetitive logs and incidental exploration. Be faithful: do not invent missing facts or turn a plan into completed work. Earlier messages and original tool results will not be retrievable. If knowledge is missing, the continuing model must review articles, inspect files, or search sources again; it must not repeat completed actions to recover their outputs. Current standing instructions and later user messages still govern continuation.`;
 
   const images: ImagePart[] = [];
+  let imageCount = 0;
+  const imageReference = (image: ImagePart, label: string) => {
+    imageCount += 1;
+    if (imageInput) images.push(image);
+    const availability = imageInput
+      ? "supplied after the transcript in numbered order"
+      : "visual content not supplied because this model has no confirmed image input support";
+    return { type: "text" as const, text: `[${label} ${imageCount}; ${availability}]` };
+  };
+
   let documents = 0;
   const transcript = messages.map(({ providerOptions: _options, ...message }) => {
     if (!Array.isArray(message.content)) return message;
@@ -52,11 +64,10 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
               value: part.output.value.map((contentPart) => {
                 const content = { ...contentPart, providerOptions: undefined };
                 if (content.type !== "image-data") return content;
-                images.push({ type: "image", image: content.data, mediaType: content.mediaType });
-                return {
-                  type: "text" as const,
-                  text: `[Tool image ${images.length}; supplied after the transcript in numbered order]`,
-                };
+                return imageReference(
+                  { type: "image", image: content.data, mediaType: content.mediaType },
+                  "Tool image",
+                );
               }),
             },
           };
@@ -65,7 +76,7 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
           message.role !== "tool" &&
           (part.type === "image" || (part.type === "file" && part.mediaType.startsWith("image/")))
         ) {
-          images.push(
+          return imageReference(
             part.type === "image"
               ? part
               : {
@@ -73,11 +84,8 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
                   image: part.data,
                   mediaType: part.mediaType,
                 },
+            "Image attachment",
           );
-          return {
-            type: "text",
-            text: `[Image attachment ${images.length}; supplied after the transcript in numbered order]`,
-          };
         }
         // A document's bytes are for the session model, not the summariser:
         // what it yielded already lives in the assistant's replies, which is
@@ -93,8 +101,8 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
       }),
     };
   });
-  // Images must remain visual input, and opaque provider metadata has no
-  // continuation value when rendered as text in a new summarisation request.
+  // Unsupported images become explicit references, never base64 text. Opaque
+  // provider metadata has no continuation value in a new summarisation request.
   const prompt = JSON.stringify({ standingInstructions: system ?? null, messages: transcript });
   const estimate = estimateContextTokens({
     system: instructions,

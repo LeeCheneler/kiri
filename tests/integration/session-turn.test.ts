@@ -224,6 +224,62 @@ describe("session turn streaming", () => {
     expect(getSession(db, session.id)?.status).toBe("idle");
   });
 
+  it.each([true, false, undefined])(
+    "compacts a screenshot using the selected model's imageInput=%s capability",
+    async (imageInput) => {
+      const start = fake.requests.length;
+      const session = createSession(db, "fake:tool");
+      const image = { type: "image", data: FAKE_IMAGE_B64, mimeType: "image/png" };
+      let captures = 0;
+      const turn = await runTurn(
+        {
+          db,
+          llmClients: {
+            ...llmClients,
+            describeModel: async (id) => describedModel(id, { contextWindow: 8192, imageInput }),
+          },
+          tools: {
+            capture__screen: boundMcpTool(
+              tool({
+                inputSchema: z.object({}),
+                execute: () => {
+                  captures += 1;
+                  return { content: [{ type: "text", text: "x".repeat(20000) }, image] };
+                },
+              }),
+            ),
+          },
+        },
+        { session, userMessage: userMessage("call:capture__screen {}") },
+      );
+      await turn.response.text();
+      await turn.done;
+
+      const requests = fake.requests.slice(start);
+      expect(requests).toHaveLength(3);
+      expect(requests[1]?.stream).not.toBe(true);
+      const summaryInput = JSON.stringify(requests[1]?.messages);
+      expect(summaryInput).toContain("Tool image 1");
+      if (imageInput === true) {
+        expect(summaryInput).toContain("image_url");
+        expect(summaryInput).toContain(FAKE_IMAGE_B64);
+      } else {
+        expect(summaryInput).toContain("no confirmed image input support");
+        expect(summaryInput).not.toContain("image_url");
+        expect(summaryInput).not.toContain(FAKE_IMAGE_B64);
+      }
+      const saved = getSessionMessages(db, session.id)[1]?.parts;
+      expect(saved).toContainEqual(
+        expect.objectContaining({
+          output: { content: [{ type: "text", text: "x".repeat(20000) }, image] },
+        }),
+      );
+      expect(JSON.stringify(saved)).toContain("data-checkpoint");
+      expect(getSession(db, session.id)?.status).toBe("idle");
+      expect(captures).toBe(1);
+    },
+  );
+
   it("stops before replaying an action whose result fills the context", async () => {
     const start = fake.requests.length;
     const session = createSession(db, "fake:tool");
@@ -324,6 +380,7 @@ describe("session turn streaming", () => {
   });
 
   it("drives generate_image over the wire, keeping the image bytes out of the model's context", async () => {
+    const requestStart = fake.requests.length;
     const session = createSession(db, "fake:tool");
     updateSessionImageModel(db, session.id, "fake:paint");
     const tools = imageTools({ db, sessionId: session.id, llmClients });
@@ -360,7 +417,7 @@ describe("session turn streaming", () => {
       { session: getSession(db, session.id) ?? session, userMessage: userMessage("thanks") },
     );
     await second.done;
-    for (const request of fake.requests) {
+    for (const request of fake.requests.slice(requestStart)) {
       expect(JSON.stringify(request)).not.toContain(FAKE_IMAGE_B64);
     }
   });

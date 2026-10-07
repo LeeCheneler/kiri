@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { ModelMessage } from "ai";
+import { type ModelMessage, generateText } from "ai";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import { FAKE_IMAGE_B64 } from "../../../tests/support/fake-openai.ts";
@@ -9,6 +9,7 @@ import { compactContext } from "./compact-context.ts";
 describe("compactContext", () => {
   const options = {
     model: "test:session-model",
+    imageInput: true,
     messages: [{ role: "user" as const, content: "Review /work/src/app.ts; do not publish." }],
     system: "Current workspace instructions",
     inputBudget: 20000,
@@ -282,6 +283,150 @@ describe("compactContext", () => {
         },
       ],
     });
+  });
+
+  it("compacts a successful screenshot result through a text-only adapter without introducing visual input", async () => {
+    const received: { messages: { role: string; content: unknown }[] }[] = [];
+    server.use(
+      http.post("http://text-only.invalid/v1/chat/completions", async ({ request }) => {
+        const body = (await request.json()) as (typeof received)[number];
+        received.push(body);
+        if (
+          body.messages.some(
+            (message) =>
+              Array.isArray(message.content) &&
+              message.content.some((part) => part.type === "image_url"),
+          )
+        ) {
+          return HttpResponse.json(
+            {
+              error: {
+                message: "This model does not accept image input",
+                type: "invalid_request_error",
+              },
+            },
+            { status: 400 },
+          );
+        }
+        return HttpResponse.json({
+          id: "text-only-1",
+          object: "chat.completion",
+          created: 0,
+          model: "text-only",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: "Capture completed; visual inspection remains unverified.",
+              },
+              finish_reason: "stop",
+            },
+          ],
+        });
+      }),
+    );
+    const registry = createLlmProviderRegistry();
+    registry.replace(
+      new Map([
+        [
+          "fixture",
+          { name: "fixture", type: "openai-compatible", baseUrl: "http://text-only.invalid/v1" },
+        ],
+      ]),
+    );
+    const llmClients = createLlmClients(registry, {});
+    const messages: ModelMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "capture-1", toolName: "capture__screen", input: {} },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "capture-1",
+            toolName: "capture__screen",
+            output: {
+              type: "content",
+              value: [
+                { type: "text", text: "Capture completed." },
+                { type: "image-data", data: FAKE_IMAGE_B64, mediaType: "image/png" },
+              ],
+            },
+          },
+        ],
+      },
+    ];
+    const before = structuredClone(messages);
+    const ordinary = await generateText({
+      model: llmClients.resolveModel("fixture:text-only"),
+      messages,
+    });
+    expect(ordinary.text).toContain("Capture completed");
+    expect(received[0]?.messages.find((message) => message.role === "tool")?.content).toContain(
+      FAKE_IMAGE_B64,
+    );
+
+    const checkpoint = await compactContext({
+      ...options,
+      model: "fixture:text-only",
+      imageInput: false,
+      messages,
+      llmClients,
+    });
+    expect(checkpoint?.data.summary).toContain("visual inspection remains unverified");
+    expect(received).toHaveLength(2);
+    const summaryInput = JSON.stringify(received[1]?.messages);
+    expect(summaryInput).toContain("Tool image 1");
+    expect(summaryInput).toContain("no confirmed image input support");
+    expect(summaryInput).toContain("Capture completed.");
+    expect(summaryInput).not.toContain("image_url");
+    expect(summaryInput).not.toContain(FAKE_IMAGE_B64);
+    expect(messages).toEqual(before);
+  });
+
+  it("keeps shared numbered references for tool and attachment images without visual support", async () => {
+    const messages: ModelMessage[] = [
+      { role: "user", content: [{ type: "image", image: "AAAA", mediaType: "image/png" }] },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "capture__screen",
+            output: {
+              type: "content",
+              value: [{ type: "image-data", data: "BBBB", mediaType: "image/jpeg" }],
+            },
+          },
+        ],
+      },
+      { role: "user", content: [{ type: "file", data: "CCCC", mediaType: "image/png" }] },
+    ];
+    const before = structuredClone(messages);
+    const checkpoint = await compactContext({
+      ...options,
+      imageInput: false,
+      messages,
+      llmClients: {
+        generateText: async (request) => {
+          expect(request.images).toBeUndefined();
+          expect(request.prompt).toContain("Image attachment 1");
+          expect(request.prompt).toContain("Tool image 2");
+          expect(request.prompt).toContain("Image attachment 3");
+          expect(request.prompt).not.toContain("supplied after the transcript");
+          for (const data of ["AAAA", "BBBB", "CCCC"]) expect(request.prompt).not.toContain(data);
+          return { text: "Three images were not supplied for visual inspection.", usage: {} };
+        },
+      },
+    });
+    expect(checkpoint?.data.summary).toContain("Three images");
+    expect(messages).toEqual(before);
   });
 
   it("stands documents in with a placeholder instead of their bytes", async () => {
