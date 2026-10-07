@@ -23,6 +23,7 @@ import { type LlmClients, type LlmModel, buildModelDescription } from "../llm/in
 import { boundMcpTool } from "../mcp/bound-tool.ts";
 import { savedContextCalibration } from "./context-calibration.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
+import { shellTools } from "./shell-tools.ts";
 import {
   type Message,
   appendMessage,
@@ -3323,6 +3324,66 @@ describe("cancelled turns keep their progress", () => {
       }
     },
   );
+
+  it("ends a real shell's console and releases its turn and readers on cancellation", async () => {
+    const ready = Promise.withResolvers<void>();
+    const consoleEnded = Promise.withResolvers<void>();
+    const canceller = turnCanceller();
+    const streamRegistry = createStreamRegistry();
+    const session = createSession(db, MODEL, { id: "s1" });
+    const model = streamingModel([
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Running it now." },
+      { type: "text-end", id: "t1" },
+      {
+        type: "tool-call",
+        toolCallId: "c1",
+        toolName: "run_command",
+        input: JSON.stringify({ command: "sleep 2 & printf ready; wait" }),
+      },
+      { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+    ]);
+    const tools = shellTools(
+      () => [dir],
+      { get: () => dir, set: () => {} },
+      {
+        liveConsole: () => ({ append: () => ready.resolve(), end: () => consoleEnded.resolve() }),
+      },
+    );
+    const turn = await runTurn(
+      { db, llmClients: clientsFor(model), canceller, streamRegistry, tools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    const readerFinished = turn.response.text();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const watchdog = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("Shell cancellation did not settle")), 1_500);
+    });
+    try {
+      await Promise.race([ready.promise, watchdog]);
+      expect(canceller.cancel("s1")).toBe(true);
+      await Promise.race([
+        Promise.all([consoleEnded.promise, turn.done, readerFinished]),
+        watchdog,
+      ]);
+      expect(getSession(db, "s1")?.status).toBe("cancelled");
+      expect(streamRegistry.turnOf("s1")).toBeNull();
+      expect(canceller.cancel("s1")).toBe(false);
+      const parts = getSessionMessages(db, "s1")[1]?.parts;
+      expect(JSON.stringify(parts)).toContain("Running it now.");
+      expect(parts).toContainEqual(
+        expect.objectContaining({
+          type: "tool-run_command",
+          state: "output-error",
+          errorText: CANCELLED_ERROR_TEXT,
+        }),
+      );
+    } finally {
+      clearTimeout(timer);
+      canceller.cancel("s1");
+      await Promise.all([consoleEnded.promise, turn.done, readerFinished]);
+    }
+  });
 
   it("persists a tool call cancelled mid-execution as a cancelled result", async () => {
     const canceller = turnCanceller();
