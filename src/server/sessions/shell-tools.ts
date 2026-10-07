@@ -15,6 +15,18 @@ const MAX_OUTPUT_LENGTH = 16 * 1024;
 // inside a turn, not a background job.
 const DEFAULT_TIMEOUT_SECONDS = 120;
 
+// After a kill, inherited pipes must not keep the turn waiting indefinitely.
+const CLEANUP_ALLOWANCE_MS = 1000;
+
+const killProcessGroup = (pid: number): void => {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch (error) {
+    // The command may have exited between observing cancellation and signalling it.
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+};
+
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface ShellToolsOptions {
   /** Checks the confined command directory's instructions before starting the process. */
@@ -34,22 +46,40 @@ export interface ShellToolsOptions {
 const readPipe = async (
   pipe: ReadableStream<Uint8Array<ArrayBuffer>>,
   onChunk: (chunk: string) => void,
+  stopSignal: AbortSignal,
 ): Promise<string> => {
   const decoder = new TextDecoder();
   const reader = pipe.getReader();
   let text = "";
+  let reachedEof = false;
+  // Reader cancellation closes pending reads immediately, independently of the
+  // underlying source's cancellation promise. Never wait for that promise.
+  const cancelReader = (): void => {
+    void reader.cancel().catch(() => {});
+  };
+  stopSignal.addEventListener("abort", cancelReader, { once: true });
   const push = (chunk: string): void => {
     if (!chunk) return;
     text += chunk;
     onChunk(chunk);
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    push(decoder.decode(value, { stream: true }));
+  try {
+    while (!stopSignal.aborted) {
+      const next = await reader.read();
+      if (stopSignal.aborted) break;
+      if (next.done) {
+        reachedEof = true;
+        break;
+      }
+      push(decoder.decode(next.value, { stream: true }));
+    }
+    push(decoder.decode());
+    return text;
+  } finally {
+    stopSignal.removeEventListener("abort", cancelReader);
+    if (!reachedEof) cancelReader();
+    reader.releaseLock();
   }
-  push(decoder.decode());
-  return text;
 };
 
 // Keep a stream's tail within `max` characters. A tail starting with a low
@@ -73,10 +103,12 @@ const tailCap = (value: string, max: number): { text: string; truncated: boolean
  * `getAllowedDirectories()`, which a session turn fixes when it starts): what the command itself
  * touches is not, which is why the tool's standing permission defaults to
  * asking per call. The command runs non-interactively (stdin closed) with the
- * kiri process's environment, must finish within its timeout (killed
- * otherwise), and dies with the turn when a cancel aborts it. A non-zero exit
- * is a *result* — exit code, stdout, and stderr, each stream tail-capped —
- * not a tool error; only a call that can't start (bad cwd, no configured
+ * kiri process's environment. Timeout or turn cancellation kills its isolated
+ * POSIX process group and bounds output draining and exit waiting to one more
+ * second, retaining captured output. Descendants that create another process
+ * group can escape termination. Already-aborted calls throw without spawning.
+ * A non-zero exit is a *result* — exit code, stdout, and stderr, each stream
+ * tail-capped — not a tool error. A call that can't start (bad cwd, no configured
  * directories) throws, with a message naming what recovers. While a command
  * runs, its merged output streams through the `liveConsole` feed when one is
  * wired; the settled result is unaffected either way.
@@ -180,12 +212,13 @@ export function shellTools(
           .max(600)
           .optional()
           .describe(
-            "Seconds the command may run before it is killed. Defaults to 120; raise it only for genuinely long work like a full build.",
+            "Seconds the command may run before its process group is killed, followed by at most one second of output-draining and exit-wait cleanup. Defaults to 120; raise it only for genuinely long work like a full build.",
           ),
       }),
       execute: async ({ command, cwd, timeout_seconds }, { toolCallId, abortSignal }) => {
         const real = confineCwd(cwd);
         options.checkInstructions?.(real);
+        abortSignal?.throwIfAborted();
         const timeoutMs = (timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
         const startedAt = performance.now();
         // env is inherited from the kiri process — PATH, HOME, and the user's
@@ -197,33 +230,57 @@ export function shellTools(
           stdin: "ignore",
           stdout: "pipe",
           stderr: "pipe",
+          // POSIX setsid gives this awaited command its own group, not Kiri's.
+          detached: true,
         });
-        // SIGKILL, not SIGTERM: a timed-out or cancelled command is already
-        // being abandoned, and a kill that can be trapped can hang the turn.
+        const stopReading = new AbortController();
+        const cleanupExpired = Promise.withResolvers<void>();
+        let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
         let timedOut = false;
+        let finished = false;
+        // SIGKILL cannot be trapped; group signalling reaches ordinary descendants
+        // even when the shell has already exited but they still hold its pipes.
+        const stop = (): void => {
+          if (cleanupTimer !== undefined || finished) return;
+          killProcessGroup(proc.pid);
+          cleanupTimer = setTimeout(() => {
+            stopReading.abort();
+            cleanupExpired.resolve();
+          }, CLEANUP_ALLOWANCE_MS);
+        };
         const timer = setTimeout(() => {
+          if (cleanupTimer !== undefined) return;
           timedOut = true;
-          proc.kill("SIGKILL");
+          stop();
         }, timeoutMs);
-        const onAbort = () => proc.kill("SIGKILL");
+        const onAbort = (): void => stop();
         abortSignal?.addEventListener("abort", onAbort, { once: true });
-        // Both pipes feed one live console in arrival order — the output as a
-        // terminal would show it — while each stream still accumulates whole
-        // for the capped result.
-        const live = liveConsole?.(toolCallId);
+        let live: LiveConsoleEmitter | undefined;
         const emit = (chunk: string): void => live?.append(chunk);
+        const pipeReads = [
+          readPipe(proc.stdout, emit, stopReading.signal),
+          readPipe(proc.stderr, emit, stopReading.signal),
+        ];
         let stdout: string;
         let stderr: string;
         try {
-          [stdout, stderr] = await Promise.all([
-            readPipe(proc.stdout, emit),
-            readPipe(proc.stderr, emit),
-          ]);
-          await proc.exited;
+          live = liveConsole?.(toolCallId);
+          if (abortSignal?.aborted) stop();
+          [stdout, stderr] = await Promise.all(pipeReads);
+          await Promise.race([proc.exited, cleanupExpired.promise]);
+          finished = true;
         } finally {
           clearTimeout(timer);
+          clearTimeout(cleanupTimer);
           abortSignal?.removeEventListener("abort", onAbort);
-          live?.end();
+          try {
+            if (!finished) killProcessGroup(proc.pid);
+          } finally {
+            stopReading.abort();
+            // Finish reader cleanup even if the console or one pipe failed.
+            await Promise.allSettled(pipeReads);
+            live?.end();
+          }
         }
         const durationMs = Math.round(performance.now() - startedAt);
         const out = tailCap(stdout, maxOutputLength);

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -25,6 +25,29 @@ const run = (
   (
     t.execute as (input: unknown, options: ToolExecutionOptions) => Promise<Record<string, unknown>>
   )(input, { toolCallId: "call-1", messages: [], abortSignal } as ToolExecutionOptions);
+
+const expectProcessGone = async (pid: number): Promise<void> => {
+  const deadline = performance.now() + 500;
+  let alive = true;
+  while (alive && performance.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+      await Bun.sleep(10);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      alive = false;
+    }
+  }
+  expect(alive).toBe(false);
+};
+
+const cleanUpProcess = (pid: number): void => {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    expect(error).toMatchObject({ code: "ESRCH" });
+  }
+};
 
 describe("shellTools", () => {
   let workspace: string;
@@ -228,6 +251,230 @@ describe("shellTools", () => {
     expect(result.durationMs as number).toBeLessThan(5_000);
   });
 
+  it.each(["timeout", "cancel"] as const)(
+    "terminates descendants holding both pipes on %s without waiting for their natural exit",
+    async (ending) => {
+      const controller = new AbortController();
+      const descendants: number[] = [];
+      let consoleText = "";
+      let ended = false;
+      const startedAt = performance.now();
+      try {
+        const result = await run(
+          tool([workspace], {
+            liveConsole: () => ({
+              append(chunk) {
+                consoleText += chunk;
+                descendants.splice(
+                  0,
+                  descendants.length,
+                  ...Array.from(consoleText.matchAll(/pid=(\d+)/g), (match) => Number(match[1])),
+                );
+                if (ending === "cancel" && consoleText.includes("ready")) controller.abort();
+              },
+              end() {
+                ended = true;
+              },
+            }),
+          }),
+          {
+            command: `bash -c 'sleep 2 & printf captured >&2; printf "pid=%s\\nready\\n" "$!"; wait' & printf 'pid=%s\\n' "$!"; wait`,
+            timeout_seconds: ending === "timeout" ? 0.1 : 30,
+          },
+          controller.signal,
+        );
+        expect(performance.now() - startedAt).toBeLessThan(1_500);
+        expect(descendants).toHaveLength(2);
+        expect(result.stdout).toContain("ready");
+        expect(result.stderr).toBe("captured");
+        expect(result.timedOut).toBe(ending === "timeout" ? true : undefined);
+        expect(result.exitCode).toBeNull();
+        expect(ended).toBe(true);
+        for (const pid of descendants) await expectProcessGone(pid);
+        descendants.length = 0;
+      } finally {
+        controller.abort();
+        for (const pid of descendants) cleanUpProcess(pid);
+      }
+    },
+  );
+
+  it("kills a descendant retaining pipes even after the shell has exited naturally", async () => {
+    let pid: number | undefined;
+    try {
+      const result = await run(
+        tool([workspace], {
+          liveConsole: () => ({
+            append: (chunk) => {
+              pid = Number(chunk);
+            },
+            end: () => {},
+          }),
+        }),
+        {
+          command: 'sleep 2 & printf "%s" "$!"; exit 0',
+          timeout_seconds: 0.1,
+        },
+      );
+      expect(result.timedOut).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.durationMs as number).toBeLessThan(1_500);
+      expect(pid).toBeGreaterThan(0);
+      await expectProcessGone(pid as number);
+      pid = undefined;
+    } finally {
+      if (pid !== undefined) cleanUpProcess(pid);
+    }
+  });
+
+  it("does not start a command whose turn is already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      run(tool(), { command: "printf started > started.txt" }, controller.signal),
+    ).rejects.toThrow();
+    expect(existsSync(ws("started.txt"))).toBe(false);
+  });
+
+  it.each([
+    ["timeout", "pending"],
+    ["timeout", "reject"],
+    ["cancel", "pending"],
+  ] as const)(
+    "bounds draining after %s when pipes never close and reader cancellation is %s",
+    async (ending, cancellation) => {
+      const controller = new AbortController();
+      const pipes = ["stdout", "stderr"].map((text) => {
+        let cancelled = false;
+        const stream = new ReadableStream<Uint8Array<ArrayBuffer>>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(text));
+          },
+          cancel() {
+            cancelled = true;
+            return cancellation === "pending"
+              ? new Promise<void>(() => {})
+              : Promise.reject(new Error("Pipe cancellation failed"));
+          },
+        });
+        return { stream, wasCancelled: () => cancelled };
+      });
+      const spawn = Bun.spawn.bind(Bun);
+      const mock = spyOn(Bun, "spawn").mockImplementation((options) => {
+        const proc = Array.isArray(options) ? spawn(options) : spawn(options);
+        // Keep the actual child lifecycle; only its stuck output sources are controlled.
+        return new Proxy(proc, {
+          get(target, key) {
+            if (key === "stdout") return pipes[0].stream;
+            if (key === "stderr") return pipes[1].stream;
+            return Reflect.get(target, key);
+          },
+        });
+      });
+      const { feed, factory } = fakeConsole();
+      try {
+        const startedAt = performance.now();
+        const result = await run(
+          tool([workspace], {
+            liveConsole: (id) => {
+              if (ending === "cancel") queueMicrotask(() => controller.abort());
+              return factory(id);
+            },
+          }),
+          { command: "exit 0", timeout_seconds: 0.05 },
+          controller.signal,
+        );
+        expect(performance.now() - startedAt).toBeLessThan(1_500);
+        expect(result).toMatchObject({ stdout: "stdout", stderr: "stderr" });
+        expect(result.timedOut).toBe(ending === "timeout" ? true : undefined);
+        expect(feed.ended).toBe(true);
+        for (const pipe of pipes) {
+          expect(pipe.wasCancelled()).toBe(true);
+          expect(pipe.stream.locked).toBe(false);
+        }
+      } finally {
+        mock.mockRestore();
+      }
+    },
+  );
+
+  it.each(["factory", "append"] as const)(
+    "cleans up the process and both readers when the live console's %s fails",
+    async (failure) => {
+      const spawn = Bun.spawn.bind(Bun);
+      let child:
+        | { exited: Promise<number>; stdout: ReadableStream; stderr: ReadableStream }
+        | undefined;
+      const mock = spyOn(Bun, "spawn").mockImplementation((options) => {
+        const proc = Array.isArray(options) ? spawn(options) : spawn(options);
+        child = {
+          exited: proc.exited,
+          stdout: proc.stdout as ReadableStream,
+          stderr: proc.stderr as ReadableStream,
+        };
+        return proc;
+      });
+      let ended = false;
+      const error = new Error("Console unavailable");
+      try {
+        await expect(
+          run(
+            tool([workspace], {
+              liveConsole: () => {
+                if (failure === "factory") throw error;
+                return {
+                  append: () => {
+                    throw error;
+                  },
+                  end: () => {
+                    ended = true;
+                  },
+                };
+              },
+            }),
+            { command: "printf ready; sleep 2; :" },
+          ),
+        ).rejects.toThrow(error.message);
+        expect(child).toBeDefined();
+        await child?.exited;
+        expect(child?.stdout.locked).toBe(false);
+        expect(child?.stderr.locked).toBe(false);
+        expect(ended).toBe(failure === "append");
+      } finally {
+        mock.mockRestore();
+      }
+    },
+  );
+
+  it("cancelling one command leaves another command's process group alone", async () => {
+    const controller = new AbortController();
+    const other = run(tool(), { command: "sleep 0.1; printf unaffected" });
+    const cancelled = run(
+      tool([workspace], {
+        liveConsole: () => ({
+          append: () => controller.abort(),
+          end: () => {},
+        }),
+      }),
+      { command: "printf ready; sleep 2; :" },
+      controller.signal,
+    );
+    const [first, second] = await Promise.all([cancelled, other]);
+    expect(first.exitCode).toBeNull();
+    expect(second).toMatchObject({ exitCode: 0, stdout: "unaffected" });
+  });
+
+  it("does not retain a cancellation listener after natural completion", async () => {
+    const controller = new AbortController();
+    const remove = spyOn(controller.signal, "removeEventListener");
+    const result = await run(tool(), { command: "printf complete" }, controller.signal);
+    expect(result).toMatchObject({ exitCode: 0, stdout: "complete" });
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    controller.abort();
+    expect(result.timedOut).toBeUndefined();
+    remove.mockRestore();
+  });
+
   // A fake live feed capturing what the tool streams through it.
   const fakeConsole = () => {
     const feed = { toolCallId: "", chunks: [] as string[], ended: false };
@@ -261,8 +508,6 @@ describe("shellTools", () => {
 
   it("ends the live console even when the command is killed", async () => {
     const { feed, factory } = fakeConsole();
-    // `exec` so the kill hits the sleep itself — a forked child would survive
-    // bash's SIGKILL holding the pipes open until it exits on its own.
     const result = await run(tool([workspace], { liveConsole: factory }), {
       command: "echo started; exec sleep 30",
       timeout_seconds: 0.2,
